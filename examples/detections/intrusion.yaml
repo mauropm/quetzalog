@@ -1,0 +1,10 @@
+detections:
+  - id: intrusion_attempt
+    name: Intrusion Attempt Detected
+    description: Detects potential intrusion attempts
+    severity: critical
+    query: event_type="intrusion_attempt"
+    action:
+      alert: true
+      severity: emergency
+      notify: security-team

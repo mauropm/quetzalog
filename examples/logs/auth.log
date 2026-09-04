@@ -1,0 +1,33 @@
+Sep  3 08:00:12 server sshd[10001]: Failed password for root from 192.168.1.100 port 49152 ssh2
+Sep  3 08:00:15 server sshd[10002]: Failed password for root from 192.168.1.100 port 49153 ssh2
+Sep  3 08:00:18 server sshd[10003]: Failed password for root from 192.168.1.100 port 49154 ssh2
+Sep  3 08:00:21 server sshd[10004]: Failed password for admin from 192.168.1.100 port 49155 ssh2
+Sep  3 08:00:24 server sshd[10005]: Failed password for admin from 192.168.1.100 port 49156 ssh2
+Sep  3 08:01:02 server sshd[10010]: Failed password for root from 10.0.0.50 port 50001 ssh2
+Sep  3 08:01:05 server sshd[10011]: Failed password for root from 10.0.0.50 port 50002 ssh2
+Sep  3 08:01:08 server sshd[10012]: Failed password for root from 10.0.0.50 port 50003 ssh2
+Sep  3 08:01:11 server sshd[10013]: Failed password for ubuntu from 10.0.0.50 port 50004 ssh2
+Sep  3 08:01:14 server sshd[10014]: Failed password for ubuntu from 10.0.0.50 port 50005 ssh2
+Sep  3 08:05:01 server sshd[10020]: Failed password for root from 172.16.0.200 port 60001 ssh2
+Sep  3 08:05:04 server sshd[10021]: Failed password for root from 172.16.0.200 port 60002 ssh2
+Sep  3 08:05:07 server sshd[10022]: Failed password for deploy from 172.16.0.200 port 60003 ssh2
+Sep  3 08:05:10 server sshd[10023]: Failed password for deploy from 172.16.0.200 port 60004 ssh2
+Sep  3 08:05:13 server sshd[10024]: Failed password for test from 172.16.0.200 port 60005 ssh2
+Sep  3 09:00:01 server sshd[10100]: Accepted password for root from 192.168.1.10 port 52100 ssh2
+Sep  3 09:00:02 server sshd[10100]: pam_unix(sshd:session): session opened for user root by (uid=0)
+Sep  3 10:30:15 server sshd[10200]: Accepted password for ubuntu from 192.168.1.20 port 52200 ssh2
+Sep  3 10:30:16 server sshd[10200]: pam_unix(sshd:session): session opened for user ubuntu by (uid=0)
+Sep  3 11:00:00 server sshd[10300]: Accepted password for deploy from 10.0.0.10 port 52300 ssh2
+Sep  3 11:00:01 server sshd[10300]: pam_unix(sshd:session): session opened for user deploy by (uid=0)
+Sep  3 12:15:30 server sshd[10400]: Accepted password for admin from 192.168.1.30 port 52400 ssh2
+Sep  3 12:15:31 server sshd[10400]: pam_unix(sshd:session): session opened for user admin by (uid=0)
+Sep  3 14:00:00 server sshd[10500]: Accepted password for root from 172.16.0.5 port 52500 ssh2
+Sep  3 14:00:01 server sshd[10500]: pam_unix(sshd:session): session opened for user root by (uid=0)
+Sep  3 15:45:22 server sshd[10600]: Accepted password for ubuntu from 10.0.0.25 port 52600 ssh2
+Sep  3 15:45:23 server sshd[10600]: pam_unix(sshd:session): session opened for user ubuntu by (uid=0)
+Sep  3 09:10:00 server sudo: deploy : TTY=pts/0 ; PWD=/home/deploy ; USER=root ; COMMAND=/usr/bin/systemctl restart nginx
+Sep  3 09:10:05 server sudo: pam_unix(sudo:session): session opened for user root by deploy(uid=1001)
+Sep  3 11:30:00 server sudo: ubuntu : TTY=pts/1 ; PWD=/home/ubuntu ; USER=root ; COMMAND=/usr/bin/apt update
+Sep  3 12:20:00 server sudo: admin : TTY=pts/2 ; PWD=/root ; USER=root ; COMMAND=/usr/sbin/useradd newuser
+Sep  3 10:00:00 server sshd[10100]: pam_unix(sshd:session): session closed for user root
+Sep  3 14:30:00 server sshd[10600]: pam_unix(sshd:session): session closed for user ubuntu

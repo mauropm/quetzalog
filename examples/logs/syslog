@@ -1,0 +1,28 @@
+Sep  3 08:00:00 server kernel: [  100.123456] CPU0: Core temperature above threshold, cpu clock throttled
+Sep  3 08:00:01 server kernel: [  100.234567] ACPI: Processor [CPU0] (supports 8 throttle states)
+Sep  3 08:00:02 server kernel: [  101.345678] EXT4-fs (sda1): mounted filesystem with ordered data mode
+Sep  3 08:00:03 server kernel: [  102.456789] NET: Registered protocol family 2
+Sep  3 08:00:04 server kernel: [  103.567890] NET: Registered protocol family 1
+Sep  3 08:00:05 server kernel: [  104.678901] input: ImExPS/2 Generic Explorer Mouse as /devices/pci0000:00/serio1/input/input3
+Sep  3 08:00:06 server kernel: [  105.789012] sd 0:0:0:0: [sda] 104857600 512-byte logical blocks: (53.6 GB/50.0 GiB)
+Sep  3 08:00:07 server kernel: [  106.890123] eth0: link up, 1000 Mbps, full duplex
+Sep  3 08:00:08 server kernel: [  107.901234] audit: initialized
+Sep  3 08:00:09 server kernel: [  108.012345] EXT4-fs (sda2): mounted filesystem with ordered data mode
+Sep  3 08:00:10 server kernel: [  109.123456] device eth0 entered promiscuous mode
+Sep  3 08:01:00 server systemd[1]: Starting nginx.service - A high performance web server...
+Sep  3 08:01:01 server systemd[1]: Started nginx.service - A high performance web server.
+Sep  3 08:02:00 server systemd[1]: Starting postgresql.service - PostgreSQL RDBMS...
+Sep  3 08:02:05 server systemd[1]: Started postgresql.service - PostgreSQL RDBMS.
+Sep  3 08:03:00 server systemd[1]: Starting redis-server.service - Advanced key-value store...
+Sep  3 08:03:02 server systemd[1]: Started redis-server.service - Advanced key-value store.
+Sep  3 09:00:00 server systemd[1]: Stopping redis-server.service - Advanced key-value store...
+Sep  3 09:00:01 server systemd[1]: Stopped redis-server.service - Advanced key-value store.
+Sep  3 09:00:05 server systemd[1]: Starting redis-server.service - Advanced key-value store...
+Sep  3 09:00:06 server systemd[1]: Started redis-server.service - Advanced key-value store.
+Sep  3 10:00:00 server kernel: [  400.123456] CPU0: Core temperature/speed normal
+Sep  3 10:30:00 server kernel: [  580.234567] WARNING: CPU: 1 PID: 2345 at arch/x86/kernel/cpu/mcheck/threshold.c:123
+Sep  3 10:30:01 server kernel: [  580.345678] mce: [Hardware Error]: Machine check events logged
+Sep  3 11:00:00 server systemd[1]: Stopping nginx.service - A high performance web server...
+Sep  3 11:00:01 server systemd[1]: Stopped nginx.service - A high performance web server.
+Sep  3 11:00:05 server systemd[1]: Starting nginx.service - A high performance web server...
+Sep  3 11:00:06 server systemd[1]: Started nginx.service - A high performance web server.

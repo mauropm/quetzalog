@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIEMto - Security SIEM</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg-primary: #0f1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #21262d;
+  --border: #30363d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #6e7681;
+  --accent: #58a6ff;
+  --accent-hover: #79b8ff;
+  --success: #3fb950;
+  --warning: #d29922;
+  --danger: #f85149;
+  --critical: #da3633;
+}
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg-primary); color: var(--text-primary); display: flex; min-height: 100vh; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-hover); }
+.sidebar { width: 220px; background: var(--bg-secondary); border-right: 1px solid var(--border); padding: 16px 0; flex-shrink: 0; }
+.sidebar .logo { padding: 0 16px 16px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+.sidebar .logo h1 { font-size: 18px; font-weight: 600; color: var(--accent); }
+.sidebar .logo span { font-size: 11px; color: var(--text-secondary); }
+.nav-item { display: block; padding: 8px 16px; color: var(--text-secondary); cursor: pointer; font-size: 14px; border-left: 3px solid transparent; transition: all 0.15s; }
+.nav-item:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.nav-item.active { background: var(--bg-tertiary); color: var(--accent); border-left-color: var(--accent); }
+.main { flex: 1; padding: 24px 32px; overflow-y: auto; }
+.page { display: none; }
+.page.active { display: block; }
+.page-header { margin-bottom: 24px; }
+.page-header h2 { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+.page-header p { color: var(--text-secondary); font-size: 14px; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.stat-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; padding: 16px; }
+.stat-card .label { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+.stat-card .value { font-size: 28px; font-weight: 600; margin-top: 4px; }
+.stat-card .value.green { color: var(--success); }
+.stat-card .value.blue { color: var(--accent); }
+.stat-card .value.yellow { color: var(--warning); }
+.stat-card .value.red { color: var(--critical); }
+.card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 16px; }
+.card-header { padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px; }
+.card-body { padding: 16px; }
+.search-box { display: flex; gap: 8px; margin-bottom: 16px; }
+.search-box input { flex: 1; background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 12px; border-radius: 6px; font-size: 14px; outline: none; }
+.search-box input:focus { border-color: var(--accent); }
+.search-box input::placeholder { color: var(--text-muted); }
+.btn { padding: 8px 16px; border-radius: 6px; font-size: 14px; cursor: pointer; border: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-primary); transition: all 0.15s; }
+.btn:hover { border-color: var(--text-secondary); }
+.btn-primary { background: #238636; border-color: #238636; color: white; }
+.btn-primary:hover { background: #2ea043; border-color: #2ea043; }
+.btn-sm { padding: 4px 8px; font-size: 12px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+th { color: var(--text-secondary); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+tr:hover { background: var(--bg-tertiary); }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; }
+.badge-green { background: rgba(63, 185, 80, 0.15); color: var(--success); }
+.badge-blue { background: rgba(88, 166, 255, 0.15); color: var(--accent); }
+.badge-yellow { background: rgba(210, 153, 34, 0.15); color: var(--warning); }
+.badge-red { background: rgba(248, 81, 73, 0.15); color: var(--danger); }
+.badge-gray { background: rgba(139, 148, 158, 0.15); color: var(--text-secondary); }
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
+.form-group input, .form-group select, .form-group textarea { width: 100%; background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 12px; border-radius: 6px; font-size: 14px; outline: none; }
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--accent); }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.toast { position: fixed; top: 16px; right: 16px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; font-size: 14px; z-index: 1000; display: none; }
+.toast.success { border-left: 3px solid var(--success); }
+.toast.error { border-left: 3px solid var(--danger); }
+.loading { text-align: center; padding: 40px; color: var(--text-secondary); }
+.empty { text-align: center; padding: 40px; color: var(--text-muted); }
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+.chart-card {
+    background: #1a1a2e;
+    border-radius: 8px;
+    padding: 16px;
+}
+.chart-card h2 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+.chart-card canvas {
+    width: 100%;
+    height: 200px;
+}
+</style>
+</head>
+<body>
+<div class="sidebar">
+  <div class="logo"><h1>&#x1F6E1; SIEMto</h1><span>Security Analytics</span></div>
+  <nav id="nav">
+    <a class="nav-item active" data-page="dashboard">&#x1F4CA; Dashboard</a>
+    <a class="nav-item" data-page="search">&#x1F50D; Search</a>
+    <a class="nav-item" data-page="events">&#x1F4E5; Events</a>
+    <a class="nav-item" data-page="alerts">&#x1F514; Alerts</a>
+    <a class="nav-item" data-page="incidents">&#x1F4CB; Incidents</a>
+    <a class="nav-item" data-page="detections">&#x2699;&#xFE0F; Detections</a>
+    <a class="nav-item" data-page="sources">&#x1F50C; Sources</a>
+    <a class="nav-item" data-page="entities">&#x1F310; Entities</a>
+  </nav>
+</div>
+<div class="main">
+  <div id="page-dashboard" class="page active">
+    <div class="page-header"><h2>Dashboard</h2><p>Real-time SIEM overview</p></div>
+    <div class="stats-grid">
+      <div class="stat-card"><div class="label">Events/Sec</div><div class="value green" id="stat-events-sec">-</div></div>
+      <div class="stat-card"><div class="label">Total Events</div><div class="value blue" id="stat-total">-</div></div>
+      <div class="stat-card"><div class="label">Alerts</div><div class="value yellow" id="stat-alerts">-</div></div>
+      <div class="stat-card"><div class="label">Critical</div><div class="value red" id="stat-critical">-</div></div>
+    </div>
+    <div class="dashboard-grid">
+      <div class="chart-card" style="grid-column: 1 / -1;">
+        <h2>Events Over Time</h2>
+        <canvas id="events-over-time-chart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Severity Distribution</h2>
+        <canvas id="severity-chart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Events Per Hour</h2>
+        <canvas id="events-per-hour-chart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Top Source IPs</h2>
+        <canvas id="source-ip-chart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Top Hosts</h2>
+        <canvas id="top-host-chart"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Recent Events</div>
+      <div class="card-body"><div id="recent-events" class="loading">Loading...</div></div>
+    </div>
+  </div>
+  <div id="page-search" class="page">
+    <div class="page-header"><h2>Search</h2><p>Query security events with SPL-like syntax</p></div>
+    <div class="search-box">
+      <input type="text" id="search-input" placeholder="e.g., severity=err | stats count by host">
+      <button class="btn btn-primary" onclick="doSearch()">Search</button>
+    </div>
+    <div class="card">
+      <div class="card-header" id="search-results-header">Results</div>
+      <div class="card-body" id="search-results"><div class="empty">Enter a query to search</div></div>
+    </div>
+  </div>
+  <div id="page-events" class="page">
+    <div class="page-header"><h2>Events</h2><p>Browse all security events</p></div>
+    <div class="card"><div class="card-body" id="events-list"><div class="loading">Loading...</div></div></div>
+  </div>
+  <div id="page-alerts" class="page">
+    <div class="page-header"><h2>Alerts</h2><p>Security alerts generated by detection rules</p></div>
+    <div class="card"><div class="card-body" id="alerts-list"><div class="loading">Loading...</div></div></div>
+  </div>
+  <div id="page-incidents" class="page">
+    <div class="page-header"><h2>Incidents</h2><p>Security incident management</p></div>
+    <button class="btn btn-primary" onclick="showCreateIncident()" style="margin-bottom:16px">+ New Incident</button>
+    <div class="card"><div class="card-body" id="incidents-list"><div class="loading">Loading...</div></div></div>
+  </div>
+  <div id="page-detections" class="page">
+    <div class="page-header"><h2>Detections</h2><p>Detection rules and conditions</p></div>
+    <button class="btn btn-primary" onclick="showCreateDetection()" style="margin-bottom:16px">+ New Rule</button>
+    <div class="card"><div class="card-body" id="detections-list"><div class="empty">No detection rules</div></div></div>
+  </div>
+  <div id="page-sources" class="page">
+    <div class="page-header"><h2>Sources</h2><p>Log sources and ingesters</p></div>
+    <div class="card">
+      <div class="card-header">Active Ingesters</div>
+      <div class="card-body">
+        <p><strong>JSON HTTP:</strong> <span class="badge badge-green">Active</span> Port 8081</p>
+        <p style="margin-top:8px"><strong>Syslog TCP:</strong> <span class="badge badge-green">Active</span> Port 1514</p>
+        <p style="margin-top:8px"><strong>Syslog UDP:</strong> <span class="badge badge-green">Active</span> Port 514</p>
+        <p style="margin-top:8px"><strong>Splunk HEC:</strong> <span class="badge badge-gray">Inactive</span> (configure in YAML)</p>
+        <p style="margin-top:8px"><strong>OTLP:</strong> <span class="badge badge-gray">Inactive</span> (configure in YAML)</p>
+      </div>
+    </div>
+  </div>
+  <div id="page-entities" class="page">
+    <div class="page-header"><h2>Entities</h2><p>Correlated security entities</p></div>
+    <div class="card"><div class="card-body"><div class="empty">Entities are automatically extracted from events. Ingest events to see correlated entities.</div></div></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const API = '/api/v1';
+let currentPage = 'dashboard';
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    item.classList.add('active');
+    const page = item.dataset.page;
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById('page-' + page).classList.add('active');
+    currentPage = page;
+    loadPage(page);
+  });
+});
+async function api(path, opts) {
+  const r = await fetch(API + path, {headers: {'Content-Type': 'application/json'}, ...opts});
+  const d = await r.json();
+  if (d.status >= 400) throw new Error(d.message || 'API error');
+  return d.data;
+}
+function toast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + (type || '');
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 3000);
+}
+function loadPage(page) {
+  switch(page) {
+    case 'dashboard': loadDashboard(); break;
+    case 'events': loadEvents(); break;
+    case 'alerts': loadAlerts(); break;
+    case 'incidents': loadIncidents(); break;
+    case 'detections': loadDetections(); break;
+    case 'sources': loadSources(); break;
+    case 'entities': loadEntities(); break;
+  }
+}
+async function loadDashboard() {
+  try {
+    const stats = await api('/stats');
+    const total = stats.total || 0;
+    const bySev = stats.by_severity || {};
+    const critical = bySev.critical || 0;
+    const recent = stats.recent_24h || 0;
+    const perSec = (recent / 86400).toFixed(2);
+    document.getElementById('stat-total').textContent = total.toLocaleString();
+    document.getElementById('stat-alerts').textContent = '0';
+    document.getElementById('stat-critical').textContent = critical.toLocaleString();
+    document.getElementById('stat-events-sec').textContent = perSec;
+    const q = new URLSearchParams({limit: 10, sort_by: 'timestamp', sort_order: 'desc'});
+    const evData = await api('/events?' + q.toString());
+    const events = evData && evData.events ? evData.events : [];
+    const el = document.getElementById('recent-events');
+    if (!events.length) { el.innerHTML = '<div class="empty">No events yet</div>'; return; }
+    let html = '<table><thead><tr><th>Time</th><th>Severity</th><th>Source</th><th>Host</th><th>Event Type</th><th>Message</th></tr></thead><tbody>';
+    for (const e of events) {
+      const sevBadge = {critical:'badge-red',err:'badge-yellow',warning:'badge-yellow',info:'badge-blue',debug:'badge-gray'}[e.severity] || 'badge-gray';
+      html += '<tr><td>' + new Date(e.timestamp).toLocaleString() + '</td><td><span class="badge ' + sevBadge + '">' + e.severity + '</span></td><td>' + (e.source||'') + '</td><td>' + (e.host||'') + '</td><td>' + (e.event_type||'') + '</td><td>' + (e.message||'').substring(0,100) + '</td></tr>';
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+    renderEventsOverTimeChart();
+    renderSeverityChart();
+    renderTopSourceIPChart();
+    renderTopHostChart();
+    renderEventsPerHourChart();
+  } catch(e) {
+    document.getElementById('recent-events').innerHTML = '<div class="empty">Failed to load: ' + e.message + '</div>';
+  }
+}
+function doSearch() {
+  const q = document.getElementById('search-input').value.trim();
+  if (!q) return;
+  const el = document.getElementById('search-results');
+  el.innerHTML = '<div class="loading">Searching...</div>';
+  fetch(API + '/search', {method: 'POST', body: JSON.stringify({query: q})}).then(r => r.json()).then(d => {
+    if (d.errors) { el.innerHTML = '<div class="empty">Error: ' + d.message + '</div>'; return; }
+    const data = d.data || {};
+    const cols = data.columns || [];
+    const rows = data.results || [];
+    let html = '';
+    if (cols.length) {
+      html += '<table><thead><tr>' + cols.map(c => '<th>' + c + '</th>').join('') + '</tr></thead><tbody>';
+      for (const row of rows) {
+        html += '<tr>' + cols.map(c => '<td>' + (row[c] != null ? row[c] : '') + '</td>').join('') + '</tr>';
+      }
+      html += '</tbody></table>';
+    }
+    el.innerHTML = html || '<div class="empty">No results</div>';
+  }).catch(e => { el.innerHTML = '<div class="empty">Error: ' + e.message + '</div>'; });
+}
+async function loadEvents() {
+  const el = document.getElementById('events-list');
+  el.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const q = new URLSearchParams({limit: 50, sort_by: 'timestamp', sort_order: 'desc'});
+    const d = await api('/events?' + q.toString());
+    const evs = d && d.events ? d.events : [];
+    if (!evs.length) { el.innerHTML = '<div class="empty">No events found</div>'; return; }
+    let html = '<table><thead><tr><th>Time</th><th>Severity</th><th>Source</th><th>Host</th><th>Message</th></tr></thead><tbody>';
+    for (const e of evs) {
+      const sevBadge = {critical:'badge-red',err:'badge-yellow',warning:'badge-yellow',info:'badge-blue',debug:'badge-gray'}[e.severity] || 'badge-gray';
+      html += '<tr><td>' + new Date(e.timestamp).toLocaleString() + '</td><td><span class="badge ' + sevBadge + '">' + e.severity + '</span></td><td>' + (e.source||'') + '</td><td>' + (e.host||'') + '</td><td>' + (e.message||'').substring(0,100) + '</td></tr>';
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch(e) { el.innerHTML = '<div class="empty">Error: ' + e.message + '</div>'; }
+}
+async function loadAlerts() {
+  const el = document.getElementById('alerts-list');
+  el.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const d = await api('/alerts?limit=50');
+    const alerts = d || [];
+    if (!alerts.length) { el.innerHTML = '<div class="empty">No alerts found</div>'; return; }
+    let html = '<table><thead><tr><th>Time</th><th>Severity</th><th>Title</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+    for (const a of alerts) {
+      const sevBadge = {critical:'badge-red',err:'badge-yellow',warning:'badge-yellow',info:'badge-blue',emergency:'badge-red'}[a.severity] || 'badge-gray';
+      const statusBadge = {new:'badge-yellow',acknowledged:'badge-blue',resolved:'badge-green',false_positive:'badge-gray'}[a.status] || 'badge-gray';
+      html += '<tr><td>' + new Date(a.timestamp).toLocaleString() + '</td><td><span class="badge ' + sevBadge + '">' + a.severity + '</span></td><td>' + (a.title||'') + '</td><td><span class="badge ' + statusBadge + '">' + a.status + '</span></td><td>';
+      if (a.status === 'new') html += '<button class="btn btn-sm" onclick="ackAlert(\'' + a.id + '\')">Ack</button> ';
+      if (a.status !== 'resolved') html += '<button class="btn btn-sm" onclick="resolveAlert(\'' + a.id + '\')">Resolve</button>';
+      html += '</td></tr>';
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch(e) { el.innerHTML = '<div class="empty">Error: ' + e.message + '</div>'; }
+}
+async function loadIncidents() {
+  const el = document.getElementById('incidents-list');
+  el.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const d = await api('/incidents?limit=50');
+    const incs = d || [];
+    if (!incs.length) { el.innerHTML = '<div class="empty">No incidents found</div>'; return; }
+    let html = '<table><thead><tr><th>Created</th><th>Severity</th><th>Title</th><th>Status</th></tr></thead><tbody>';
+    for (const i of incs) {
+      html += '<tr><td>' + new Date(i.created_at).toLocaleString() + '</td><td><span class="badge badge-yellow">' + i.severity + '</span></td><td>' + (i.title||'') + '</td><td><span class="badge badge-blue">' + i.status + '</span></td></tr>';
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch(e) { el.innerHTML = '<div class="empty">Error: ' + e.message + '</div>'; }
+}
+async function loadDetections() {
+  const el = document.getElementById('detections-list');
+  el.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const d = await api('/detections');
+    const rules = d || [];
+    if (!rules.length) { el.innerHTML = '<div class="empty">No detection rules. Click "New Rule" to add one.</div>'; return; }
+    let html = '<table><thead><tr><th>Name</th><th>Severity</th><th>Enabled</th><th>Query</th><th>Actions</th></tr></thead><tbody>';
+    for (const r of rules) {
+      const enabled = r.enabled ? '<span class="badge badge-green">Yes</span>' : '<span class="badge badge-red">No</span>';
+      html += '<tr><td>' + r.name + '</td><td><span class="badge badge-red">' + r.severity + '</span></td><td>' + enabled + '</td><td><code>' + (r.query||'') + '</code></td><td>';
+      if (!r.enabled) html += '<button class="btn btn-sm" onclick="toggleDetection(\'' + r.id + '\',true)">Enable</button>';
+      else html += '<button class="btn btn-sm" onclick="toggleDetection(\'' + r.id + '\',false)">Disable</button> ';
+      html += '<button class="btn btn-sm" onclick="execDetection(\'' + r.id + '\')">Run</button>';
+      html += '</td></tr>';
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch(e) { el.innerHTML = '<div class="empty">Error: ' + e.message + '</div>'; }
+}
+function loadSources() {
+  document.getElementById('sources-list').innerHTML = '<div class="card-header">Active Ingesters</div><div style="padding:16px"><p><strong>JSON HTTP:</strong> <span class="badge badge-green">Active</span> Port 8081</p><p style="margin-top:8px"><strong>Syslog TCP:</strong> <span class="badge badge-green">Active</span> Port 1514</p><p style="margin-top:8px"><strong>Syslog UDP:</strong> <span class="badge badge-green">Active</span> Port 514</p><p style="margin-top:8px"><strong>Splunk HEC:</strong> <span class="badge badge-gray">Inactive</span> (configure in YAML)</p><p style="margin-top:8px"><strong>OTLP:</strong> <span class="badge badge-gray">Inactive</span> (configure in YAML)</p></div>';
+}
+function loadEntities() {
+  document.getElementById('entities-list').innerHTML = '<div class="empty">Entities are automatically extracted from events. Ingest events to see correlated entities.</div>';
+}
+async function ackAlert(id) {
+  try { await api('/alerts/' + id + '/acknowledge', {method: 'POST'}); toast('Alert acknowledged', 'success'); loadAlerts(); }
+  catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+async function resolveAlert(id) {
+  try { await api('/alerts/' + id + '/resolve', {method: 'POST'}); toast('Alert resolved', 'success'); loadAlerts(); }
+  catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+async function toggleDetection(id, enable) {
+  try {
+    await api('/detections/' + id, {method: 'PUT', body: JSON.stringify({id, enabled: enable})});
+    toast('Detection ' + (enable ? 'enabled' : 'disabled'), 'success'); loadDetections();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+async function execDetection(id) {
+  try {
+    const r = await api('/detections/' + id + '/exec', {method: 'POST'});
+    toast('Detection run: ' + JSON.stringify(r), 'success');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+function showCreateIncident() {
+  const title = prompt('Incident title:');
+  if (!title) return;
+  const sev = prompt('Severity (critical, err, warning, info):', 'warning');
+  fetch(API + '/incidents', {method: 'POST', body: JSON.stringify({title, severity: sev||'warning', status: 'open'})}).then(r => r.json()).then(d => {
+    if (d.errors) { toast('Error: ' + d.message, 'error'); return; }
+    toast('Incident created', 'success'); loadIncidents();
+  });
+}
+function showCreateDetection() {
+  const name = prompt('Rule name:');
+  if (!name) return;
+  const query = prompt('Query (SPL-like):', 'event_type=authentication');
+  const sev = prompt('Severity:', 'warning');
+  fetch(API + '/detections', {method: 'POST', body: JSON.stringify({name, query, severity: sev||'warning'})}).then(r => r.json()).then(d => {
+    if (d.errors) { toast('Error: ' + d.message, 'error'); return; }
+    toast('Detection created', 'success'); loadDetections();
+  });
+}
+
+const severityColors = {
+  critical: '#da3633',
+  err: '#f85149',
+  alert: '#f85149',
+  emergency: '#da3633',
+  warning: '#d29922',
+  notice: '#58a6ff',
+  info: '#3fb950',
+  debug: '#6e7681'
+};
+
+function getSeverityColor(severity) {
+  return severityColors[severity] || '#8b949e';
+}
+
+function drawBarChart(canvas, data, options) {
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+
+  const width = rect.width;
+  const height = rect.height;
+  const padding = {top: 30, right: 20, bottom: 50, left: 60};
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+
+  ctx.clearRect(0, 0, width, height);
+
+  if (!data || data.length === 0) {
+    ctx.fillStyle = '#8b949e';
+    ctx.font = '13px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('No data', width / 2, height / 2);
+    return;
+  }
+
+  const maxVal = options.max || Math.max(...data.map(d => d.value)) * 1.2;
+  const barHeight = Math.min(24, (chartHeight / data.length) - 4);
+  const barGap = 4;
+  const color = options.color || '#58a6ff';
+
+  ctx.fillStyle = '#8b949e';
+  ctx.font = '11px -apple-system, sans-serif';
+
+  data.forEach((entry, i) => {
+    const y = padding.top + i * (barHeight + barGap);
+    const barW = Math.max(0, (entry.value / maxVal) * chartWidth);
+
+    ctx.fillStyle = entry.severity ? getSeverityColor(entry.severity) : color;
+    ctx.beginPath();
+    ctx.roundRect(padding.left, y, barW, barHeight, 3);
+    ctx.fill();
+
+    ctx.fillStyle = '#8b949e';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(entry.label, padding.left - 8, y + barHeight / 2);
+
+    if (entry.value > 0) {
+      ctx.fillStyle = '#e6edf3';
+      ctx.textAlign = 'left';
+      ctx.fillText(entry.value, padding.left + barW + 6, y + barHeight / 2);
+    }
+  });
+}
+
+function drawLineChart(canvas, data, options) {
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+
+  const width = rect.width;
+  const height = rect.height;
+  const padding = {top: 20, right: 20, bottom: 40, left: 50};
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+
+  ctx.clearRect(0, 0, width, height);
+
+  if (!data || data.length === 0) {
+    ctx.fillStyle = '#8b949e';
+    ctx.font = '13px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('No data', width / 2, height / 2);
+    return;
+  }
+
+  const maxVal = options.max || Math.max(...data.map(d => d.value)) * 1.2 || 1;
+  const minVal = Math.min(0, ...data.map(d => d.value));
+  const range = maxVal - minVal || 1;
+
+  const color = options.color || '#58a6ff';
+
+  ctx.strokeStyle = '#30363d';
+  ctx.lineWidth = 1;
+  const gridLines = 5;
+  for (let i = 0; i <= gridLines; i++) {
+    const y = padding.top + (i / gridLines) * chartHeight;
+    ctx.beginPath();
+    ctx.moveTo(padding.left, y);
+    ctx.lineTo(width - padding.right, y);
+    ctx.stroke();
+
+    const val = Math.round(maxVal - (i / gridLines) * range);
+    ctx.fillStyle = '#6e7681';
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(val, padding.left - 6, y);
+  }
+
+  const points = data.map((d, i) => ({
+    x: padding.left + (data.length === 1 ? chartWidth / 2 : (i / (data.length - 1)) * chartWidth),
+    y: padding.top + ((maxVal - d.value) / range) * chartHeight,
+    label: d.label,
+    value: d.value
+  }));
+
+  // Draw filled area
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, padding.top + chartHeight);
+  points.forEach(p => ctx.lineTo(p.x, p.y));
+  ctx.lineTo(points[points.length - 1].x, padding.top + chartHeight);
+  ctx.closePath();
+  const gradient = ctx.createLinearGradient(0, padding.top, 0, padding.top + chartHeight);
+  gradient.addColorStop(0, color + '40');
+  gradient.addColorStop(1, color + '05');
+  ctx.fillStyle = gradient;
+  ctx.fill();
+
+  // Draw smooth line using cubic bezier
+  if (points.length > 1) {
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+
+    if (points.length === 2) {
+      ctx.moveTo(points[0].x, points[0].y);
+      ctx.lineTo(points[1].x, points[1].y);
+    } else {
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 0; i < points.length - 1; i++) {
+        const cp1x = points[i].x + (points[i + 1].x - points[i].x) / 3;
+        const cp1y = points[i].y;
+        const cp2x = points[i + 1].x - (points[i + 1].x - points[i].x) / 3;
+        const cp2y = points[i + 1].y;
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, points[i + 1].x, points[i + 1].y);
+      }
+    }
+    ctx.stroke();
+  }
+
+  // Draw dots and x-axis labels
+  points.forEach((p, i) => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+    ctx.fillStyle = '#0f1117';
+    ctx.fill();
+
+    ctx.fillStyle = '#6e7681';
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+
+    if (data.length <= 24 || i % Math.ceil(data.length / 24) === 0 || i === data.length - 1) {
+      let label = p.label;
+      if (label && label.length > 10) label = label.substring(0, 10) + '...';
+      ctx.fillText(label, p.x, padding.top + chartHeight + 8);
+    }
+  });
+}
+
+function renderEventsOverTimeChart() {
+  fetch(API + '/stats/events-over-time')
+    .then(r => r.json())
+    .then(d => {
+      const data = d.data && d.data.points ? d.data.points : [];
+      const canvas = document.getElementById('events-over-time-chart');
+      drawLineChart(canvas, data, {color: '#58a6ff', max: d.data.max});
+    })
+    .catch(() => {
+      const canvas = document.getElementById('events-over-time-chart');
+      drawLineChart(canvas, [], {});
+    });
+}
+
+function renderSeverityChart() {
+  fetch(API + '/stats')
+    .then(r => r.json())
+    .then(d => {
+      const bySev = d.data && d.data.by_severity ? d.data.by_severity : {};
+      const data = Object.entries(bySev)
+        .map(([severity, value]) => ({label: severity, value, severity}))
+        .sort((a, b) => b.value - a.value);
+      const canvas = document.getElementById('severity-chart');
+      drawBarChart(canvas, data, {max: data.length > 0 ? Math.max(...data.map(d => d.value)) : 0});
+    })
+    .catch(() => {
+      const canvas = document.getElementById('severity-chart');
+      drawBarChart(canvas, [], {});
+    });
+}
+
+function renderTopSourceIPChart() {
+  fetch(API + '/stats/top-source-ips?limit=8')
+    .then(r => r.json())
+    .then(d => {
+      const data = d.data && d.data.entries ? d.data.entries.map(e => ({label: e.ip, value: e.count, severity: 'info'})) : [];
+      const canvas = document.getElementById('source-ip-chart');
+      drawBarChart(canvas, data, {max: data.length > 0 ? Math.max(...data.map(e => e.count)) : 0});
+    })
+    .catch(() => {
+      const canvas = document.getElementById('source-ip-chart');
+      drawBarChart(canvas, [], {});
+    });
+}
+
+function renderTopHostChart() {
+  fetch(API + '/stats/top-hosts?limit=8')
+    .then(r => r.json())
+    .then(d => {
+      const data = d.data && d.data.entries ? d.data.entries.map(e => ({label: e.host, value: e.count, severity: 'info'})) : [];
+      const canvas = document.getElementById('top-host-chart');
+      drawBarChart(canvas, data, {max: data.length > 0 ? Math.max(...data.map(e => e.count)) : 0});
+    })
+    .catch(() => {
+      const canvas = document.getElementById('top-host-chart');
+      drawBarChart(canvas, [], {});
+    });
+}
+
+function renderEventsPerHourChart() {
+  fetch(API + '/stats/events-per-hour')
+    .then(r => r.json())
+    .then(d => {
+      const data = d.data && d.data.points ? d.data.points : [];
+      const canvas = document.getElementById('events-per-hour-chart');
+      drawLineChart(canvas, data, {color: '#3fb950', max: d.data.max});
+    })
+    .catch(() => {
+      const canvas = document.getElementById('events-per-hour-chart');
+      drawLineChart(canvas, [], {});
+    });
+}
+
+loadDashboard();
+setInterval(() => { if (currentPage === 'dashboard') loadDashboard(); }, 30000);
+</script>
+</body>
+</html>

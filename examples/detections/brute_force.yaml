@@ -1,0 +1,18 @@
+detections:
+  - id: brute_force_login
+    name: Brute Force Login Attempt
+    description: Detects multiple failed login attempts from the same source
+    severity: high
+    query: event_type="authentication" outcome="failure"
+    threshold:
+      count: 5
+      window: 5m
+    group_by:
+      - source_ip
+      - user
+    action:
+      alert: true
+      severity: critical
+    response:
+      block_ip: true
+      block_duration: 1h

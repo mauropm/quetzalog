@@ -1,0 +1,22 @@
+{"timestamp":"2024-09-03T08:00:01Z","level":"INFO","service":"auth-service","message":"User login successful","user":"john.doe","request_id":"req-001","duration_ms":45,"ip":"192.168.1.10"}
+{"timestamp":"2024-09-03T08:00:02Z","level":"DEBUG","service":"db-service","message":"Database query executed","user":"system","request_id":"req-002","duration_ms":12,"ip":"192.168.1.10"}
+{"timestamp":"2024-09-03T08:00:03Z","level":"INFO","service":"api-gateway","message":"API request processed","user":"john.doe","request_id":"req-003","duration_ms":89,"ip":"192.168.1.10"}
+{"timestamp":"2024-09-03T08:00:04Z","level":"WARN","service":"cache-service","message":"Cache miss for key: user_profile_john","user":"john.doe","request_id":"req-004","duration_ms":5,"ip":"192.168.1.10"}
+{"timestamp":"2024-09-03T08:00:05Z","level":"INFO","service":"api-gateway","message":"API request processed","user":"john.doe","request_id":"req-005","duration_ms":120,"ip":"192.168.1.10"}
+{"timestamp":"2024-09-03T08:00:06Z","level":"ERROR","service":"external-api","message":"External API call failed","user":"system","request_id":"req-006","duration_ms":30000,"ip":"192.168.1.10"}
+{"timestamp":"2024-09-03T08:00:07Z","level":"DEBUG","service":"db-service","message":"Database query executed","user":"system","request_id":"req-007","duration_ms":8,"ip":"192.168.1.10"}
+{"timestamp":"2024-09-03T08:00:08Z","level":"INFO","service":"auth-service","message":"User login successful","user":"jane.smith","request_id":"req-008","duration_ms":52,"ip":"10.0.0.50"}
+{"timestamp":"2024-09-03T08:00:09Z","level":"WARN","service":"api-gateway","message":"Rate limit approaching for IP","user":"system","request_id":"req-009","duration_ms":2,"ip":"10.0.0.50"}
+{"timestamp":"2024-09-03T08:00:10Z","level":"INFO","service":"auth-service","message":"User login failed - invalid password","user":"unknown","request_id":"req-010","duration_ms":30,"ip":"10.0.0.100"}
+{"timestamp":"2024-09-03T08:00:11Z","level":"ERROR","service":"auth-service","message":"User login failed - account locked","user":"admin","request_id":"req-011","duration_ms":25,"ip":"10.0.0.100"}
+{"timestamp":"2024-09-03T08:00:12Z","level":"INFO","service":"api-gateway","message":"API request processed","user":"jane.smith","request_id":"req-012","duration_ms":95,"ip":"10.0.0.50"}
+{"timestamp":"2024-09-03T08:00:13Z","level":"DEBUG","service":"cache-service","message":"Cache set for key: user_profile_jane","user":"jane.smith","request_id":"req-013","duration_ms":3,"ip":"10.0.0.50"}
+{"timestamp":"2024-09-03T08:00:14Z","level":"INFO","service":"external-api","message":"External API call succeeded","user":"system","request_id":"req-014","duration_ms":250,"ip":"10.0.0.50"}
+{"timestamp":"2024-09-03T08:00:15Z","level":"WARN","service":"db-service","message":"Slow database query detected","user":"system","request_id":"req-015","duration_ms":5200,"ip":"10.0.0.50"}
+{"timestamp":"2024-09-03T08:00:16Z","level":"INFO","service":"auth-service","message":"User login successful","user":"deploy","request_id":"req-016","duration_ms":38,"ip":"172.16.0.200"}
+{"timestamp":"2024-09-03T08:00:17Z","level":"ERROR","service":"db-service","message":"Database connection pool exhausted","user":"system","request_id":"req-017","duration_ms":0,"ip":"172.16.0.200"}
+{"timestamp":"2024-09-03T08:00:18Z","level":"INFO","service":"api-gateway","message":"API request processed","user":"deploy","request_id":"req-018","duration_ms":67,"ip":"172.16.0.200"}
+{"timestamp":"2024-09-03T08:00:19Z","level":"DEBUG","service":"auth-service","message":"Token refresh completed","user":"deploy","request_id":"req-019","duration_ms":15,"ip":"172.16.0.200"}
+{"timestamp":"2024-09-03T08:00:20Z","level":"INFO","service":"external-api","message":"External API call succeeded","user":"system","request_id":"req-020","duration_ms":180,"ip":"172.16.0.200"}
+{"timestamp":"2024-09-03T08:00:21Z","level":"WARN","service":"api-gateway","message":"High response time detected","user":"system","request_id":"req-021","duration_ms":8500,"ip":"192.168.1.30"}
+{"timestamp":"2024-09-03T08:00:22Z","level":"INFO","service":"auth-service","message":"User login successful","user":"bob.wilson","request_id":"req-022","duration_ms":41,"ip":"192.168.1.30"}

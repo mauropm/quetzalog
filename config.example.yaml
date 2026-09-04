@@ -1,0 +1,54 @@
+server:
+  host: "127.0.0.1"
+  port: 8080
+  read_timeout: "30s"
+  write_timeout: "30s"
+  shutdown_timeout: "10s"
+
+database:
+  path: "./data/siem.db"
+  max_open_conns: 25
+  max_idle_conns: 5
+  max_idle_time: "300s"
+
+ingestion:
+  workers: 4
+  batch_size: 500
+  max_message_size: "10mb"
+
+http:
+  enabled: true
+  token: ""
+
+otel:
+  enabled: true
+  grpc_port: 4317
+  http_port: 4318
+
+syslog:
+  udp_enabled: true
+  udp_port: 5514
+  tcp_enabled: true
+  tcp_port: 5514
+
+splunk:
+  hec_enabled: true
+  hec_port: 8088
+  hec_tokens:
+    - id: local
+      token: change-me-super-secure-token
+
+logging:
+  level: "info"
+
+file_ingestion:
+  sources:
+    - name: system-logs
+      path: "/var/log/syslog"
+      format: "syslog"
+    - name: auth-logs
+      path: "/var/log/auth.log"
+      format: "syslog"
+    - name: application-json
+      path: "./logs/application.json"
+      format: "json"

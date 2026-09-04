@@ -1,0 +1,16 @@
+version: "3.8"
+services:
+  siem:
+    build: .
+    ports:
+      - "8080:8080"
+      - "8088:8088"
+      - "5514:5514"
+      - "5514:5514/udp"
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./data:/data
+      - ./config.yaml:/app/config.yaml:ro
+      - ./logs:/logs
+    restart: unless-stopped
