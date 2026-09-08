@@ -45,10 +45,16 @@ var (
 	statsByRe  = regexp.MustCompile(`(?i)\bby\s+([a-z0-9_]+)`)
 )
 
+// maxServiceLimit bounds result sets requested through the search service.
+const maxServiceLimit = 1000
+
 // Execute parses a search query and returns matching events.
 func (s *Service) Execute(ctx context.Context, req SearchRequest) (*SearchResponse, error) {
 	if req.Limit <= 0 {
 		req.Limit = 100
+	}
+	if req.Limit > maxServiceLimit {
+		req.Limit = maxServiceLimit
 	}
 	if req.Offset < 0 {
 		req.Offset = 0

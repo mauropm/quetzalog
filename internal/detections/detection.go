@@ -341,6 +341,9 @@ func (s *Store) ExecuteNow(ctx context.Context, rule *DetectionRule, evStore *ev
 
 	if len(rule.GroupBy) > 0 {
 		evQuery.Limit = total
+		if evQuery.Limit > events.MaxSearchLimit {
+			evQuery.Limit = events.MaxSearchLimit
+		}
 		evts, err := evStore.Search(ctx, *evQuery)
 		if err != nil {
 			return nil, fmt.Errorf("search events: %w", err)

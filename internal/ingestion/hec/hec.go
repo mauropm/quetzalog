@@ -199,7 +199,7 @@ func (h *Handler) handleHECSingle(body []byte, r *http.Request, token string) (H
 		return HECResponse{}, &HECError{Text: fmt.Sprintf("Event ingestion failed: %s", err.Error()), Code: hecInvalidFormat}
 	}
 
-	h.logger.Info("HEC event ingested", "token", token, "host", hecEvent.Host, "source", hecEvent.Source)
+	h.logger.Info("HEC event ingested", "host", hecEvent.Host, "source", hecEvent.Source)
 	return HECResponse{Text: hecSuccessText, Code: 0}, nil
 }
 
@@ -234,7 +234,7 @@ func (h *Handler) handleHECBatch(body []byte, r *http.Request, token string) (HE
 		return HECResponse{}, &HECError{Text: strings.Join(errorMessages, "; "), Code: hecInvalidFormat}
 	}
 
-	h.logger.Info("HEC batch ingested", "token", token, "count", len(batch.Events), "success", successCount)
+	h.logger.Info("HEC batch ingested", "count", len(batch.Events), "success", successCount)
 	return HECResponse{Text: hecSuccessText, Code: 0}, nil
 }
 
@@ -266,7 +266,7 @@ func (h *Handler) handleRaw(w http.ResponseWriter, r *http.Request, token string
 		return nil
 	}
 
-	h.logger.Info("HEC raw event ingested", "token", token, "length", len(body))
+	h.logger.Info("HEC raw event ingested", "length", len(body))
 	hecJSON(w, HECResponse{Text: hecSuccessText, Code: 0})
 	return nil
 }

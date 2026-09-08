@@ -20,6 +20,10 @@ type Store struct {
 // ErrInvalidQuery indicates the caller supplied a query value that cannot be safely mapped to SQL.
 var ErrInvalidQuery = errors.New("invalid event query")
 
+// MaxSearchLimit hard-caps the SQL LIMIT emitted by buildSearchQuery so a
+// forgotten caller-side clamp cannot produce an unbounded result set.
+const MaxSearchLimit = 50000
+
 // NewStore creates a new event store backed by the given database connection.
 func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
@@ -117,6 +121,9 @@ func (s *Store) GetByID(ctx context.Context, id string) (*event.Event, error) {
 func (s *Store) Search(ctx context.Context, q Query) ([]*event.Event, error) {
 	if q.Limit <= 0 {
 		q.Limit = 100
+	}
+	if q.Limit > MaxSearchLimit {
+		q.Limit = MaxSearchLimit
 	}
 	if q.Offset < 0 {
 		q.Offset = 0
@@ -374,6 +381,9 @@ func sanitizeFTSMatch(q string) string {
 func buildSearchQuery(q Query) (string, []any, error) {
 	if q.Limit <= 0 {
 		q.Limit = 100
+	}
+	if q.Limit > MaxSearchLimit {
+		q.Limit = MaxSearchLimit
 	}
 	if q.Offset < 0 {
 		q.Offset = 0

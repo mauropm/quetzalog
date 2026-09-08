@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -63,6 +64,13 @@ func run() int {
 
 	switch cmd {
 	case "serve", "run", "":
+		// Parse the flags registered on `fs` for this path; without this the
+		// --config/--debug flags were silently ignored (fail-open to defaults).
+		if cmd == "" {
+			fs.Parse(os.Args[1:])
+		} else if len(os.Args) > 2 {
+			fs.Parse(os.Args[2:])
+		}
 		return cmdServe(*configFile, *debug)
 	case "demo":
 		return cmdDemo()
@@ -127,6 +135,9 @@ func cmdServe(cfgFile string, debug bool) int {
 		}
 		cfg = loaded
 	}
+	if tok, ok := os.LookupEnv("QUETZALOG_API_TOKEN"); ok && tok != "" {
+		cfg.Auth.APIToken = tok
+	}
 
 	if debug {
 		fmt.Println("Loading config from:", cfgFile)
@@ -137,7 +148,7 @@ func cmdServe(cfgFile string, debug bool) int {
 		dbPath = "./data/siem.db"
 	}
 
-	if err := os.MkdirAll(cfg.Database.Path, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating data directory: %v\n", err)
 		return 1
 	}
@@ -157,6 +168,10 @@ func cmdServe(cfgFile string, debug bool) int {
 		fmt.Fprintf(os.Stderr, "Error running migrations: %v\n", err)
 		return 1
 	}
+
+	// Restrict database file permissions once the files exist (contains
+	// credentials, tokens, events).
+	hardenDataFiles(dbPath)
 
 	if debug {
 		fmt.Println("Migrations applied")
@@ -372,6 +387,19 @@ func cmdServe(cfgFile string, debug bool) int {
 
 	fmt.Println("SIEM server shut down gracefully")
 	return 0
+}
+
+// hardenDataFiles best-effort restricts the SQLite files to owner access.
+func hardenDataFiles(dbPath string) {
+	if dbPath == "" || dbPath == ":memory:" {
+		return
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		p := dbPath + suffix
+		if _, err := os.Stat(p); err == nil {
+			_ = os.Chmod(p, 0o600)
+		}
+	}
 }
 
 func cmdDemo() int {
@@ -639,7 +667,7 @@ func cmdIngest(args []string) int {
 		dbPath = "./data/siem.db"
 	}
 
-	if err := os.MkdirAll(dbPath, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating data directory: %v\n", err)
 		return 1
 	}

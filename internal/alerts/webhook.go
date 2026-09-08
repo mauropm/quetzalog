@@ -115,20 +115,28 @@ func (n *WebhookNotifier) Notify(ctx context.Context, alert *Alert, event string
 
 	sig := n.sign(payload)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", n.config.URL, bytes.NewReader(payload))
-	if err != nil {
-		return fmt.Errorf("create webhook request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", n.config.ContentType)
-	req.Header.Set("X-Siemto-Signature", sig)
-	req.Header.Set("X-Siemto-Event", event)
-	for k, v := range n.config.Headers {
-		req.Header.Set(k, v)
+	newRequest := func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, "POST", n.config.URL, bytes.NewReader(payload))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", n.config.ContentType)
+		req.Header.Set("X-Siemto-Signature", sig)
+		req.Header.Set("X-Siemto-Event", event)
+		for k, v := range n.config.Headers {
+			req.Header.Set(k, v)
+		}
+		return req, nil
 	}
 
 	var lastErr error
 	for i := 0; i <= n.config.RetryCount; i++ {
+		// Rebuild per attempt: retries must resend the full signed payload,
+		// never a drained body reader.
+		req, err := newRequest()
+		if err != nil {
+			return fmt.Errorf("create webhook request: %w", err)
+		}
 		resp, err := n.client.Do(req)
 		if err != nil {
 			lastErr = fmt.Errorf("webhook request failed: %w", err)

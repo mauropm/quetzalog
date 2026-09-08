@@ -35,11 +35,25 @@ splunk:
   hec_enabled: true
   hec_port: 8088
   hec_tokens:
+      # Generate your own strong random token, e.g.:
+      #   openssl rand -hex 32
+      # HEC tokens are ingest-only: they may POST events, never manage the API.
     - id: local
-      token: change-me-super-secure-token
+      token: REPLACE_ME_with_random_secret
 
 logging:
   level: "info"
+
+auth:
+  # When true (default) every management endpoint requires a bearer token:
+  #   - auth.api_token: static operator token (or env QUETZALOG_API_TOKEN)
+  #   - per-user tokens from POST /api/v1/login (roles enforced)
+  # Set false ONLY for trusted single-container/local development use.
+  enabled: true
+  local_auth_enabled: true
+  # Leave empty to use per-user login tokens; or export QUETZALOG_API_TOKEN
+  # / set a strong random value generated with: openssl rand -hex 32
+  api_token: ""
 
 file_ingestion:
   sources:

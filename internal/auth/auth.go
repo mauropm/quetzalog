@@ -8,7 +8,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
+	"sync"
+
 	"quetzalog/pkg/event"
 	"strings"
 	"time"
@@ -179,7 +183,21 @@ func (s *Store) ensureDefaultAdmin(ctx context.Context) error {
 	}
 
 	if count == 0 {
-		hashed, err := s.HashPassword("changeme")
+		// Never bootstrap with a published static password. Operators pin a
+		// deterministic bootstrap via QUETZALOG_ADMIN_PASSWORD; otherwise a
+		// one-time random password is generated and surfaced once in logs.
+		password, ok := os.LookupEnv("QUETZALOG_ADMIN_PASSWORD")
+		if !ok || password == "" {
+			raw := make([]byte, 16)
+			if _, err := rand.Read(raw); err != nil {
+				return fmt.Errorf("generate admin password: %w", err)
+			}
+			password = "qz_" + hex.EncodeToString(raw)
+			slog.Info("created default admin account with a random password — set QUETZALOG_ADMIN_PASSWORD "+
+				"before first start for a deterministic bootstrap, then log in as admin",
+				"username", "admin", "password", password)
+		}
+		hashed, err := s.HashPassword(password)
 		if err != nil {
 			return fmt.Errorf("hash default password: %w", err)
 		}
@@ -243,6 +261,10 @@ func (s *Store) CreateUser(ctx context.Context, username, password, role string)
 func (s *Store) Authenticate(ctx context.Context, username, password string) (*User, error) {
 	user, err := s.GetUserByUsername(ctx, username)
 	if err != nil {
+		// Burn a bcrypt comparison against a fixed dummy hash so the
+		// unknown-user path costs the same as a real mismatch, removing the
+		// user-enumeration timing oracle.
+		timingEqualizingCompare(password)
 		return nil, ErrInvalidCredentials
 	}
 
@@ -592,6 +614,27 @@ func (s *Store) RevokeAPIToken(ctx context.Context, tokenID string) error {
 func (s *Store) HashPassword(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	return string(hash), err
+}
+
+var (
+	timingDummyOnce  sync.Once
+	timingDummyHash  []byte
+)
+
+// timingEqualizingCompare performs a bcrypt verification against a fixed
+// throwaway hash so authentication attempts for non-existent accounts cost
+// the same as attempts against existing ones (no user-enumeration oracle).
+func timingEqualizingCompare(password string) {
+	timingDummyOnce.Do(func() {
+		h, err := bcrypt.GenerateFromPassword([]byte("timing-equalizer-static-Pw-2f6c"), bcrypt.DefaultCost)
+		if err == nil {
+			timingDummyHash = h
+		}
+	})
+	if len(timingDummyHash) == 0 {
+		return
+	}
+	_ = bcrypt.CompareHashAndPassword(timingDummyHash, []byte(password))
 }
 
 func (s *Store) CheckPassword(hash, password string) bool {

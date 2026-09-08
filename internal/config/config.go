@@ -184,11 +184,12 @@ func (c Config) Save(path string) error {
 	}
 
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create config directory %q: %w", dir, err)
 	}
 
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	// Config files routinely contain tokens/credentials — owner-only perms.
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write config file %q: %w", path, err)
 	}
 

@@ -2,10 +2,25 @@ package planner
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"quetzalog/internal/spl/ast"
 )
+
+// identRe whitelists identifiers that may be embedded into generated SQL.
+// Anything else fails planning (defense in depth against SQL injection via
+// field names).
+var identRe = regexp.MustCompile(`^[A-Za-z0-9_.]+$`)
+
+func checkIdent(p *Plan, id string) {
+	if id == "" || id == "*" {
+		return
+	}
+	if p.Err == nil && !identRe.MatchString(id) {
+		p.Err = fmt.Errorf("invalid identifier %q in query", id)
+	}
+}
 
 type Plan struct {
 	SelectClause  string
@@ -16,6 +31,7 @@ type Plan struct {
 	Args          []any
 	IsAggregation bool
 	Columns       []string
+	Err           error
 }
 
 func PlanQuery(q *ast.Query) *Plan {
@@ -53,6 +69,8 @@ func (p *Plan) buildSelect(commands []ast.Node) {
 					agg.Function == "dc" || agg.Function == "sum" ||
 					agg.Function == "avg" || agg.Function == "min" ||
 					agg.Function == "max" {
+					checkIdent(p, agg.Field)
+					checkIdent(p, agg.Alias)
 					var columnName string
 					if agg.Alias != "" {
 						columnName = agg.Alias
@@ -66,10 +84,14 @@ func (p *Plan) buildSelect(commands []ast.Node) {
 				}
 			}
 			for _, field := range n.GroupBy {
+				checkIdent(p, field)
 				groupByFields = append(groupByFields, field)
 				p.Columns = append(p.Columns, field)
 			}
 		case *ast.TableNode:
+			for _, f := range n.Fields {
+				checkIdent(p, f)
+			}
 			selectFields = n.Fields
 			p.Columns = n.Fields
 		case *ast.RenameNode:
@@ -101,11 +123,13 @@ func (p *Plan) buildWhere(commands []ast.Node) {
 		switch n := cmd.(type) {
 		case *ast.SearchNode:
 			for field, value := range n.Fields {
+				checkIdent(p, field)
 				clauses = append(clauses, fmt.Sprintf("%s = ?", field))
 				p.Args = append(p.Args, value)
 			}
 		case *ast.WhereNode:
 			for _, cond := range n.Conditions {
+				checkIdent(p, cond.Field)
 				clause, arg := buildConditionSQL(cond)
 				clauses = append(clauses, clause)
 				if arg != nil {
@@ -159,10 +183,11 @@ func buildConditionSQL(cond ast.Condition) (clause string, arg any) {
 func (p *Plan) buildGroupBy(commands []ast.Node) {
 	for _, cmd := range commands {
 		if n, ok := cmd.(*ast.StatsNode); ok && len(n.GroupBy) > 0 && p.GroupByClause == "" {
-			p.GroupByClause = "GROUP BY " + strings.Join(n.GroupBy, ", ")
 			for _, field := range n.GroupBy {
+				checkIdent(p, field)
 				p.Columns = append(p.Columns, field)
 			}
+			p.GroupByClause = "GROUP BY " + strings.Join(n.GroupBy, ", ")
 		}
 	}
 }
@@ -173,6 +198,7 @@ func (p *Plan) buildOrderBy(commands []ast.Node) {
 	for _, cmd := range commands {
 		if n, ok := cmd.(*ast.SortNode); ok {
 			for _, f := range n.Fields {
+				checkIdent(p, f.Field)
 				dir := "ASC"
 				if f.Desc {
 					dir = "DESC"
@@ -199,6 +225,9 @@ func (p *Plan) buildLimit(commands []ast.Node) {
 }
 
 func BuildSQL(plan *Plan) (string, error) {
+	if plan.Err != nil {
+		return "", plan.Err
+	}
 	queryParts := []string{
 		plan.SelectClause,
 		"FROM events",

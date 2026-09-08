@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"net/http"
 	"net/url"
 	"net/http/httptest"
@@ -43,6 +44,13 @@ func newEnv(t *testing.T) *env {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	cfg := config.DefaultConfig()
+	// The management API is fail-closed by default; the test fixture supplies
+	// a static operator token and a deterministic (env-pinned) admin bootstrap.
+	cfg.Auth.APIToken = "test-api-token"
+	if err := os.Setenv("QUETZALOG_ADMIN_PASSWORD", "changeme"); err != nil {
+		t.Fatalf("setenv: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Unsetenv("QUETZALOG_ADMIN_PASSWORD") })
 	h, err := api.SetupRouter(cfg,
 		events.NewStore(db),
 		query.NewService(db),
@@ -75,6 +83,7 @@ func do(e *env, method, path string, body any, headers map[string]string) (*http
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	req.Header.Set("Authorization", "Bearer test-api-token")
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}

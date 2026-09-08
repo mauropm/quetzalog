@@ -26,6 +26,12 @@ import (
 
 var validAttrKeyRe = regexp.MustCompile(`^[a-z0-9_]+$`)
 
+// Hard caps for caller-supplied pagination to prevent unbounded result sets.
+const (
+	maxAPIPageLimit  = 1000
+	maxAPIPageOffset = 1000000
+)
+
 // Handler wraps the dependencies for all HTTP API handlers.
 type Handler struct {
 	store          *events.Store
@@ -301,13 +307,19 @@ func (h *Handler) ListEvents(w http.ResponseWriter, r *http.Request) {
 
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			if l > maxAPIPageLimit {
+				l = maxAPIPageLimit
+			}
 			q.Limit = l
 		} else {
 			q.Limit = 100
 		}
 	}
 	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
-		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+		if o, err := strconv.Atoi(offsetStr); err == nil && o > 0 {
+			if o > maxAPIPageOffset {
+				o = maxAPIPageOffset
+			}
 			q.Offset = o
 		}
 	}
@@ -377,6 +389,15 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 
 	if req.Limit <= 0 {
 		req.Limit = 100
+	}
+	if req.Limit > maxAPIPageLimit {
+		req.Limit = maxAPIPageLimit
+	}
+	if req.Offset < 0 {
+		req.Offset = 0
+	}
+	if req.Offset > maxAPIPageOffset {
+		req.Offset = maxAPIPageOffset
 	}
 
 	searchReq := query.SearchRequest{
@@ -1208,7 +1229,16 @@ func currentUser(ctx context.Context, store *auth.Store) (*auth.User, error) {
 		return nil, err
 	}
 
-	return store.GetUser(ctx, token.UserID)
+	user, err := store.GetUser(ctx, token.UserID)
+	if err != nil {
+		return nil, err
+	}
+	// Disabled/soft-deleted accounts lose access immediately, even with a
+	// previously issued token.
+	if !user.Enabled {
+		return nil, fmt.Errorf("account disabled")
+	}
+	return user, nil
 }
 
 // isAdmin returns true if the role is admin.
