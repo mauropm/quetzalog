@@ -190,8 +190,8 @@ func cmdServe(cfgFile string, debug bool) int {
 
 	jsonHandler := ingestjson.NewIngestHandler(pipeline, logger)
 	jsonServer := &http.Server{
-		Addr:         fmt.Sprintf(":%d", 8081),
-		Handler:      http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		Addr: fmt.Sprintf(":%d", 8081),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = jsonHandler.Handle(w, r)
 		}),
 		ReadTimeout:  cfg.Server.ReadTimeout,
@@ -220,8 +220,8 @@ func cmdServe(cfgFile string, debug bool) int {
 		}
 		hecHandler := hec.NewHandler(pipeline, hecTokens, logger)
 		hecServer := &http.Server{
-			Addr:         fmt.Sprintf(":%d", cfg.Splunk.HECPort),
-			Handler:      http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			Addr: fmt.Sprintf(":%d", cfg.Splunk.HECPort),
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				_ = hecHandler.Handle(w, r)
 			}),
 			ReadTimeout:  cfg.Server.ReadTimeout,
@@ -240,8 +240,8 @@ func cmdServe(cfgFile string, debug bool) int {
 	if cfg.OTel.Enabled {
 		otlpHandler := otlp.NewHandler(pipeline, logger)
 		otlpServer := &http.Server{
-			Addr:         fmt.Sprintf(":%d", cfg.OTel.HttpPort),
-			Handler:      http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			Addr: fmt.Sprintf(":%d", cfg.OTel.HttpPort),
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				_ = otlpHandler.Handle(w, r)
 			}),
 			ReadTimeout:  cfg.Server.ReadTimeout,
@@ -285,7 +285,14 @@ func cmdServe(cfgFile string, debug bool) int {
 	}
 
 	mux := http.NewServeMux()
-	apiHandler := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, authStore, logger)
+	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, authStore, logger)
+	if err != nil {
+		logger.Error("API setup failed", "error", err)
+		if debug {
+			fmt.Printf("API setup failed: %v\n", err)
+		}
+		return 1
+	}
 	mux.Handle("/api/v1/", apiHandler)
 	mux.Handle("/api/v1/json", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = jsonHandler.Handle(w, r)

@@ -12,17 +12,17 @@ import (
 
 // Incident represents a security incident.
 type Incident struct {
-	ID          string
-	Title       string
-	Severity    string
-	Status      string // open, investigating, resolved, closed
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	Assignee    string
-	Description string
-	AlertIDs    []string // JSON array in DB
-	EventIDs    []string
-	EntityIDs   []string
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Severity    string    `json:"severity"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	Assignee    string    `json:"assignee"`
+	Description string    `json:"description"`
+	AlertIDs    []string  `json:"alert_ids"`
+	EventIDs    []string  `json:"event_ids"`
+	EntityIDs   []string  `json:"entity_ids"`
 }
 
 // Store persists and queries incidents.
@@ -51,6 +51,12 @@ func (s *Store) Create(ctx context.Context, inc *Incident) error {
 
 	if inc.ID == "" {
 		inc.ID = uuid.New().String()
+	}
+	if inc.Severity == "" {
+		inc.Severity = "medium"
+	}
+	if inc.Status == "" {
+		inc.Status = "open"
 	}
 	inc.CreatedAt = time.Now()
 	inc.UpdatedAt = time.Now()

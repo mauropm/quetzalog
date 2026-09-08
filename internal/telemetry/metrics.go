@@ -12,27 +12,27 @@ import (
 )
 
 type Metrics struct {
-	eventsIngested    atomic.Int64
-	eventsRejected    atomic.Int64
-	eventsProcessed   atomic.Int64
-	ingestionErrors   atomic.Int64
-	searchesTotal     atomic.Int64
+	eventsIngested      atomic.Int64
+	eventsRejected      atomic.Int64
+	eventsProcessed     atomic.Int64
+	ingestionErrors     atomic.Int64
+	searchesTotal       atomic.Int64
 	detectionsTriggered atomic.Int64
-	alertsCreated     atomic.Int64
-	ingestDuration    atomic.Int64
+	alertsCreated       atomic.Int64
+	ingestDuration      atomic.Int64
 
 	server *http.Server
 }
 
 var (
-	EventsIngested     = prometheus.NewCounter(prometheus.CounterOpts{Name: "siem_events_ingested_total"})
-	EventsRejected     = prometheus.NewCounter(prometheus.CounterOpts{Name: "siem_events_rejected_total"})
-	EventsProcessed    = prometheus.NewCounter(prometheus.CounterOpts{Name: "siem_events_processed_total"})
-	IngestionErrors    = prometheus.NewCounter(prometheus.CounterOpts{Name: "siem_ingestion_errors_total"})
-	SearchesTotal      = prometheus.NewCounter(prometheus.CounterOpts{Name: "siem_searches_total"})
+	EventsIngested      = prometheus.NewCounter(prometheus.CounterOpts{Name: "siem_events_ingested_total"})
+	EventsRejected      = prometheus.NewCounter(prometheus.CounterOpts{Name: "siem_events_rejected_total"})
+	EventsProcessed     = prometheus.NewCounter(prometheus.CounterOpts{Name: "siem_events_processed_total"})
+	IngestionErrors     = prometheus.NewCounter(prometheus.CounterOpts{Name: "siem_ingestion_errors_total"})
+	SearchesTotal       = prometheus.NewCounter(prometheus.CounterOpts{Name: "siem_searches_total"})
 	DetectionsTriggered = prometheus.NewCounter(prometheus.CounterOpts{Name: "siem_detections_triggered_total"})
-	AlertsCreated      = prometheus.NewCounter(prometheus.CounterOpts{Name: "siem_alerts_created_total"})
-	IngestDuration     = prometheus.NewHistogram(prometheus.HistogramOpts{
+	AlertsCreated       = prometheus.NewCounter(prometheus.CounterOpts{Name: "siem_alerts_created_total"})
+	IngestDuration      = prometheus.NewHistogram(prometheus.HistogramOpts{
 		Name:    "siem_ingest_duration_seconds",
 		Help:    "Duration of ingestion in seconds",
 		Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0},

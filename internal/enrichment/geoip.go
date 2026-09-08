@@ -16,24 +16,24 @@ import (
 
 // GeoIPConfig holds configuration for GeoIP enrichment.
 type GeoIPConfig struct {
-	APIKey  string
-	DBPath  string // path to local GeoIP2 database file (MaxMind)
-	Enabled bool
-	Timeout time.Duration
-	UseCache bool
+	APIKey    string
+	DBPath    string // path to local GeoIP2 database file (MaxMind)
+	Enabled   bool
+	Timeout   time.Duration
+	UseCache  bool
 	CacheSize int // max cached results
 }
 
 // GeoIPEntry holds geolocation information for an IP address.
 type GeoIPEntry struct {
-	City      string  `json:"city"`
-	Region    string  `json:"region"`
-	Country   string  `json:"country"`
-	CountryCode string `json:"country_code"`
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
-	ISP       string  `json:"isp"`
-	ASN       string  `json:"asn"`
+	City        string  `json:"city"`
+	Region      string  `json:"region"`
+	Country     string  `json:"country"`
+	CountryCode string  `json:"country_code"`
+	Latitude    float64 `json:"latitude"`
+	Longitude   float64 `json:"longitude"`
+	ISP         string  `json:"isp"`
+	ASN         string  `json:"asn"`
 }
 
 // GeoIPEnricher provides GeoIP enrichment using an external API or local database.
@@ -114,15 +114,15 @@ func (g *GeoIPEnricher) Enrich(ctx context.Context, ev *event.Event) error {
 }
 
 type geoAPIResponse struct {
-	Status    string  `json:"status"`
-	City      string  `json:"city"`
-	Region    string  `json:"regionName"`
-	Country   string  `json:"country"`
-	CountryCode string `json:"countryCode"`
-	Lat       float64 `json:"lat"`
-	Lon       float64 `json:"lon"`
-	ISP       string  `json:"isp"`
-	AS        string  `json:"as"`
+	Status      string  `json:"status"`
+	City        string  `json:"city"`
+	Region      string  `json:"regionName"`
+	Country     string  `json:"country"`
+	CountryCode string  `json:"countryCode"`
+	Lat         float64 `json:"lat"`
+	Lon         float64 `json:"lon"`
+	ISP         string  `json:"isp"`
+	AS          string  `json:"as"`
 }
 
 func (g *GeoIPEnricher) lookupAPI(ctx context.Context, ev *event.Event) error {
@@ -188,21 +188,21 @@ type geoIPRecord struct {
 		Names map[string]string `maxminddb:"names"`
 	} `maxminddb:"city"`
 	Country struct {
-		ISOCode string `maxminddb:"iso_code"`
+		ISOCode string            `maxminddb:"iso_code"`
 		Names   map[string]string `maxminddb:"names"`
 	} `maxminddb:"country"`
 	Location struct {
 		Latitude  float64 `maxminddb:"latitude"`
 		Longitude float64 `maxminddb:"longitude"`
 	} `maxminddb:"location"`
-	Postal  string `maxminddb:"postal"`
+	Postal       string `maxminddb:"postal"`
 	Subdivisions []struct {
-		ISOCode   string `maxminddb:"iso_code"`
+		ISOCode   string            `maxminddb:"iso_code"`
 		Names     map[string]string `maxminddb:"names"`
-		GeoNameID *int `maxminddb:"geoname_id"`
+		GeoNameID *int              `maxminddb:"geoname_id"`
 	} `maxminddb:"subdivisions"`
 	IP struct {
-		ASN        int    `maxminddb:"autonomous_system_number"`
+		ASN          int    `maxminddb:"autonomous_system_number"`
 		Organization string `maxminddb:"autonomous_system_organization"`
 	} `maxminddb:"ip,omitempty"`
 }
@@ -247,14 +247,14 @@ func (g *GeoIPEnricher) lookupLocal(ev *event.Event) error {
 	asn := fmt.Sprintf("AS%d", record.IP.ASN)
 
 	entry := &GeoIPEntry{
-		City:      city,
-		Region:    region,
-		Country:   country,
+		City:        city,
+		Region:      region,
+		Country:     country,
 		CountryCode: countryCode,
-		Latitude:  lat,
-		Longitude: lon,
-		ISP:       isp,
-		ASN:       asn,
+		Latitude:    lat,
+		Longitude:   lon,
+		ISP:         isp,
+		ASN:         asn,
 	}
 
 	if ev.Attributes == nil {

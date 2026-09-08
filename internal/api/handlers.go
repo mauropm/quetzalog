@@ -3,10 +3,12 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +23,8 @@ import (
 	"quetzalog/pkg/api"
 	"quetzalog/pkg/event"
 )
+
+var validAttrKeyRe = regexp.MustCompile(`^[a-z0-9_]+$`)
 
 // Handler wraps the dependencies for all HTTP API handlers.
 type Handler struct {
@@ -253,8 +257,30 @@ func (h *Handler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	q.User = r.URL.Query().Get("user")
 	q.SourceIP = r.URL.Query().Get("source_ip")
 	q.DestinationIP = r.URL.Query().Get("destination_ip")
-	q.SortBy = r.URL.Query().Get("sort_by")
-	q.SortOrder = r.URL.Query().Get("sort_order")
+	q.SortBy = strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sort_by")))
+	q.SortOrder = strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sort_order")))
+	if q.SortOrder != "" && q.SortOrder != "asc" && q.SortOrder != "desc" {
+		api.WriteJSON(w, http.StatusBadRequest, api.BadRequest("sort_order must be asc or desc"))
+		return
+	}
+	if q.Attributes == nil {
+		q.Attributes = make(map[string]string)
+	}
+	for key, values := range r.URL.Query() {
+		if !strings.HasPrefix(key, "attr.") || len(values) == 0 {
+			continue
+		}
+		name := strings.ToLower(strings.TrimSpace(key[len("attr."):]))
+		if name == "" {
+			api.WriteJSON(w, http.StatusBadRequest, api.BadRequest("attribute name is required"))
+			return
+		}
+		if !validAttrKeyRe.MatchString(name) {
+			api.WriteJSON(w, http.StatusBadRequest, api.BadRequest("attribute name contains invalid characters"))
+			return
+		}
+		q.Attributes[name] = values[len(values)-1]
+	}
 
 	if startTime := r.URL.Query().Get("start"); startTime != "" {
 		q.Start = parseQueryParamTime(startTime)
@@ -288,6 +314,10 @@ func (h *Handler) ListEvents(w http.ResponseWriter, r *http.Request) {
 
 	total, err := h.store.Count(r.Context(), q)
 	if err != nil {
+		if errors.Is(err, events.ErrInvalidQuery) {
+			api.WriteJSON(w, http.StatusBadRequest, api.BadRequest(err.Error()))
+			return
+		}
 		h.logger.Error("list events count", "error", err)
 		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to count events"))
 		return
@@ -295,6 +325,10 @@ func (h *Handler) ListEvents(w http.ResponseWriter, r *http.Request) {
 
 	evs, err := h.store.Search(r.Context(), q)
 	if err != nil {
+		if errors.Is(err, events.ErrInvalidQuery) {
+			api.WriteJSON(w, http.StatusBadRequest, api.BadRequest(err.Error()))
+			return
+		}
 		h.logger.Error("list events", "error", err)
 		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to list events"))
 		return
@@ -998,7 +1032,7 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	_, err = h.authStore.GetUser(ctx, id)
 	if err != nil {
-		if err == auth.ErrUserNotFound {
+		if errors.Is(err, auth.ErrUserNotFound) {
 			api.WriteJSON(w, http.StatusNotFound, api.NotFound(fmt.Sprintf("user %s not found", id)))
 			return
 		}
@@ -1018,10 +1052,33 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.authStore.UpdateUser(ctx, id, *req.Username, *req.Role, req.Enabled); err != nil {
+	var username, role string
+	if req.Username != nil {
+		username = *req.Username
+	}
+	if req.Role != nil {
+		role = *req.Role
+	}
+
+	if err := h.authStore.UpdateUser(ctx, id, username, role, req.Enabled); err != nil {
 		h.logger.Error("update user", "id", id, "error", err)
+		if errors.Is(err, auth.ErrInvalidRole) {
+			api.WriteJSON(w, http.StatusBadRequest, api.BadRequest(err.Error()))
+			return
+		}
 		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to update user"))
 		return
+	}
+	if req.Password != nil {
+		if err := h.authStore.UpdatePassword(ctx, id, *req.Password); err != nil {
+			h.logger.Error("update user password", "id", id, "error", err)
+			if errors.Is(err, auth.ErrPasswordTooShort) {
+				api.WriteJSON(w, http.StatusBadRequest, api.BadRequest(err.Error()))
+				return
+			}
+			api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to update password"))
+			return
+		}
 	}
 
 	h.authStore.LogAudit(ctx, admin.ID, "update_user", "users", fmt.Sprintf("Admin updated user %s", id), r.RemoteAddr)
@@ -1120,8 +1177,14 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	authHeader := r.Header.Get("Authorization")
 	parts := strings.SplitN(authHeader, " ", 2)
-	if len(parts) == 2 && parts[0] == "Bearer" {
-		h.authStore.RevokeAPIToken(ctx, parts[1])
+	if len(parts) != 2 || parts[0] != "Bearer" {
+		api.WriteJSON(w, http.StatusUnauthorized, api.Unauthorized("missing bearer token"))
+		return
+	}
+	if err := h.authStore.RevokeAPITokenByValue(ctx, parts[1]); err != nil {
+		h.logger.Error("logout token revocation", "error", err)
+		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to revoke token"))
+		return
 	}
 
 	h.authStore.LogAudit(ctx, user.ID, "logout", "auth", "User logged out", r.RemoteAddr)

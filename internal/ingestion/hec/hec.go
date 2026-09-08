@@ -13,10 +13,10 @@ import (
 )
 
 const (
-	hecSuccessText  = "OK"
-	hecAuthError    = 6
+	hecSuccessText   = "OK"
+	hecAuthError     = 6
 	hecInvalidFormat = 7
-	hecBadRequest   = 4
+	hecBadRequest    = 4
 )
 
 // Handler handles Splunk HEC-compatible ingestion requests.
@@ -60,9 +60,9 @@ func (e *HECError) Error() string {
 
 // HECToken represents a registered HEC authentication token.
 type HECToken struct {
-	ID      string
-	Token   string
-	Meta    string // arbitrary metadata description
+	ID    string
+	Token string
+	Meta  string // arbitrary metadata description
 }
 
 // NewHandler creates a new HEC ingestion handler with the given tokens.
@@ -154,7 +154,7 @@ func (h *Handler) extractToken(r *http.Request) (string, error) {
 
 // handleEvent processes HEC event ingestion (single or batch).
 func (h *Handler) handleEvent(w http.ResponseWriter, r *http.Request, token string) (HECResponse, error) {
-	body, err := io.ReadAll(r.Body)
+	body, err := readHECBody(r)
 	if err != nil {
 		return HECResponse{}, &HECError{Text: "Failed to read request body", Code: hecBadRequest}
 	}
@@ -240,7 +240,7 @@ func (h *Handler) handleHECBatch(body []byte, r *http.Request, token string) (HE
 
 // handleRaw processes raw text ingestion via /services/collector/raw.
 func (h *Handler) handleRaw(w http.ResponseWriter, r *http.Request, token string) error {
-	body, err := io.ReadAll(r.Body)
+	body, err := readHECBody(r)
 	if err != nil {
 		hecErr(w, "Failed to read request body", http.StatusBadRequest)
 		return nil
@@ -339,6 +339,19 @@ func isHECBatch(body []byte) bool {
 	}
 	var arr []json.RawMessage
 	return json.Unmarshal(eventsRaw, &arr) == nil
+}
+
+func readHECBody(r *http.Request) ([]byte, error) {
+	const maxHECBody = 10 * 1024 * 1024
+	br := http.MaxBytesReader(nil, r.Body, maxHECBody)
+	body, err := io.ReadAll(br)
+	if err != nil {
+		return nil, fmt.Errorf("request body too large or unreadable: %w", err)
+	}
+	if len(body) > maxHECBody {
+		return nil, fmt.Errorf("request body exceeds %d byte limit", maxHECBody)
+	}
+	return body, nil
 }
 
 // hecJSON writes a HEC-formatted JSON response.

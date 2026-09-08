@@ -12,36 +12,36 @@ import (
 
 // Event represents a canonical log/security event in the SIEM pipeline.
 type Event struct {
-	ID          string    `json:"id"`
-	Timestamp   time.Time `json:"timestamp"`
-	ReceivedAt  time.Time `json:"received_at"`
-	Source      string    `json:"source,omitempty"`
-	SourceType  string    `json:"source_type,omitempty"`
-	Host        string    `json:"host,omitempty"`
-	IP          string    `json:"ip,omitempty"`
-	Service     string    `json:"service,omitempty"`
-	Application string    `json:"application,omitempty"`
-	Severity    string    `json:"severity,omitempty"`
-	Message     string    `json:"message"`
-	EventType   string    `json:"event_type,omitempty"`
-	Category    string    `json:"category,omitempty"`
-	Action      string    `json:"action,omitempty"`
-	Outcome     string    `json:"outcome,omitempty"`
-	User        string    `json:"user,omitempty"`
-	UserID      string    `json:"user_id,omitempty"`
-	Process     string    `json:"process,omitempty"`
-	ProcessID   string    `json:"process_id,omitempty"`
-	ParentPID   string    `json:"parent_pid,omitempty"`
-	FilePath    string    `json:"file_path,omitempty"`
-	DestinationIP   string `json:"destination_ip,omitempty"`
-	DestinationPort int    `json:"destination_port,omitempty"`
-	SourceIP       string `json:"source_ip,omitempty"`
-	SourcePort     int    `json:"source_port,omitempty"`
-	Attributes map[string]any `json:"attributes,omitempty"`
-	Raw        []byte `json:"-"`
-	RawFormat  string `json:"raw_format,omitempty"`
-	TraceID    string `json:"trace_id,omitempty"`
-	SpanID     string `json:"span_id,omitempty"`
+	ID              string         `json:"id"`
+	Timestamp       time.Time      `json:"timestamp"`
+	ReceivedAt      time.Time      `json:"received_at"`
+	Source          string         `json:"source,omitempty"`
+	SourceType      string         `json:"source_type,omitempty"`
+	Host            string         `json:"host,omitempty"`
+	IP              string         `json:"ip,omitempty"`
+	Service         string         `json:"service,omitempty"`
+	Application     string         `json:"application,omitempty"`
+	Severity        string         `json:"severity,omitempty"`
+	Message         string         `json:"message"`
+	EventType       string         `json:"event_type,omitempty"`
+	Category        string         `json:"category,omitempty"`
+	Action          string         `json:"action,omitempty"`
+	Outcome         string         `json:"outcome,omitempty"`
+	User            string         `json:"user,omitempty"`
+	UserID          string         `json:"user_id,omitempty"`
+	Process         string         `json:"process,omitempty"`
+	ProcessID       string         `json:"process_id,omitempty"`
+	ParentPID       string         `json:"parent_pid,omitempty"`
+	FilePath        string         `json:"file_path,omitempty"`
+	DestinationIP   string         `json:"destination_ip,omitempty"`
+	DestinationPort int            `json:"destination_port,omitempty"`
+	SourceIP        string         `json:"source_ip,omitempty"`
+	SourcePort      int            `json:"source_port,omitempty"`
+	Attributes      map[string]any `json:"attributes,omitempty"`
+	Raw             []byte         `json:"-"`
+	RawFormat       string         `json:"raw_format,omitempty"`
+	TraceID         string         `json:"trace_id,omitempty"`
+	SpanID          string         `json:"span_id,omitempty"`
 }
 
 // NewEvent creates a new Event with a generated ID and current timestamps.
@@ -95,36 +95,43 @@ func EventToMap(e *Event) map[string]any {
 	}
 
 	result := map[string]any{
-		"id":             e.ID,
-		"timestamp":      e.Timestamp,
-		"received_at":    e.ReceivedAt,
-		"source":         e.Source,
-		"source_type":    e.SourceType,
-		"host":           e.Host,
-		"ip":             e.IP,
-		"service":        e.Service,
-		"application":    e.Application,
-		"severity":       ParseSeverity(e.Severity),
-		"message":        e.Message,
-		"event_type":     e.EventType,
-		"category":       e.Category,
-		"action":         e.Action,
-		"outcome":        e.Outcome,
-		"user":           e.User,
-		"user_id":        e.UserID,
-		"process":        e.Process,
-		"process_id":     e.ProcessID,
-		"parent_pid":     e.ParentPID,
-		"file_path":      e.FilePath,
-		"destination_ip": e.DestinationIP,
+		"id":               e.ID,
+		"timestamp":        e.Timestamp.UTC(),
+		"received_at":      e.ReceivedAt.UTC(),
+		"source":           e.Source,
+		"source_type":      e.SourceType,
+		"host":             e.Host,
+		"ip":               e.IP,
+		"service":          e.Service,
+		"application":      e.Application,
+		"severity":         ParseSeverity(e.Severity),
+		"message":          e.Message,
+		"event_type":       e.EventType,
+		"category":         e.Category,
+		"action":           e.Action,
+		"outcome":          e.Outcome,
+		"user":             e.User,
+		"user_id":          e.UserID,
+		"process":          e.Process,
+		"process_id":       e.ProcessID,
+		"parent_pid":       e.ParentPID,
+		"file_path":        e.FilePath,
+		"destination_ip":   e.DestinationIP,
 		"destination_port": e.DestinationPort,
-		"source_ip":      e.SourceIP,
-		"source_port":    e.SourcePort,
-		"raw_format":     e.RawFormat,
-		"trace_id":       e.TraceID,
-		"span_id":        e.SpanID,
+		"source_ip":        e.SourceIP,
+		"source_port":      e.SourcePort,
+		"raw_format":       e.RawFormat,
+		"trace_id":         e.TraceID,
+		"span_id":          e.SpanID,
 	}
 
+	attrs := e.Attributes
+	if attrs == nil {
+		attrs = make(map[string]any)
+	}
+	if data, err := json.Marshal(attrs); err == nil {
+		result["attributes"] = string(data)
+	}
 	for k, v := range e.Attributes {
 		result["attr."+k] = v
 	}

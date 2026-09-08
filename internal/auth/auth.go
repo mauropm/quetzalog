@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -45,12 +46,12 @@ type User struct {
 }
 
 type Token struct {
-	ID        string    `json:"id"`
-	Token     string    `json:"-"`
-	UserID    string    `json:"user_id"`
-	Name      string    `json:"name"`
-	Enabled   bool      `json:"enabled"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string     `json:"id"`
+	Token     string     `json:"-"`
+	UserID    string     `json:"user_id"`
+	Name      string     `json:"name"`
+	Enabled   bool       `json:"enabled"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
 }
 
 type AuditLog struct {
@@ -97,9 +98,13 @@ func (s *Store) AuthMiddleware() func(http.Handler) http.Handler {
 				return
 			}
 
-			_, err = s.GetUser(r.Context(), token.UserID)
+			user, err := s.GetUser(r.Context(), token.UserID)
 			if err != nil {
 				http.Error(w, "user not found", http.StatusUnauthorized)
+				return
+			}
+			if !user.Enabled {
+				http.Error(w, "account disabled", http.StatusUnauthorized)
 				return
 			}
 
@@ -107,6 +112,15 @@ func (s *Store) AuthMiddleware() func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// EnsureSchema installs the auth-owned tables and creates a default admin when
+// the user table is empty. It is idempotent and should be called after migration.
+func (s *Store) EnsureSchema(ctx context.Context) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	return s.initTables(ctx)
 }
 
 func (s *Store) initTables(ctx context.Context) error {
@@ -117,19 +131,19 @@ func (s *Store) initTables(ctx context.Context) error {
 			password_hash TEXT NOT NULL,
 			role TEXT NOT NULL DEFAULT 'viewer',
 			enabled INTEGER NOT NULL DEFAULT 1,
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL,
-			last_login_at TEXT,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			last_login_at DATETIME,
 			failed_login_count INTEGER NOT NULL DEFAULT 0,
-			locked_until TEXT
+			locked_until DATETIME
 		)`,
 		`CREATE TABLE IF NOT EXISTS api_tokens (
 			id TEXT PRIMARY KEY,
-			token_hash TEXT NOT NULL,
+			token_hash TEXT NOT NULL UNIQUE,
 			user_id TEXT NOT NULL,
 			name TEXT NOT NULL,
 			enabled INTEGER NOT NULL DEFAULT 1,
-			created_at TEXT NOT NULL,
+			created_at DATETIME NOT NULL,
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS audit_log (
@@ -139,7 +153,7 @@ func (s *Store) initTables(ctx context.Context) error {
 			resource TEXT NOT NULL,
 			details TEXT,
 			ip TEXT,
-			created_at TEXT NOT NULL,
+			created_at DATETIME NOT NULL,
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash)`,
@@ -174,7 +188,7 @@ func (s *Store) ensureDefaultAdmin(ctx context.Context) error {
 		now := time.Now().UTC()
 		_, err = s.db.ExecContext(ctx,
 			"INSERT INTO users (id, username, password_hash, role, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			id, "admin", hashed, RoleAdmin, true, now.Format(time.RFC3339), now.Format(time.RFC3339),
+			id, "admin", hashed, RoleAdmin, true, now, now,
 		)
 		if err != nil {
 			return fmt.Errorf("create default admin: %w", err)
@@ -217,7 +231,7 @@ func (s *Store) CreateUser(ctx context.Context, username, password, role string)
 
 	_, err = s.db.ExecContext(ctx,
 		"INSERT INTO users (id, username, password_hash, role, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		id, username, hashed, role, true, now.Format(time.RFC3339), now.Format(time.RFC3339),
+		id, username, hashed, role, true, now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("insert user: %w", err)
@@ -248,7 +262,7 @@ func (s *Store) Authenticate(ctx context.Context, username, password string) (*U
 	now := time.Now().UTC()
 	_, err = s.db.ExecContext(ctx,
 		"UPDATE users SET failed_login_count = 0, last_login_at = ?, locked_until = NULL, updated_at = ? WHERE id = ?",
-		now.Format(time.RFC3339), now.Format(time.RFC3339), user.ID,
+		now, now, user.ID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("update login info: %w", err)
@@ -271,12 +285,12 @@ func (s *Store) incrementFailedLogins(ctx context.Context, userID string) {
 		lockedUntil := now.Add(15 * time.Minute)
 		s.db.ExecContext(ctx,
 			"UPDATE users SET failed_login_count = ?, locked_until = ?, updated_at = ? WHERE id = ?",
-			failedCount, lockedUntil.Format(time.RFC3339), now.Format(time.RFC3339), userID,
+			failedCount, lockedUntil, now, userID,
 		)
 	} else {
 		s.db.ExecContext(ctx,
 			"UPDATE users SET failed_login_count = ?, updated_at = ? WHERE id = ?",
-			failedCount, now.Format(time.RFC3339), userID,
+			failedCount, now, userID,
 		)
 	}
 }
@@ -289,7 +303,7 @@ func (s *Store) GetUser(ctx context.Context, id string) (*User, error) {
 	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Role, &user.Enabled,
 		&user.CreatedAt, &user.UpdatedAt, &user.LastLoginAt, &user.FailedLogin, &user.LockedUntil)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUserNotFound
 	}
 	if err != nil {
@@ -307,7 +321,7 @@ func (s *Store) GetUserByUsername(ctx context.Context, username string) (*User, 
 	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Role, &user.Enabled,
 		&user.CreatedAt, &user.UpdatedAt, &user.LastLoginAt, &user.FailedLogin, &user.LockedUntil)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUserNotFound
 	}
 	if err != nil {
@@ -350,7 +364,7 @@ func (s *Store) UpdatePassword(ctx context.Context, userID, newPassword string) 
 	now := time.Now().UTC()
 	_, err = s.db.ExecContext(ctx,
 		"UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?",
-		hashed, now.Format(time.RFC3339), userID,
+		hashed, now, userID,
 	)
 	if err != nil {
 		return fmt.Errorf("update password: %w", err)
@@ -381,7 +395,7 @@ func (s *Store) DeleteUser(ctx context.Context, id string) error {
 	now := time.Now().UTC()
 	_, err = s.db.ExecContext(ctx,
 		"UPDATE users SET enabled = 0, updated_at = ? WHERE id = ?",
-		now.Format(time.RFC3339), id,
+		now, id,
 	)
 	if err != nil {
 		return fmt.Errorf("disable user: %w", err)
@@ -400,7 +414,7 @@ func (s *Store) UpdateUserRole(ctx context.Context, id, role string) error {
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
 		"UPDATE users SET role = ?, updated_at = ? WHERE id = ?",
-		role, now.Format(time.RFC3339), id,
+		role, now, id,
 	)
 	if err != nil {
 		return fmt.Errorf("update user role: %w", err)
@@ -413,7 +427,7 @@ func (s *Store) EnableUser(ctx context.Context, id string) error {
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
 		"UPDATE users SET enabled = 1, locked_until = NULL, failed_login_count = 0, updated_at = ? WHERE id = ?",
-		now.Format(time.RFC3339), id,
+		now, id,
 	)
 	if err != nil {
 		return fmt.Errorf("enable user: %w", err)
@@ -426,7 +440,7 @@ func (s *Store) DisableUser(ctx context.Context, id string) error {
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
 		"UPDATE users SET enabled = 0, updated_at = ? WHERE id = ?",
-		now.Format(time.RFC3339), id,
+		now, id,
 	)
 	if err != nil {
 		return fmt.Errorf("disable user: %w", err)
@@ -476,7 +490,7 @@ func (s *Store) UpdateUser(ctx context.Context, id, username, role string, enabl
 		args = append(args, e)
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := time.Now().UTC()
 	setClauses = append(setClauses, "updated_at = ?")
 	args = append(args, now)
 	args = append(args, id)
@@ -493,30 +507,57 @@ func (s *Store) UpdateUser(ctx context.Context, id, username, role string, enabl
 }
 
 func (s *Store) CreateAPIToken(ctx context.Context, userID, name string) (string, error) {
-	hashed := s.HashToken(name + ":" + userID + ":" + time.Now().Format(time.RFC3339Nano))
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generate token: %w", err)
+	}
+	secret := "siem_" + hex.EncodeToString(raw)
+	hashed := s.HashToken(secret)
 
 	id := event.GenerateEventID()
 	now := time.Now().UTC()
 
 	_, err := s.db.ExecContext(ctx,
 		"INSERT INTO api_tokens (id, token_hash, user_id, name, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-		id, hashed, userID, name, true, now.Format(time.RFC3339),
+		id, hashed, userID, name, true, now,
 	)
 	if err != nil {
 		return "", fmt.Errorf("insert token: %w", err)
 	}
 
-	return hashed, nil
+	return secret, nil
+}
+
+// RevokeAPITokenByValue revokes the token record for a presented bearer token.
+func (s *Store) RevokeAPITokenByValue(ctx context.Context, token string) error {
+	hashed := s.HashToken(token)
+	result, err := s.db.ExecContext(ctx, "UPDATE api_tokens SET enabled = 0 WHERE token_hash = ?", hashed)
+	if err != nil {
+		return fmt.Errorf("revoke token: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("check rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("token not found")
+	}
+	return nil
 }
 
 func (s *Store) ValidateAPIToken(ctx context.Context, token string) (*Token, error) {
 	var t Token
+	var stored sql.NullString
+	hashed := s.HashToken(token)
 	err := s.db.QueryRowContext(ctx,
 		"SELECT id, token_hash, user_id, name, enabled, created_at FROM api_tokens WHERE token_hash = ?",
-		token,
-	).Scan(&t.ID, &t.Token, &t.UserID, &t.Name, &t.Enabled, &t.CreatedAt)
+		hashed,
+	).Scan(&t.ID, &stored, &t.UserID, &t.Name, &t.Enabled, &t.CreatedAt)
+	if err == nil {
+		t.Token = stored.String
+	}
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("token not found")
 	}
 	if err != nil {
@@ -569,7 +610,7 @@ func (s *Store) LogAudit(ctx context.Context, userID, action, resource, details,
 
 	_, err := s.db.ExecContext(ctx,
 		"INSERT INTO audit_log (id, user_id, action, resource, details, ip, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		id, userID, action, resource, details, ip, now.Format(time.RFC3339),
+		id, userID, action, resource, details, ip, now,
 	)
 	if err != nil {
 		return fmt.Errorf("insert audit log: %w", err)

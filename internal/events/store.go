@@ -3,7 +3,10 @@ package events
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"quetzalog/pkg/event"
@@ -13,6 +16,9 @@ import (
 type Store struct {
 	db *sql.DB
 }
+
+// ErrInvalidQuery indicates the caller supplied a query value that cannot be safely mapped to SQL.
+var ErrInvalidQuery = errors.New("invalid event query")
 
 // NewStore creates a new event store backed by the given database connection.
 func NewStore(db *sql.DB) *Store {
@@ -97,7 +103,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (*event.Event, error) {
 
 	ev, err := scanEventRow(s.db.QueryRowContext(ctx, q, id))
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("event %s not found", id)
 		}
 		return nil, fmt.Errorf("query event %s: %w", id, err)
@@ -196,8 +202,8 @@ func (s *Store) DeleteByID(ctx context.Context, id string) error {
 // scanEventRow reads a single database row into an event.Event.
 func scanEventRow(row rowScanner) (*event.Event, error) {
 	var ev event.Event
-	var raw *[]byte
-	var attrs *map[string]any
+	var raw sql.NullString
+	var attrs sql.NullString
 
 	err := row.Scan(
 		&ev.ID,
@@ -235,13 +241,15 @@ func scanEventRow(row rowScanner) (*event.Event, error) {
 		return nil, fmt.Errorf("scan event: %w", err)
 	}
 
-	if raw != nil {
-		ev.Raw = *raw
+	if raw.Valid {
+		ev.Raw = []byte(raw.String)
 	}
-	if attrs != nil {
-		ev.Attributes = *attrs
-	} else {
-		ev.Attributes = make(map[string]any)
+	ev.Attributes = make(map[string]any)
+	if attrs.Valid && attrs.String != "" {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(attrs.String), &m); err == nil {
+			ev.Attributes = m
+		}
 	}
 
 	return &ev, nil
@@ -316,8 +324,67 @@ func batchInsertTemplate() string {
 	return fmt.Sprintf("INSERT INTO events (%s) VALUES (%s)", cols, placeholders)
 }
 
+var sortColumns = map[string]string{
+	"id":               "id",
+	"timestamp":        "timestamp",
+	"received_at":      "received_at",
+	"source":           "source",
+	"source_type":      "source_type",
+	"host":             "host",
+	"ip":               "ip",
+	"service":          "service",
+	"application":      "application",
+	"severity":         "severity",
+	"message":          "message",
+	"event_type":       "event_type",
+	"category":         "category",
+	"action":           "action",
+	"outcome":          "outcome",
+	"user":             "user",
+	"user_id":          "user_id",
+	"process":          "process",
+	"process_id":       "process_id",
+	"parent_pid":       "parent_pid",
+	"file_path":        "file_path",
+	"destination_ip":   "destination_ip",
+	"destination_port": "destination_port",
+	"source_ip":        "source_ip",
+	"source_port":      "source_port",
+	"raw_format":       "raw_format",
+	"trace_id":         "trace_id",
+	"span_id":          "span_id",
+}
+
+var validAttrKey = regexp.MustCompile(`^[a-z0-9_]+$`)
+var ftsToken = regexp.MustCompile(`[[:alnum:]_]+`)
+
+func sanitizeFTSMatch(q string) string {
+	tokens := ftsToken.FindAllString(q, -1)
+	if len(tokens) == 0 {
+		return `""`
+	}
+	quoted := make([]string, len(tokens))
+	for i, tok := range tokens {
+		quoted[i] = fmt.Sprintf(`"%s"`, tok)
+	}
+	return strings.Join(quoted, " AND ")
+}
+
 // buildSearchQuery constructs the SQL query and arguments for the Search operation.
 func buildSearchQuery(q Query) (string, []any, error) {
+	if q.Limit <= 0 {
+		q.Limit = 100
+	}
+	if q.Offset < 0 {
+		q.Offset = 0
+	}
+	if q.SortBy == "" {
+		q.SortBy = "timestamp"
+	}
+	if q.SortOrder == "" || (q.SortOrder != "asc" && q.SortOrder != "desc") {
+		q.SortOrder = "desc"
+	}
+
 	var sb strings.Builder
 	var args []any
 	argIdx := 1
@@ -345,8 +412,8 @@ func buildSearchQuery(q Query) (string, []any, error) {
 
 	// FTS5 text search
 	if q.Text != "" {
-		sb.WriteString(" INNER JOIN events_fts ON events.id = events_fts.rowid WHERE events_fts.events_fts MATCH ?")
-		args = append(args, q.Text)
+		sb.WriteString(" WHERE events.rowid IN (SELECT rowid FROM events_fts WHERE events_fts MATCH ?)")
+		args = append(args, sanitizeFTSMatch(q.Text))
 		hasWhere = true
 	}
 
@@ -397,7 +464,7 @@ func buildSearchQuery(q Query) (string, []any, error) {
 			sb.WriteString(" AND ")
 		}
 		sb.WriteString("timestamp >= ?")
-		args = append(args, q.Start)
+		args = append(args, q.Start.UTC())
 	}
 	if !q.End.IsZero() {
 		if !hasWhere {
@@ -407,7 +474,7 @@ func buildSearchQuery(q Query) (string, []any, error) {
 			sb.WriteString(" AND ")
 		}
 		sb.WriteString("timestamp <= ?")
-		args = append(args, q.End)
+		args = append(args, q.End.UTC())
 	}
 
 	// OR condition filters (from detection rules with OR queries)
@@ -448,11 +515,25 @@ func buildSearchQuery(q Query) (string, []any, error) {
 			continue // skip OR markers, already handled above
 		}
 		key := strings.ToLower(k)
-		addFilter(fmt.Sprintf("attr.%s", key), v)
+		if !validAttrKey.MatchString(key) {
+			return "", nil, fmt.Errorf("%w: invalid attribute key %q", ErrInvalidQuery, k)
+		}
+		if !hasWhere {
+			sb.WriteString(" WHERE ")
+			hasWhere = true
+		} else {
+			sb.WriteString(" AND ")
+		}
+		sb.WriteString(fmt.Sprintf(`json_extract(attributes, '$."%s"') = ?`, key))
+		args = append(args, v)
 	}
 
 	// Ordering
-	sb.WriteString(fmt.Sprintf(" ORDER BY %s %s", q.SortBy, q.SortOrder))
+	col, ok := sortColumns[strings.ToLower(q.SortBy)]
+	if !ok {
+		return "", nil, fmt.Errorf("%w: invalid sort column %q", ErrInvalidQuery, q.SortBy)
+	}
+	sb.WriteString(fmt.Sprintf(" ORDER BY %s %s", col, q.SortOrder))
 
 	// Pagination
 	sb.WriteString(fmt.Sprintf(" LIMIT %d OFFSET %d", q.Limit, q.Offset))

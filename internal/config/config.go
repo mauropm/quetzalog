@@ -42,9 +42,9 @@ type Database struct {
 
 // Ingestion configures the message ingestion pipeline.
 type Ingestion struct {
-	Workers    int    `yaml:"workers"`
-	BatchSize  int    `yaml:"batch_size"`
-	MaxMsgSize int64  `yaml:"max_message_size"`
+	Workers    int   `yaml:"workers"`
+	BatchSize  int   `yaml:"batch_size"`
+	MaxMsgSize int64 `yaml:"max_message_size"`
 }
 
 // HTTP configures the HTTP API.
@@ -70,8 +70,8 @@ type Syslog struct {
 
 // Splunk configures Splunk HEC integration.
 type Splunk struct {
-	HECEnabled bool      `yaml:"hec_enabled"`
-	HECPort    int       `yaml:"hec_port"`
+	HECEnabled bool       `yaml:"hec_enabled"`
+	HECPort    int        `yaml:"hec_port"`
 	HECTokens  []HECToken `yaml:"hec_tokens"`
 }
 
@@ -100,10 +100,10 @@ type FileSource struct {
 
 // Auth configures authentication.
 type Auth struct {
-	Enabled          bool        `yaml:"enabled"`
-	LocalAuthEnabled bool        `yaml:"local_auth_enabled"`
-	APIToken         string      `yaml:"api_token"`
-	HECTokens        []HECToken  `yaml:"hec_tokens"`
+	Enabled          bool       `yaml:"enabled"`
+	LocalAuthEnabled bool       `yaml:"local_auth_enabled"`
+	APIToken         string     `yaml:"api_token"`
+	HECTokens        []HECToken `yaml:"hec_tokens"`
 }
 
 // DefaultConfig returns a Config with sensible defaults.

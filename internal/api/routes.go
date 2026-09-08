@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -17,9 +19,11 @@ import (
 )
 
 // SetupRouter wires up all HTTP API endpoints and applies middleware.
-func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, authStore *auth.Store, logger *slog.Logger) http.Handler {
+func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, authStore *auth.Store, logger *slog.Logger) (http.Handler, error) {
 	if authStore == nil {
 		authStore = auth.NewStore(nil)
+	} else if err := authStore.EnsureSchema(context.Background()); err != nil {
+		return nil, fmt.Errorf("initialize auth schema: %w", err)
 	}
 	handler := NewHandler(cfg, store, searchSvc, alertStore, incidentStore, detectionStore, authStore, logger)
 
@@ -75,11 +79,45 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 
 	// Wrap with middleware (order matters: outermost first)
 	var h http.Handler = mux
+	h = apiTokenAuth(h, cfg)
 	h = api.RecoveryMiddleware()(h)
 	h = api.LoggingMiddleware()(h)
 	h = api.CORS()(h)
 
-	return h
+	return h, nil
+}
+
+func apiTokenAuth(next http.Handler, cfg config.Config) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Auth.APIToken == "" && len(cfg.Auth.HECTokens) == 0 {
+			next.ServeHTTP(w, r)
+			return
+		}
+		switch r.Method + " " + r.URL.Path {
+		case "GET /api/v1/health", "POST /api/v1/login":
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		authHeader := r.Header.Get("Authorization")
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			api.WriteJSON(w, http.StatusUnauthorized, api.Unauthorized("missing or malformed bearer token"))
+			return
+		}
+		provided := []byte(parts[1])
+		if cfg.Auth.APIToken != "" && subtle.ConstantTimeCompare([]byte(cfg.Auth.APIToken), provided) == 1 {
+			next.ServeHTTP(w, r)
+			return
+		}
+		for _, token := range cfg.Auth.HECTokens {
+			if subtle.ConstantTimeCompare([]byte(token.Token), provided) == 1 {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+		api.WriteJSON(w, http.StatusUnauthorized, api.Unauthorized("invalid API token"))
+	})
 }
 
 // authAuth applies authentication middleware to a handler.

@@ -46,8 +46,8 @@ var DefaultConfig = ScoringConfig{
 }
 
 var DefaultBadIPs = map[string]bool{
-	"0.0.0.0":    true,
-	"127.0.0.1":  false,
+	"0.0.0.0":         true,
+	"127.0.0.1":       false,
 	"255.255.255.255": true,
 }
 
@@ -158,8 +158,8 @@ func (s *Scorer) FrequencyScore(ctx context.Context, sourceIP, user, host string
 	var totalEvents int64
 
 	counts := []struct {
-		entity  string
-		column  string
+		entity string
+		column string
 	}{
 		{sourceIP, "source_ip"},
 		{user, "user"},

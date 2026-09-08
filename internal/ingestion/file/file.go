@@ -19,10 +19,10 @@ import (
 
 // Source defines a file to tail and how to parse its lines.
 type Source struct {
-	Name  string `json:"name"`
-	Path  string `json:"path"`
+	Name   string `json:"name"`
+	Path   string `json:"path"`
 	Format string `json:"format"` // "syslog", "json", "plain", "regex"
-	Regex string `json:"regex"`  // for "regex" format
+	Regex  string `json:"regex"`  // for "regex" format
 }
 
 // Ingestor tails files and ingests parsed events through the pipeline.
@@ -39,11 +39,11 @@ type Ingestor struct {
 
 // fileTail tracks state for a single tailed file.
 type fileTail struct {
-	file     *os.File
-	inode    uint64
-	offset   int64
-	scanner  *bufio.Scanner
-	source   Source
+	file    *os.File
+	inode   uint64
+	offset  int64
+	scanner *bufio.Scanner
+	source  Source
 }
 
 // NewIngestor creates a new file ingestor.
@@ -388,16 +388,16 @@ func (i *Ingestor) syslogParser(line string) *syslogParserResult {
 	// RFC5424: <priority>version timestamp hostname app-name procid msgid sd message
 	rfc5424 := regexp.MustCompile(`^<(\d+)>(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*(?:<(\d+)>)?\s*(.*)`)
 	if m := rfc5424.FindStringSubmatch(line); m != nil {
-		r := parseSyslogMatch(m, 1)
+		r := parseSyslogMatch(m, 2)
 		if r != nil {
 			return r
 		}
 	}
 
 	// RFC3164: <priority>timestamp hostname app[pid]: message
-	rfc3164 := regexp.MustCompile(`^<(\d+)>(\S+)\s+(\S+)\s+(\S+?)(?:\[(\d+)\])?:\s*(.*)`)
+	rfc3164 := regexp.MustCompile(`^<(\d+)>(\w+\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+(\S+?)(?:\[(\d+)\])?:\s*(.*)`)
 	if m := rfc3164.FindStringSubmatch(line); m != nil {
-		return parseSyslogMatch(m, 0)
+		return parseSyslogMatch(m, 1)
 	}
 
 	return nil
@@ -418,29 +418,33 @@ func parseSyslogMatch(m []string, version int) *syslogParserResult {
 		Severity: severityFromNumber(int32(severityCode)),
 	}
 
-	if version == 1 {
-		// RFC3164
-		result.Host = m[3]
-		result.Source = m[4]
-		if len(m) > 5 && m[5] != "" {
-			result.PID = m[5]
+	if version == 2 {
+		// RFC5424
+		if len(m) > 4 && m[4] != "-" {
+			result.Host = m[4]
 		}
-		if len(m) > 6 {
-			result.Message = m[6]
+		if len(m) > 5 && m[5] != "-" {
+			result.Source = m[5]
+		}
+		if len(m) > 6 && m[6] != "-" {
+			result.PID = m[6]
+		}
+		if len(m) > 8 {
+			result.Message = m[8]
 		}
 	} else {
-		// RFC5424
+		// RFC3164
 		if len(m) > 3 && m[3] != "-" {
 			result.Host = m[3]
 		}
 		if len(m) > 4 && m[4] != "-" {
 			result.Source = m[4]
 		}
-		if len(m) > 5 && m[5] != "-" {
+		if len(m) > 5 && m[5] != "" {
 			result.PID = m[5]
 		}
-		if len(m) > 8 {
-			result.Message = m[8]
+		if len(m) > 6 {
+			result.Message = m[6]
 		}
 	}
 
@@ -480,31 +484,31 @@ func getInode(info os.FileInfo) uint64 {
 }
 
 var knownFields = map[string]bool{
-	"message": true,
-	"msg":     true,
-	"log":     true,
-	"host":    true,
-	"hostname": true,
-	"source":  true,
-	"sourcetype": true,
-	"severity": true,
-	"level":   true,
+	"message":        true,
+	"msg":            true,
+	"log":            true,
+	"host":           true,
+	"hostname":       true,
+	"source":         true,
+	"sourcetype":     true,
+	"severity":       true,
+	"level":          true,
 	"severity_level": true,
-	"service": true,
-	"user":    true,
-	"source_ip": true,
-	"timestamp": true,
-	"@timestamp": true,
-	"time":    true,
-	"event_type": true,
-	"type":    true,
-	"category": true,
-	"action":  true,
-	"outcome": true,
-	"id":      true,
-	"pid":     true,
-	"process": true,
-	"user_id": true,
-	"dest_ip": true,
-	"dest_port": true,
+	"service":        true,
+	"user":           true,
+	"source_ip":      true,
+	"timestamp":      true,
+	"@timestamp":     true,
+	"time":           true,
+	"event_type":     true,
+	"type":           true,
+	"category":       true,
+	"action":         true,
+	"outcome":        true,
+	"id":             true,
+	"pid":            true,
+	"process":        true,
+	"user_id":        true,
+	"dest_ip":        true,
+	"dest_port":      true,
 }

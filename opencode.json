@@ -1,0 +1,50 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "nvidia-local/qwen3.8-flash-next",
+  "provider": {
+    "nvidia-local": {
+      "api": "openai",
+      "name": "NVIDIA Local",
+      "options": {
+        "baseURL": "http://spark-6136:8888/v1"
+      },
+      "models": {
+        "qwen3.8-flash-next": {
+          "id": "qwen3.8-flash-next",
+          "name": "Qwen 3.8 Flash Next (NVFP4)",
+          "tool_call": true,
+          "interleaved": {
+            "field": "reasoning"
+          },
+          "limit": {
+            "context": 262144,
+            "output": 32768
+          }
+        }
+      }
+    }
+  },
+  "agent": {
+    "build": {
+      "model": "nvidia-local/qwen3.8-flash-next"
+    },
+    "plan": {
+      "model": "nvidia-local/qwen3.8-flash-next"
+    },
+    "general": {
+      "model": "nvidia-local/qwen3.8-flash-next"
+    },
+    "explore": {
+      "model": "nvidia-local/qwen3.8-flash-next"
+    },
+    "title": {
+      "model": "nvidia-local/qwen3.8-flash-next"
+    },
+    "summary": {
+      "model": "nvidia-local/qwen3.8-flash-next"
+    },
+    "compaction": {
+      "model": "nvidia-local/qwen3.8-flash-next"
+    }
+  }
+}

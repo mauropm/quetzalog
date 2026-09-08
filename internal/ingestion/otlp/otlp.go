@@ -31,7 +31,7 @@ func NewHandler(pipeline *ingestion.Pipeline, logger *slog.Logger) *Handler {
 // Handle processes OTLP log ingestion requests. Supports both protobuf and JSON encodings.
 func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) error {
 	if r.Method != http.MethodPost {
-		return &OTLPError{StatusCode: http.StatusMethodNotAllowed, Reason: "method not allowed"}
+		return errorOTLP(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 
 	ct := r.Header.Get("Content-Type")
@@ -42,7 +42,7 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) error {
 	case strings.Contains(ct, "protobuf") || strings.Contains(ct, "proto"):
 		return h.handleProtobuf(w, r)
 	default:
-		return &OTLPError{StatusCode: http.StatusUnsupportedMediaType, Reason: "unsupported content type: " + ct}
+		return errorOTLP(w, http.StatusUnsupportedMediaType, "unsupported content type: "+ct)
 	}
 }
 
@@ -50,12 +50,12 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) error {
 func (h *Handler) handleJSON(w http.ResponseWriter, r *http.Request) error {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return &OTLPError{StatusCode: http.StatusBadRequest, Reason: "failed to read request body"}
+		return errorOTLP(w, http.StatusBadRequest, "failed to read request body")
 	}
 
 	var logsData OTLPLogsData
 	if err := json.Unmarshal(body, &logsData); err != nil {
-		return &OTLPError{StatusCode: http.StatusBadRequest, Reason: "invalid OTLP JSON: " + err.Error()}
+		return errorOTLP(w, http.StatusBadRequest, "invalid OTLP JSON: "+err.Error())
 	}
 
 	var ingested int64
@@ -101,7 +101,7 @@ func (h *Handler) handleJSON(w http.ResponseWriter, r *http.Request) error {
 func (h *Handler) handleProtobuf(w http.ResponseWriter, r *http.Request) error {
 	_, err := io.ReadAll(r.Body)
 	if err != nil {
-		return &OTLPError{StatusCode: http.StatusBadRequest, Reason: "failed to read request body"}
+		return errorOTLP(w, http.StatusBadRequest, "failed to read request body")
 	}
 
 	// TODO: Parse traceptracepb.LogsData protobuf message.
@@ -147,11 +147,17 @@ func (h *Handler) logRecordToEvent(lr OTLPLogRecord, resourceAttrs map[string]an
 	bodyVal := lr.Body.StringValue
 	if bodyVal == "" {
 		if lr.Body.IntValue != nil {
-			bodyVal = strconv.FormatInt(*lr.Body.IntValue, 10)
+			if n, ok := otlpInt(lr.Body.IntValue); ok {
+				bodyVal = strconv.FormatInt(n, 10)
+			}
 		} else if lr.Body.BoolValue != nil {
-			bodyVal = strconv.FormatBool(*lr.Body.BoolValue)
+			if b, ok := otlpBool(lr.Body.BoolValue); ok {
+				bodyVal = strconv.FormatBool(b)
+			}
 		} else if lr.Body.DoubleValue != nil {
-			bodyVal = strconv.FormatFloat(*lr.Body.DoubleValue, 'f', -1, 64)
+			if f, ok := otlpFloat(lr.Body.DoubleValue); ok {
+				bodyVal = strconv.FormatFloat(f, 'f', -1, 64)
+			}
 		} else if lr.Body.BytesValue != "" {
 			bodyVal = lr.Body.BytesValue
 		}
@@ -159,12 +165,23 @@ func (h *Handler) logRecordToEvent(lr OTLPLogRecord, resourceAttrs map[string]an
 	ev.Message = bodyVal
 
 	// Resource attributes
+	if ev.Attributes == nil {
+		ev.Attributes = make(map[string]any)
+	}
 	for k, v := range resourceAttrs {
 		switch k {
 		case "service.name":
-			ev.Service = v.(string)
+			if s, ok := v.(string); ok {
+				ev.Service = s
+			} else {
+				ev.Attributes["resource."+k] = fmt.Sprintf("%v", v)
+			}
 		case "host.name":
-			ev.Host = v.(string)
+			if s, ok := v.(string); ok {
+				ev.Host = s
+			} else {
+				ev.Attributes["resource."+k] = fmt.Sprintf("%v", v)
+			}
 		default:
 			if ev.Attributes == nil {
 				ev.Attributes = make(map[string]any)
@@ -276,13 +293,19 @@ func attrValue(v OTLPValue) any {
 		return v.StringValue
 	}
 	if v.BoolValue != nil {
-		return *v.BoolValue
+		if b, ok := otlpBool(v.BoolValue); ok {
+			return b
+		}
 	}
 	if v.IntValue != nil {
-		return *v.IntValue
+		if n, ok := otlpInt(v.IntValue); ok {
+			return n
+		}
 	}
 	if v.DoubleValue != nil {
-		return *v.DoubleValue
+		if f, ok := otlpFloat(v.DoubleValue); ok {
+			return f
+		}
 	}
 	if v.ArrayValue != nil {
 		return v.ArrayValue
@@ -294,6 +317,56 @@ func attrValue(v OTLPValue) any {
 		return v.BytesValue
 	}
 	return nil
+}
+
+func otlpBool(v any) (bool, bool) {
+	switch x := v.(type) {
+	case bool:
+		return x, true
+	case string:
+		parsed, err := strconv.ParseBool(x)
+		return parsed, err == nil
+	case float64:
+		return x != 0, true
+	case int:
+		return x != 0, true
+	case int64:
+		return x != 0, true
+	default:
+		return false, false
+	}
+}
+
+func otlpInt(v any) (int64, bool) {
+	switch x := v.(type) {
+	case int64:
+		return x, true
+	case int:
+		return int64(x), true
+	case float64:
+		return int64(x), true
+	case string:
+		parsed, err := strconv.Atoi(x)
+		return int64(parsed), err == nil
+	default:
+		return 0, false
+	}
+}
+
+func otlpFloat(v any) (float64, bool) {
+	switch x := v.(type) {
+	case float64:
+		return x, true
+	case int:
+		return float64(x), true
+	case int64:
+		return float64(x), true
+	case string:
+		parsed, err := strconv.ParseFloat(x, 64)
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
 }
 
 // severityFromNumber converts an OTLP SeverityNumber to a severity string.
@@ -330,6 +403,14 @@ func (e *OTLPError) Error() string {
 	return "otlp error " + strconv.Itoa(e.StatusCode) + ": " + e.Reason
 }
 
+func errorOTLP(w http.ResponseWriter, code int, reason string) error {
+	err := &OTLPError{StatusCode: code, Reason: reason}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": reason})
+	return err
+}
+
 // writeOTLPJSON writes an OTLP-formatted JSON response.
 func writeOTLPJSON(w http.ResponseWriter, status int, resp OTLPResponse) error {
 	w.Header().Set("Content-Type", "application/json")
@@ -345,12 +426,12 @@ type OTLPAttribute struct {
 
 // OTLPValue represents an OTLP AnyValue.
 type OTLPValue struct {
-	StringValue string    `json:"stringValue,omitempty"`
-	IntValue    *int64    `json:"intValue,omitempty"`
-	BoolValue   *bool     `json:"boolValue,omitempty"`
-	DoubleValue *float64  `json:"doubleValue,omitempty"`
-	BytesValue  string    `json:"bytesValue,omitempty"`
-	ArrayValue  *OTLPArray `json:"arrayValue,omitempty"`
+	StringValue string            `json:"stringValue,omitempty"`
+	IntValue    any               `json:"intValue,omitempty"`
+	BoolValue   any               `json:"boolValue,omitempty"`
+	DoubleValue any               `json:"doubleValue,omitempty"`
+	BytesValue  string            `json:"bytesValue,omitempty"`
+	ArrayValue  *OTLPArray        `json:"arrayValue,omitempty"`
 	KvlistValue *OTLPKeyValueList `json:"kvlistValue,omitempty"`
 }
 
@@ -366,15 +447,15 @@ type OTLPKeyValueList struct {
 
 // OTLPLogRecord represents a single log record in OTLP format.
 type OTLPLogRecord struct {
-	TimeUnixNano         string           `json:"timeUnixNano"`
-	ObservedTimeUnixNano string           `json:"observedTimeUnixNano"`
-	SeverityNumber       int32            `json:"severityNumber"`
-	SeverityText         string           `json:"severityText"`
-	Body                 OTLPValue        `json:"body"`
-	Attributes           []OTLPAttribute  `json:"attributes"`
-	DroppedAttributesCount int64         `json:"droppedAttributesCount"`
-	TraceID              string           `json:"traceId"`
-	SpanID               string           `json:"spanId"`
+	TimeUnixNano           string          `json:"timeUnixNano"`
+	ObservedTimeUnixNano   string          `json:"observedTimeUnixNano"`
+	SeverityNumber         int32           `json:"severityNumber"`
+	SeverityText           string          `json:"severityText"`
+	Body                   OTLPValue       `json:"body"`
+	Attributes             []OTLPAttribute `json:"attributes"`
+	DroppedAttributesCount int64           `json:"droppedAttributesCount"`
+	TraceID                string          `json:"traceId"`
+	SpanID                 string          `json:"spanId"`
 }
 
 // SeverityIsSet checks if the severity text is set.
@@ -393,8 +474,8 @@ type OTLPScope struct {
 
 // OTLPResourceLogs represents a batch of log records from a single resource.
 type OTLPResourceLogs struct {
-	Resource   OTLPResource    `json:"resource"`
-	ScopeLogs  []OTLPScopeLogs `json:"scopeLogs"`
+	Resource  OTLPResource    `json:"resource"`
+	ScopeLogs []OTLPScopeLogs `json:"scopeLogs"`
 }
 
 // OTLPResource represents resource attributes.

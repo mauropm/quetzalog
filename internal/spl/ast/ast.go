@@ -29,8 +29,8 @@ type Condition struct {
 
 // StatsNode - aggregation
 type StatsNode struct {
-	Aggs      []Aggregation
-	GroupBy   []string
+	Aggs    []Aggregation
+	GroupBy []string
 }
 
 func (s *StatsNode) NodeType() string { return "Stats" }

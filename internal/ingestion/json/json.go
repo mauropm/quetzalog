@@ -64,12 +64,12 @@ func NewIngestHandler(pipeline *ingestion.Pipeline, logger *slog.Logger) *Ingest
 // Handle dispatches the request to single or batch handlers based on the body format.
 func (h *IngestHandler) Handle(w http.ResponseWriter, r *http.Request) error {
 	if r.Method != http.MethodPost {
-		return &IngestError{StatusCode: http.StatusMethodNotAllowed, Reason: "method not allowed"}
+		return errorResponse(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 
 	body, err := readBody(r)
 	if err != nil {
-		return &IngestError{StatusCode: http.StatusBadRequest, Reason: "failed to read request body: " + err.Error()}
+		return errorResponse(w, http.StatusBadRequest, "failed to read request body: "+err.Error())
 	}
 
 	// Determine if it's a batch or single event by looking for "events" key.
@@ -84,7 +84,7 @@ func (h *IngestHandler) Handle(w http.ResponseWriter, r *http.Request) error {
 func (h *IngestHandler) handleSingle(body []byte, w http.ResponseWriter, r *http.Request) error {
 	var req RequestBody
 	if err := json.Unmarshal(body, &req); err != nil {
-		return &IngestError{StatusCode: http.StatusBadRequest, Reason: "invalid request body: " + err.Error()}
+		return errorResponse(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 	}
 
 	ev := h.parseEvent(req)
@@ -93,6 +93,8 @@ func (h *IngestHandler) handleSingle(body []byte, w http.ResponseWriter, r *http
 	ctx := r.Context()
 	if err := h.pipeline.Ingest(ctx, ev); err != nil {
 		h.logger.Warn("failed to ingest event", "error", err)
+		resp := IngestResponse{Accepted: 0, Rejected: 1, Errors: []Error{{Index: 0, Error: err.Error()}}}
+		return writeJSON(w, http.StatusAccepted, resp)
 	}
 
 	resp := IngestResponse{Accepted: 1, Rejected: 0}
@@ -103,11 +105,11 @@ func (h *IngestHandler) handleSingle(body []byte, w http.ResponseWriter, r *http
 func (h *IngestHandler) handleBatch(body []byte, w http.ResponseWriter, r *http.Request) error {
 	var req BatchRequestBody
 	if err := json.Unmarshal(body, &req); err != nil {
-		return &IngestError{StatusCode: http.StatusBadRequest, Reason: "invalid request body: " + err.Error()}
+		return errorResponse(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 	}
 
 	if len(req.Events) == 0 {
-		return &IngestError{StatusCode: http.StatusBadRequest, Reason: "no events in batch"}
+		return errorResponse(w, http.StatusBadRequest, "no events in batch")
 	}
 
 	ctx := r.Context()
@@ -176,6 +178,12 @@ func isBatch(body []byte) bool {
 	}
 	_, hasEvents := raw["events"]
 	return hasEvents
+}
+
+func errorResponse(w http.ResponseWriter, code int, reason string) error {
+	err := &IngestError{StatusCode: code, Reason: reason}
+	_ = writeJSON(w, code, map[string]string{"error": reason})
+	return err
 }
 
 // IngestError represents an error with an HTTP status code for the ingestion handler.

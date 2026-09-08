@@ -143,7 +143,7 @@ func (l *Lexer) readString(quote rune) Token {
 		if ch == quote {
 			return Token{
 				Type:  STRING,
-				Value: l.input[start:l.pos-1],
+				Value: l.input[start : l.pos-1],
 			}
 		}
 	}

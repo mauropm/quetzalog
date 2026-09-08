@@ -107,10 +107,10 @@ func CORS(options ...CORSOption) func(http.Handler) http.Handler {
 type CORSOption func(*corsOptions)
 
 type corsOptions struct {
-	allowedMethods []string
-	allowedHeaders []string
-	allowedOrigins []string
-	maxAge         time.Duration
+	allowedMethods   []string
+	allowedHeaders   []string
+	allowedOrigins   []string
+	maxAge           time.Duration
 	allowCredentials bool
 }
 
@@ -217,8 +217,8 @@ func RecoveryMiddleware() func(http.Handler) http.Handler {
 					n := captureStack(buf)
 					if n > 0 {
 						slog.Error("quetzalog: stack trace",
-						"trace", string(buf[:n]),
-					)
+							"trace", string(buf[:n]),
+						)
 					}
 
 					writeJSON(w, http.StatusInternalServerError, Response{

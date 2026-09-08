@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"math/rand"
 	"os"
-	"runtime"
 	"quetzalog/internal/alerts"
 	"quetzalog/internal/database"
 	"quetzalog/internal/detections"
@@ -17,6 +16,7 @@ import (
 	"quetzalog/internal/query"
 	"quetzalog/internal/spl"
 	"quetzalog/pkg/event"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -72,32 +72,32 @@ var outcomes = []string{"success", "failure", "timeout", "denied"}
 
 // EventGenerator generates synthetic security events at configurable rates.
 type EventGenerator struct {
-	sources      []string
-	severities   []string
-	eventTypes   []string
-	hosts        []string
-	users        []string
-	ipRanges     []string
-	messages     []string
-	actions      []string
-	outcomes     []string
-	rng          *rand.Rand
-	mu           sync.Mutex
-	counter      int64
+	sources    []string
+	severities []string
+	eventTypes []string
+	hosts      []string
+	users      []string
+	ipRanges   []string
+	messages   []string
+	actions    []string
+	outcomes   []string
+	rng        *rand.Rand
+	mu         sync.Mutex
+	counter    int64
 }
 
 func NewEventGenerator() *EventGenerator {
 	return &EventGenerator{
-		sources:      sources,
-		severities:   severities,
-		eventTypes:   eventTypes,
-		hosts:        hosts,
-		users:        users,
-		ipRanges:     []string{"10.0.0", "10.0.1", "192.168.1", "172.16.0", "10.10.0"},
-		messages:     messages,
-		actions:      actions,
-		outcomes:     outcomes,
-		rng:          rand.New(rand.NewSource(time.Now().UnixNano())),
+		sources:    sources,
+		severities: severities,
+		eventTypes: eventTypes,
+		hosts:      hosts,
+		users:      users,
+		ipRanges:   []string{"10.0.0", "10.0.1", "192.168.1", "172.16.0", "10.10.0"},
+		messages:   messages,
+		actions:    actions,
+		outcomes:   outcomes,
+		rng:        rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -122,27 +122,27 @@ func (g *EventGenerator) Generate() *event.Event {
 	msg = fmt.Sprintf(msg, user, ip, port, ip, user)
 
 	return &event.Event{
-		ID:          fmt.Sprintf("evt-%d-%08x", id, id),
-		Timestamp:   time.Now(),
-		ReceivedAt:  time.Now(),
-		Source:      source,
-		SourceType:  "syslog",
-		Host:        host,
-		IP:          ip,
-		Service:     source,
-		Severity:    severity,
-		Message:     msg,
-		EventType:   eventType,
-		Category:    "security",
-		Action:      action,
-		Outcome:     outcome,
-		User:        user,
-		Process:     source,
-		ProcessID:   fmt.Sprintf("%d", generator.Intn(65535)),
-		DestinationIP: ip,
+		ID:              fmt.Sprintf("evt-%d-%08x", id, id),
+		Timestamp:       time.Now(),
+		ReceivedAt:      time.Now(),
+		Source:          source,
+		SourceType:      "syslog",
+		Host:            host,
+		IP:              ip,
+		Service:         source,
+		Severity:        severity,
+		Message:         msg,
+		EventType:       eventType,
+		Category:        "security",
+		Action:          action,
+		Outcome:         outcome,
+		User:            user,
+		Process:         source,
+		ProcessID:       fmt.Sprintf("%d", generator.Intn(65535)),
+		DestinationIP:   ip,
 		DestinationPort: port,
-		SourceIP:    ip,
-		SourcePort:  generator.Intn(65535) + 1024,
+		SourceIP:        ip,
+		SourcePort:      generator.Intn(65535) + 1024,
 		Attributes: map[string]any{
 			"event_id": fmt.Sprintf("evt-%d", id),
 			"trace_id": fmt.Sprintf("trace-%016x", id),
@@ -192,11 +192,11 @@ func (r BenchResult) String() string {
 
 // BenchReport holds the full set of benchmark results for JSON output.
 type BenchReport struct {
-	Timestamp string       `json:"timestamp"`
-	Host      string       `json:"host"`
-	GoVersion string       `json:"go_version"`
-	GoOS      string       `json:"go_os"`
-	GoArch    string       `json:"go_arch"`
+	Timestamp string        `json:"timestamp"`
+	Host      string        `json:"host"`
+	GoVersion string        `json:"go_version"`
+	GoOS      string        `json:"go_os"`
+	GoArch    string        `json:"go_arch"`
 	Results   []BenchResult `json:"results"`
 }
 

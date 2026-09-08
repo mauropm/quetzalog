@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,30 +16,30 @@ import (
 
 // DetectionRule represents a detection rule that evaluates events and generates alerts.
 type DetectionRule struct {
-	ID          string
-	Name        string
-	Description string
-	Query       string // SPL-like query string
-	Severity    string
-	Enabled     bool
-	Threshold   *Threshold
-	GroupBy     []string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	Query       string     `json:"query"`
+	Severity    string     `json:"severity"`
+	Enabled     bool       `json:"enabled"`
+	Threshold   *Threshold `json:"threshold,omitempty"`
+	GroupBy     []string   `json:"group_by,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 // Threshold defines the counting window for a detection rule.
 type Threshold struct {
-	Count int
-	Window string // duration string like "5m", "1h"
+	Count  int    `json:"count"`
+	Window string `json:"window"`
 }
 
 // ExecutionResult holds the output of a detection rule execution.
 type ExecutionResult struct {
-	Matched  int
-	Total    int
-	Alerts   []string
-	Duration time.Duration
+	Matched  int           `json:"matched"`
+	Total    int           `json:"total"`
+	Alerts   []string      `json:"alerts"`
+	Duration time.Duration `json:"duration"`
 }
 
 // Store persists and queries detection rules.
@@ -213,8 +214,8 @@ func (s *Store) Update(ctx context.Context, rule *DetectionRule) error {
 	}
 	rule.UpdatedAt = time.Now()
 
-	thresholdWindow := sql.NullString{}
-	thresholdCount := sql.NullInt64{}
+	thresholdWindow := sql.NullString{String: "300s", Valid: true}
+	thresholdCount := sql.NullInt64{Int64: 1, Valid: true}
 	if rule.Threshold != nil {
 		thresholdWindow = sql.NullString{String: rule.Threshold.Window, Valid: true}
 		thresholdCount = sql.NullInt64{Int64: int64(rule.Threshold.Count), Valid: true}
@@ -285,6 +286,27 @@ func (s *Store) setEnabled(ctx context.Context, id string, enabled bool) error {
 	return nil
 }
 
+func parseDetectionWindow(value string) (time.Duration, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, fmt.Errorf("empty detection window")
+	}
+	if secs, err := strconv.Atoi(value); err == nil {
+		if secs < 0 {
+			return 0, fmt.Errorf("negative detection window")
+		}
+		return time.Duration(secs) * time.Second, nil
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("invalid detection window %q: %w", value, err)
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("negative detection window")
+	}
+	return d, nil
+}
+
 // ExecuteNow runs a detection rule immediately against the events store.
 func (s *Store) ExecuteNow(ctx context.Context, rule *DetectionRule, evStore *events.Store) (*ExecutionResult, error) {
 	if rule == nil {
@@ -302,25 +324,79 @@ func (s *Store) ExecuteNow(ctx context.Context, rule *DetectionRule, evStore *ev
 		return nil, fmt.Errorf("parse detection query: %w", err)
 	}
 
-	evts, err := evStore.Search(ctx, *evQuery)
+	total, err := evStore.Count(ctx, *evQuery)
 	if err != nil {
-		return nil, fmt.Errorf("search events: %w", err)
+		return nil, fmt.Errorf("count events: %w", err)
 	}
 
 	result := ExecutionResult{
-		Total:    len(evts),
+		Total:    total,
+		Matched:  total,
 		Duration: time.Since(start),
 	}
 
-	// Apply threshold logic
-	if rule.Threshold != nil {
-		filtered := filterByThresholdEvents(evts, rule)
-		result.Matched = len(filtered)
-	} else {
-		result.Matched = len(evts)
+	if rule.Threshold == nil || rule.Threshold.Count <= 0 {
+		return &result, nil
+	}
+
+	if len(rule.GroupBy) > 0 {
+		evQuery.Limit = total
+		evts, err := evStore.Search(ctx, *evQuery)
+		if err != nil {
+			return nil, fmt.Errorf("search events: %w", err)
+		}
+		result.Matched = countGroupedThresholdEvents(evts, rule)
+	} else if total < rule.Threshold.Count {
+		result.Matched = 0
 	}
 
 	return &result, nil
+}
+
+func countGroupedThresholdEvents(events []*event.Event, rule *DetectionRule) int {
+	if rule.Threshold == nil || rule.Threshold.Count <= 0 {
+		return len(events)
+	}
+	groups := make(map[string]int)
+	for _, ev := range events {
+		key := groupKey(ev, rule.GroupBy)
+		groups[key]++
+	}
+	matched := 0
+	for _, n := range groups {
+		if n >= rule.Threshold.Count {
+			matched += n
+		}
+	}
+	return matched
+}
+
+func groupKey(ev *event.Event, fields []string) string {
+	parts := make([]string, 0, len(fields))
+	for _, f := range fields {
+		switch strings.ToLower(f) {
+		case "source_ip":
+			parts = append(parts, ev.SourceIP)
+		case "destination_ip":
+			parts = append(parts, ev.DestinationIP)
+		case "host":
+			parts = append(parts, ev.Host)
+		case "user":
+			parts = append(parts, ev.User)
+		case "source":
+			parts = append(parts, ev.Source)
+		case "service":
+			parts = append(parts, ev.Service)
+		case "severity":
+			parts = append(parts, ev.Severity)
+		case "event_type":
+			parts = append(parts, ev.EventType)
+		default:
+			v := ev.Attributes[strings.ToLower(f)]
+			parts = append(parts, fmt.Sprintf("%v", v))
+		}
+	}
+	return strings.Join(parts, "|")
 }
 
 // parseDetectionQuery converts a detection rule's query string into an events.Query.
@@ -341,12 +417,13 @@ func parseDetectionQuery(rule *DetectionRule) (*events.Query, error) {
 
 	// If there's a threshold window, apply time constraints
 	if rule.Threshold != nil && rule.Threshold.Window != "" {
-		window, err := time.ParseDuration(rule.Threshold.Window)
+		window, err := parseDetectionWindow(rule.Threshold.Window)
 		if err != nil {
 			return nil, fmt.Errorf("invalid threshold window: %w", err)
 		}
-		q.End = time.Now()
-		q.Start = time.Now().Add(-window)
+		now := time.Now().UTC()
+		q.End = now
+		q.Start = now.Add(-window)
 	}
 
 	return &q, nil
@@ -412,7 +489,7 @@ func parseBaseQuery(q string) events.Query {
 	for field, values := range fieldValues {
 		if len(values) > 1 {
 			// Store all values joined with comma for the store to use in IN clause
-			attrKey := "__or_" + field
+			attrKey := "__or_" + field + "__"
 			filter.Attributes[attrKey] = strings.Join(values, ",")
 		}
 	}
@@ -427,6 +504,9 @@ func parseSingleQuery(q string, filter events.Query) events.Query {
 	}
 	parts := strings.Fields(q)
 	for _, part := range parts {
+		if strings.EqualFold(part, "AND") || strings.EqualFold(part, "OR") {
+			continue
+		}
 		if idx := strings.Index(part, "="); idx > 0 {
 			key := strings.ToLower(strings.TrimSpace(part[:idx]))
 			value := strings.TrimSpace(part[idx+1:])

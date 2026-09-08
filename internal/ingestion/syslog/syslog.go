@@ -26,10 +26,10 @@ var rfc5424Regex = regexp.MustCompile(
 
 // Config holds configuration for the syslog receiver.
 type Config struct {
-	UDPEnabled  bool
-	UDPPort     int
-	TCPEnabled  bool
-	TCPPort     int
+	UDPEnabled bool
+	UDPPort    int
+	TCPEnabled bool
+	TCPPort    int
 }
 
 // Receiver listens for syslog messages on TCP and UDP ports.
@@ -207,13 +207,18 @@ func (r *Receiver) fillFromSyslog(ev *event.Event, m []string, version int) {
 		ev.Severity = severityName(severity)
 	}
 
+	timestampGroup, hostGroup, appGroup, pidGroup, msgGroup := 3, 4, 5, 6, len(m)-1
+	if version == 1 {
+		timestampGroup, hostGroup, appGroup, pidGroup, msgGroup = 2, 3, 4, 5, len(m)-1
+	}
+
 	// Timestamp
 	if version == 2 {
 		// RFC5424 timestamp
-		ev.Timestamp = event.ParseTimestamp(m[3])
+		ev.Timestamp = event.ParseTimestamp(m[timestampGroup])
 	} else {
 		// RFC3164 timestamp (no year)
-		t := event.ParseTimestamp(m[2])
+		t := event.ParseTimestamp(m[timestampGroup])
 		if !t.IsZero() && t.Year() == time.Now().Year() {
 			ev.Timestamp = t
 		} else if !t.IsZero() {
@@ -222,32 +227,40 @@ func (r *Receiver) fillFromSyslog(ev *event.Event, m []string, version int) {
 	}
 
 	// Hostname
-	if hostname := m[4]; hostname != "" && hostname != "-" {
-		ev.Host = hostname
+	if hostGroup < len(m) {
+		if hostname := m[hostGroup]; hostname != "" && hostname != "-" {
+			ev.Host = hostname
+		}
 	}
 
 	// App name / source
-	if appName := m[5]; appName != "" && appName != "-" {
-		ev.Source = appName
+	if appGroup < len(m) {
+		if appName := m[appGroup]; appName != "" && appName != "-" {
+			ev.Source = appName
+		}
 	}
 
 	// PID
-	if pid := m[6]; pid != "" {
-		ev.ProcessID = pid
-		if ev.Attributes == nil {
-			ev.Attributes = make(map[string]any)
+	if pidGroup < len(m) {
+		if pid := m[pidGroup]; pid != "" {
+			ev.ProcessID = pid
+			if ev.Attributes == nil {
+				ev.Attributes = make(map[string]any)
+			}
+			ev.Attributes["pid"] = pid
 		}
-		ev.Attributes["pid"] = pid
 	}
 
 	// Message
-	msg := m[len(m)-1]
-	if msg != "" && msg != "-" {
-		ev.Message = msg
+	if msgGroup < len(m) {
+		msg := m[msgGroup]
+		if msg != "" && msg != "-" {
+			ev.Message = msg
+		}
 	}
 
 	// RFC5424 structured data (m[8] is SDID, m[9] is message)
-	if version == 2 {
+	if version == 2 && len(m) > 8 {
 		if sdid := m[8]; sdid != "" {
 			if ev.Attributes == nil {
 				ev.Attributes = make(map[string]any)

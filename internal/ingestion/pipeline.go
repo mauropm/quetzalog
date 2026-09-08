@@ -13,30 +13,34 @@ import (
 // Pipeline coordinates the ingestion flow: accepting events from multiple sources,
 // enriching them, and persisting them in batches to the event store.
 type Pipeline struct {
-	store     *events.Store
-	enrichers []plugins.Enricher
-	mu        sync.Mutex
-	running   bool
-	ctx       context.Context
-	cancel    context.CancelFunc
+	store      *events.Store
+	enrichers  []plugins.Enricher
+	mu         sync.Mutex
+	running    bool
+	ctx        context.Context
+	cancel     context.CancelFunc
 	workerChan chan *event.Event
 	workers    int
 	batchSize  int
 	logger     *slog.Logger
+	wg         sync.WaitGroup
 }
 
 // NewPipeline creates a new ingestion pipeline with the given worker pool size
 // and batch size for the underlying event store writes.
 func NewPipeline(store *events.Store, workers, batchSize int, logger *slog.Logger) *Pipeline {
-	ctx, cancel := context.WithCancel(context.Background())
+	if workers < 1 {
+		workers = 1
+	}
+	if batchSize < 1 {
+		batchSize = 1
+	}
 	return &Pipeline{
 		store:      store,
-		workerChan: make(chan *event.Event, workers*2),
+		workerChan: make(chan *event.Event, workers*batchSize),
 		workers:    workers,
 		batchSize:  batchSize,
 		logger:     logger,
-		ctx:        ctx,
-		cancel:     cancel,
 	}
 }
 
@@ -49,10 +53,12 @@ func (p *Pipeline) Start(ctx context.Context) error {
 		return nil
 	}
 
+	p.ctx, p.cancel = context.WithCancel(ctx)
 	p.running = true
 
 	for i := 0; i < p.workers; i++ {
-		go p.worker(ctx)
+		p.wg.Add(1)
+		go p.worker(p.ctx)
 	}
 
 	p.logger.Info("ingestion pipeline started", "workers", p.workers, "batch_size", p.batchSize)
@@ -62,17 +68,34 @@ func (p *Pipeline) Start(ctx context.Context) error {
 // Stop gracefully terminates the pipeline, waiting for all in-flight events to be processed.
 func (p *Pipeline) Stop(ctx context.Context) error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if !p.running {
+		p.mu.Unlock()
 		return nil
 	}
-
-	p.cancel()
-	p.cancel = nil
-
-	p.ctx, p.cancel = context.WithCancel(context.Background())
 	p.running = false
+	cancel := p.cancel
+	p.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		p.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return &PipelineError{Reason: "stop cancelled: " + ctx.Err().Error()}
+	}
+
+	p.mu.Lock()
+	p.ctx = nil
+	p.cancel = nil
+	p.mu.Unlock()
 
 	p.logger.Info("ingestion pipeline stopped")
 	return nil
@@ -87,6 +110,7 @@ func (p *Pipeline) Ingest(ctx context.Context, e *event.Event) error {
 
 	p.mu.Lock()
 	running := p.running
+	pipelineCtx := p.ctx
 	p.mu.Unlock()
 
 	if !running {
@@ -98,10 +122,9 @@ func (p *Pipeline) Ingest(ctx context.Context, e *event.Event) error {
 		return nil
 	case <-ctx.Done():
 		return &PipelineError{Reason: "ingest cancelled: " + ctx.Err().Error()}
-	case <-p.ctx.Done():
+	case <-pipelineCtx.Done():
 		return &PipelineError{Reason: "pipeline stopped"}
 	default:
-		// Channel is full; drop with error rather than blocking indefinitely.
 		return &PipelineError{Reason: "pipeline buffer full"}
 	}
 }
@@ -115,6 +138,7 @@ func (p *Pipeline) IngestBatch(ctx context.Context, events []*event.Event) error
 
 	p.mu.Lock()
 	running := p.running
+	pipelineCtx := p.ctx
 	p.mu.Unlock()
 
 	if !running {
@@ -128,10 +152,9 @@ func (p *Pipeline) IngestBatch(ctx context.Context, events []*event.Event) error
 		}
 		select {
 		case p.workerChan <- e:
-			// accepted
 		case <-ctx.Done():
 			errs = append(errs, &PipelineError{Reason: "batch ingest cancelled: " + ctx.Err().Error()})
-		case <-p.ctx.Done():
+		case <-pipelineCtx.Done():
 			errs = append(errs, &PipelineError{Reason: "pipeline stopped"})
 		default:
 			errs = append(errs, &PipelineError{Reason: "pipeline buffer full"})
@@ -153,21 +176,22 @@ func (p *Pipeline) AddEnricher(e plugins.Enricher) {
 	p.enrichers = append(p.enrichers, e)
 }
 
-// processEvent runs all registered enrichers on the event, then collects events
-// into a batch and stores them via the event store.
+// processEvent runs all registered enrichers on the event without persisting.
+// Persistence is deliberately owned by the batch writer.
 func (p *Pipeline) processEvent(ctx context.Context, e *event.Event) error {
 	for _, enricher := range p.enrichers {
 		if err := enricher.Enrich(ctx, e); err != nil {
 			p.logger.Warn("enricher returned error", "enricher", enricher.Name(), "event_id", e.ID, "error", err)
 		}
 	}
-
-	return p.store.Create(ctx, e)
+	return nil
 }
 
 // worker is the main event processing loop. It reads events from the worker channel,
 // batch collects them, and writes them to the store.
 func (p *Pipeline) worker(ctx context.Context) {
+	defer p.wg.Done()
+
 	batch := make([]*event.Event, 0, p.batchSize)
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -175,20 +199,17 @@ func (p *Pipeline) worker(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			p.flushBatch(ctx, batch)
+			p.drainWorkerChan(batch)
 			return
 		case e, ok := <-p.workerChan:
 			if !ok {
 				p.flushBatch(ctx, batch)
 				return
 			}
-
-			if err := p.processEvent(ctx, e); err != nil {
+			if err := p.processEvent(context.Background(), e); err != nil {
 				p.logger.Error("failed to process event", "event_id", e.ID, "error", err)
 			}
-
 			batch = append(batch, e)
-
 			if len(batch) >= p.batchSize {
 				p.flushBatch(ctx, batch)
 				batch = make([]*event.Event, 0, p.batchSize)
@@ -202,13 +223,46 @@ func (p *Pipeline) worker(ctx context.Context) {
 	}
 }
 
+// drainWorkerChan consumes any events still present when the pipeline is stopping.
+func (p *Pipeline) drainWorkerChan(batch []*event.Event) {
+	drained := false
+	for {
+		select {
+		case e, ok := <-p.workerChan:
+			if !ok {
+				p.flushBatch(context.Background(), batch)
+				return
+			}
+			drained = true
+			if err := p.processEvent(context.Background(), e); err != nil {
+				p.logger.Error("failed to process event", "event_id", e.ID, "error", err)
+			}
+			batch = append(batch, e)
+			if len(batch) >= p.batchSize {
+				p.flushBatch(context.Background(), batch)
+				batch = make([]*event.Event, 0, p.batchSize)
+			}
+		default:
+			if drained {
+				p.flushBatch(context.Background(), batch)
+			} else {
+				p.flushBatch(context.Background(), batch)
+			}
+			return
+		}
+	}
+}
+
 // flushBatch writes the accumulated batch to the store and clears it.
-func (p *Pipeline) flushBatch(ctx context.Context, batch []*event.Event) {
+func (p *Pipeline) flushBatch(_ context.Context, batch []*event.Event) {
 	if len(batch) == 0 {
 		return
 	}
 
-	if err := p.store.CreateBatch(ctx, batch); err != nil {
+	// Accepted events must still be persisted during shutdown. The worker
+	// context is used only to stop accepting additional work, not to cancel
+	// writes for work that was already admitted.
+	if err := p.store.CreateBatch(context.Background(), batch); err != nil {
 		p.logger.Error("failed to flush batch", "count", len(batch), "error", err)
 	} else {
 		p.logger.Debug("flushed batch", "count", len(batch))
