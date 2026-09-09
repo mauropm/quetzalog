@@ -41,7 +41,7 @@ Full-text search uses SQLite's FTS5 module, which must be compiled into the bina
 CGO_ENABLED=1 go build -tags sqlite_fts5 -o quetzalog ./cmd/siem
 ```
 
-Or use the Makefile, which applies the same CGO settings and builds to `bin/siem`:
+Or use the Makefile, which applies the same CGO settings and builds to `quetzalog`:
 
 ```bash
 make build

@@ -1,6 +1,7 @@
 # Binaries
 bin/
 /siem
+/quetzalog
 
 # Data
 data/

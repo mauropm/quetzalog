@@ -3,7 +3,7 @@
 GO := $(shell which go 2>/dev/null || echo "/home/mauropm/go/go/bin/go")
 
 build:
-	CGO_ENABLED=1 CGO_CFLAGS="-DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_JSON1" CGO_LDFLAGS="-lm" $(GO) build -o bin/siem ./cmd/siem/
+	CGO_ENABLED=1 CGO_CFLAGS="-DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_JSON1" CGO_LDFLAGS="-lm" $(GO) build -o quetzalog ./cmd/siem/
 
 test:
 	CGO_ENABLED=1 CGO_CFLAGS="-DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_JSON1" CGO_LDFLAGS="-lm" $(GO) test -p 1 -timeout 20m ./...
@@ -19,13 +19,13 @@ fmt:
 	gofmt -s -w .
 
 run: build
-	./bin/siem serve
+	./quetzalog serve
 
 demo: build
-	./bin/siem demo
+	./quetzalog demo
 
 clean:
-	rm -rf bin/ data/
+	rm -rf bin/ data/ quetzalog
 
 deps:
 	$(GO) mod tidy
