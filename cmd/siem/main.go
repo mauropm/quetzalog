@@ -62,6 +62,16 @@ func run() int {
 	configFile := fs.String("config", "", "path to config file (default ./config.yaml)")
 	debug := fs.Bool("debug", false, "enable debug logging")
 
+	// FlagSet.Args() on the un-parsed root set returns the full argv
+	// (["prog", "subcmd", ...]); subcommand flag sets stop parsing at their
+	// first positional arg, so they must receive argv after the subcommand.
+	subArgs := func() []string {
+		if len(os.Args) > 2 {
+			return os.Args[2:]
+		}
+		return nil
+	}
+
 	switch cmd {
 	case "serve", "run", "":
 		// Parse the flags registered on `fs` for this path; without this the
@@ -75,25 +85,43 @@ func run() int {
 	case "demo":
 		return cmdDemo()
 	case "ingest":
-		return cmdIngest(fs.Args())
+		return cmdIngest(subArgs())
 	case "search":
-		return cmdSearch(fs.Args())
+		return cmdSearch(subArgs())
 	case "alerts":
-		return cmdAlerts(fs.Args())
+		return cmdAlerts(subArgs())
 	case "incidents":
-		return cmdIncidents(fs.Args())
+		return cmdIncidents(subArgs())
 	case "sources":
-		return cmdSources(fs.Args())
+		return cmdSources(subArgs())
 	case "detections":
-		return cmdDetections(fs.Args())
+		return cmdDetections(subArgs())
 	case "db":
-		return cmdDB(fs.Args())
+		return cmdDB(subArgs())
 	case "config":
-		return cmdConfig(fs.Args())
+		return cmdConfig(subArgs())
 	default:
 		writeUsage(fs)
 		return 1
 	}
+}
+
+// parseMixed parses flags in any order relative to positional arguments
+// (e.g. `search <query> --limit 5` or `--enable <id> --config c`). The
+// flag package stops at the first positional, so collect positionals and
+// resume flag parsing after each one.
+func parseMixed(fs *flag.FlagSet, args []string) []string {
+	var positional []string
+	for len(args) > 0 {
+		fs.Parse(args)
+		rest := fs.Args()
+		if len(rest) == 0 {
+			break
+		}
+		positional = append(positional, rest[0])
+		args = rest[1:]
+	}
+	return positional
 }
 
 func writeUsage(fs *flag.FlagSet) {
@@ -649,7 +677,11 @@ func cmdIngest(args []string) int {
 	fs := flag.NewFlagSet("ingest", flag.ExitOnError)
 	fs.StringVar(&configFile, "config", "", "path to config file")
 	fs.BoolVar(&quiet, "quiet", false, "suppress progress output")
-	fs.Parse(args)
+	ingestTail := parseMixed(fs, args)
+	filename := ""
+	if len(ingestTail) > 0 {
+		filename = ingestTail[0]
+	}
 
 	cfg := config.DefaultConfig()
 	if configFile != "" {
@@ -693,8 +725,7 @@ func cmdIngest(args []string) int {
 
 	count := 0
 
-	if len(fs.Args()) > 0 {
-		filename := fs.Args()[0]
+	if filename != "" {
 		data, err := os.ReadFile(filename)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading file: %v\n", err)
@@ -767,9 +798,13 @@ func cmdSearch(args []string) int {
 	fs.IntVar(&limit, "limit", 20, "max results")
 	fs.IntVar(&offset, "offset", 0, "result offset")
 	fs.StringVar(&format, "format", "text", "output format: text, json")
-	fs.Parse(args)
+	tail := parseMixed(fs, args)
 
-	if len(fs.Args()) == 0 {
+	q := ""
+	if len(tail) > 0 {
+		q = tail[0]
+	}
+	if q == "" {
 		fmt.Fprintf(os.Stderr, "Usage: quetzalog search <query> [flags]\n")
 		return 1
 	}
@@ -804,7 +839,7 @@ func cmdSearch(args []string) int {
 	searchSvc := query.NewService(db)
 
 	req := query.SearchRequest{
-		Query:  fs.Args()[0],
+		Query:  q,
 		Limit:  limit,
 		Offset: offset,
 	}
@@ -1068,7 +1103,11 @@ func cmdDetections(args []string) int {
 	fs.StringVar(&format, "format", "text", "output format: text, json")
 	fs.BoolVar(&enable, "enable", false, "enable a detection rule")
 	fs.BoolVar(&disable, "disable", false, "disable a detection rule")
-	fs.Parse(args)
+	detTail := parseMixed(fs, args)
+	ruleID := ""
+	if len(detTail) > 0 {
+		ruleID = detTail[0]
+	}
 
 	cfg := config.DefaultConfig()
 	if configFile != "" {
@@ -1106,11 +1145,11 @@ func cmdDetections(args []string) int {
 	}
 
 	if enable || disable {
-		if len(fs.Args()) == 0 {
+		if ruleID == "" {
 			fmt.Fprintf(os.Stderr, "Usage: quetzalog detections --enable/--disable <rule-id>\n")
 			return 1
 		}
-		id := fs.Args()[0]
+		id := ruleID
 		if enable {
 			if err := detectionStore.Enable(context.Background(), id); err != nil {
 				fmt.Fprintf(os.Stderr, "Error enabling detection: %v\n", err)

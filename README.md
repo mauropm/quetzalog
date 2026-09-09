@@ -35,26 +35,36 @@ alerting, and incident management -- all in a single binary with no external dep
 
 ### Build
 
+Full-text search uses SQLite's FTS5 module, which must be compiled into the binary. This requires CGO plus the `sqlite_fts5` build tag; without it the binary builds but crashes at startup with `no such module: fts5`.
+
 ```bash
-go build -o quetzalog ./cmd/quetzalog
+CGO_ENABLED=1 go build -tags sqlite_fts5 -o quetzalog ./cmd/siem
 ```
 
-With CGO (required for SQLite):
+Or use the Makefile, which applies the same CGO settings and builds to `bin/siem`:
 
 ```bash
-CGO_ENABLED=1 go build -o quetzalog ./cmd/quetzalog
+make build
 ```
 
 ### Run Demo (with sample data)
 
+Generates 200 synthetic events in an in-memory database, runs the detection rules, prints results, and exits (no server is started):
+
 ```bash
-./quetzalog demo --host 0.0.0.0 --port 8080
+./quetzalog demo
 ```
 
 ### Run Server
 
 ```bash
-./quetzalog serve --host 0.0.0.0 --port 8080 --db ./quetzalog.db
+./quetzalog serve
+```
+
+Starts the HTTP API and web UI. Defaults: bind `0.0.0.0:8080`, SQLite database at `./data/siem.db`. Accepted flags are `--config <path>` and `--debug`; host, port, and database path are set in the YAML config (keys `server.host`, `server.port`, `database.path`, see `config.example.yaml`) and passed with `--config`:
+
+```bash
+./quetzalog serve --config config.yaml
 ```
 
 ### Access
@@ -160,8 +170,10 @@ curl -X POST http://localhost:8080/v1/logs \
 
 ### Stdin (Piped Input)
 
+Reads newline-delimited JSON events from stdin (finish with Ctrl+D):
+
 ```bash
-tail -f /var/log/syslog | ./quetzalog ingest --source syslog
+cat events.jsonl | ./quetzalog ingest
 ```
 
 ---
@@ -274,37 +286,34 @@ Access at http://localhost:8080 after starting the server.
 ### Serve
 
 ```bash
-quetzalog serve --host 0.0.0.0 --port 8080 --db quetzalog.db
+quetzalog serve [--config path] [--debug]
 ```
 
 ### Demo
 
 ```bash
-quetzalog demo --host 0.0.0.0 --port 8080
+quetzalog demo
 ```
 
-Search for events:
+Search for events (`--limit`, `--offset`, `--format text|json`):
 
 ```bash
 quetzalog search "severity=error | head 10"
 ```
 
-List alerts:
+List alerts (`--status`, `--severity`, `--limit`, `--format`):
 
 ```bash
 quetzalog alerts --status new
 ```
 
-Acknowledge an alert:
+Acknowledge or resolve an alert (API only, requires `Authorization: Bearer <api-token>`, see [API.md](API.md)):
 
 ```bash
-quetzalog alerts ack <alert-id>
-```
-
-Resolve an alert:
-
-```bash
-quetzalog alerts resolve <alert-id>
+curl -X POST http://localhost:8080/api/v1/alerts/<alert-id>/acknowledge \
+  -H "Authorization: Bearer $QUETZALOG_API_TOKEN"
+curl -X POST http://localhost:8080/api/v1/alerts/<alert-id>/resolve \
+  -H "Authorization: Bearer $QUETZALOG_API_TOKEN"
 ```
 
 List detection rules:
@@ -313,23 +322,34 @@ List detection rules:
 quetzalog detections
 ```
 
-Create a detection rule:
+Enable or disable a detection rule:
 
 ```bash
-quetzalog detections create --name "Brute Force" --query "source=auth" --severity high
+quetzalog detections --enable <rule-id>
+quetzalog detections --disable <rule-id>
 ```
 
-Ingest events from stdin:
+Create a detection rule (API only):
 
 ```bash
-cat events.json | quetzalog ingest --source stdin
+curl -X POST http://localhost:8080/api/v1/detections \
+  -H "Authorization: Bearer $QUETZALOG_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Brute Force","query":"source=auth","severity":"high"}'
+```
+
+Ingest events from a file or stdin (newline-delimited JSON):
+
+```bash
+quetzalog ingest events.json
+cat events.jsonl | quetzalog ingest
 ```
 
 ---
 
 ## Configuration
 
-Quetzalog is configured via YAML file and/or environment variables.
+Quetzalog is configured via a YAML file passed with `--config` (see `config.example.yaml` for a complete example) plus a small set of environment variables. There is no default config path; without `--config` built-in defaults are used.
 
 ### Example Configuration
 
@@ -341,45 +361,47 @@ server:
 database:
   path: ./quetzalog.db
 
-api:
-  tokens:
-    - my-api-token
+ingestion:
+  workers: 4
+  batch_size: 100
 
 syslog:
-  udp: 1514
-  tcp: 1515
+  udp_enabled: true
+  udp_port: 5514
+  tcp_enabled: false
+  tcp_port: 5514
 
-hec:
-  tokens:
-    - my-hec-token
+splunk:
+  hec_enabled: true
+  hec_port: 8088
+  hec_tokens:
+    - id: my-source
+      token: my-hec-token
 
-ingestion:
-  rate_limit: 10000  # events per second
-  max_message_length: 32768
+otel:
+  enabled: false
+  grpc_port: 4317
+  http_port: 4318
 
-detection:
-  check_interval: 30s
-
-risk_scoring:
-  severity_weights:
-    debug: 0
-    info: 0
-    warning: 2
-    err: 5
-    critical: 10
+auth:
+  enabled: true
+  local_auth_enabled: true
 ```
+
+```bash
+quetzalog serve --config config.yaml
+```
+
+Tip: generate a starter file with `quetzalog config --write config.yaml`.
 
 ### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `QUETZALOG_HOST` | Bind host | `0.0.0.0` |
-| `QUETZALOG_PORT` | Bind port | `8080` |
-| `QUETZALOG_DB_PATH` | SQLite database path | `./quetzalog.db` |
-| `QUETZALOG_API_TOKENS` | Comma-separated API tokens | (none) |
-| `QUETZALOG_HEC_TOKENS` | Comma-separated HEC tokens | (none) |
-| `QUETZALOG_SYSLOG_UDP` | Syslog UDP port | `1514` |
-| `QUETZALOG_SYSLOG_TCP` | Syslog TCP port | `1515` |
+| `QUETZALOG_API_TOKEN` | API bearer token (overrides `auth.api_token`) | (none) |
+| `QUETZALOG_ADMIN_PASSWORD` | Bootstrap password for the first admin user; if unset a random one-time password is logged | (random) |
+
+Other settings (host, port, database path, syslog/HEC/OTLP ports, tokens) are YAML-only.
 
 ---
 
@@ -469,7 +491,7 @@ data flow diagrams, component descriptions, and extensibility guide.
 
 ```
 quetzalog/
-  cmd/quetzalog/         # CLI entrypoint
+  cmd/siem/              # CLI entrypoint
   internal/           # Internal packages
   pkg/                # Public packages
   web/                # Web UI source
