@@ -19,21 +19,17 @@ func Setup() http.Handler {
 	}
 
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
-	mux.Handle("/", serveSPA(dist))
+	mux.Handle("/", serveSPA(staticFS))
 
 	return mux
 }
 
-func serveSPA(dist embed.FS) http.Handler {
+func serveSPA(staticFS fs.FS) http.Handler {
+	fileServer := http.FileServer(http.FS(staticFS))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-		if !strings.HasPrefix(path, "/static/") {
+		if _, err := staticFS.Open(strings.TrimLeft(r.URL.Path, "/")); err != nil {
 			r.URL.Path = "/"
-			fileServer := http.FileServer(http.FS(dist))
-			fileServer.ServeHTTP(w, r)
-			return
 		}
-		fileServer := http.FileServer(http.FS(dist))
 		fileServer.ServeHTTP(w, r)
 	})
 }

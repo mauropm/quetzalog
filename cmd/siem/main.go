@@ -35,6 +35,7 @@ import (
 	"quetzalog/internal/query"
 	"quetzalog/internal/risk"
 	"quetzalog/internal/telemetry"
+	"quetzalog/internal/web"
 	"quetzalog/pkg/event"
 )
 
@@ -341,6 +342,7 @@ func cmdServe(cfgFile string, debug bool) int {
 		_ = jsonHandler.Handle(w, r)
 	}))
 	mux.Handle("/api/", apiHandler)
+	mux.Handle("/", web.Setup())
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
