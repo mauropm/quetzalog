@@ -1,6 +1,6 @@
-# SIEMto Benchmarks
+# Quetzalog Benchmarks
 
-Performance benchmark suite for SIEMto components including event ingestion, search, query execution, and alert management.
+Performance benchmark suite for Quetzalog components including event ingestion, search, query execution, and alert management.
 
 ## Usage
 

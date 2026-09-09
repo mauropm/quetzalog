@@ -1,6 +1,6 @@
 # SPL Compatibility
 
-SIEMto implements a Splunk-like query language (SPL) for searching and analyzing events.
+Quetzalog implements a Splunk-like query language (SPL) for searching and analyzing events.
 This document describes the supported commands, syntax, and limitations.
 
 ## Supported Commands
@@ -391,10 +391,10 @@ User Query String
 
 ## Limitations vs Splunk SPL
 
-SIEMto's SPL implementation covers the most commonly used commands but does not aim for
+Quetzalog's SPL implementation covers the most commonly used commands but does not aim for
 full Splunk SPL compatibility. Key differences:
 
-| Feature | Splunk SPL | SIEMto |
+| Feature | Splunk SPL | Quetzalog |
 |---------|-----------|--------|
 | Core search/filter | Full | Supported |
 | Boolean operators | Full | Supported |

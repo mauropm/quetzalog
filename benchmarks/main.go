@@ -215,7 +215,7 @@ func main() {
 
 	host, _ := os.Hostname()
 
-	fmt.Println("=== SIEMto Benchmark Suite ===")
+	fmt.Println("=== Quetzalog Benchmark Suite ===")
 	fmt.Println()
 	fmt.Printf("  DB:           %s\n", *dbPath)
 	fmt.Printf("  Ingest N:     %d\n", *ingestN)

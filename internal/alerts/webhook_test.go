@@ -180,8 +180,8 @@ func TestWebhookNotifier_MethodFiltering(t *testing.T) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		r.Body.Close()
 
-		event := r.Header.Get("X-Siemto-Event")
-		sig := r.Header.Get("X-Siemto-Signature")
+		event := r.Header.Get("X-Quetzalog-Event")
+		sig := r.Header.Get("X-Quetzalog-Signature")
 
 		mu.Lock()
 		receivedEvent = event
@@ -207,7 +207,7 @@ func TestWebhookNotifier_MethodFiltering(t *testing.T) {
 		t.Errorf("expected event 'alert.created', got: %v", receivedEvent)
 	}
 	if receivedSig == "" {
-		t.Error("expected X-Siemto-Signature header")
+		t.Error("expected X-Quetzalog-Signature header")
 	}
 	mu.Unlock()
 

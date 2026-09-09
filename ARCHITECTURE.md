@@ -1,8 +1,8 @@
-# SIEMto Architecture
+# Quetzalog Architecture
 
 ## Overview
 
-SIEMto is a lightweight, local-first Security Information and Event Management (SIEM) platform
+Quetzalog is a lightweight, local-first Security Information and Event Management (SIEM) platform
 written in Go. It uses SQLite as its primary storage engine with FTS5 for full-text search and
 WAL mode for concurrent access. The platform is designed to be self-contained, requiring no
 external dependencies beyond the binary itself.

@@ -1,6 +1,6 @@
 # OpenTelemetry Compatibility
 
-SIEMto accepts OpenTelemetry Protocol (OTLP) log exports, enabling seamless integration
+Quetzalog accepts OpenTelemetry Protocol (OTLP) log exports, enabling seamless integration
 with any OTLP-compatible telemetry agent or SDK.
 
 ## Supported OTLP Endpoints
@@ -23,13 +23,13 @@ OTLP protobuf library.
 
 ## Field Mapping
 
-SIEMto automatically maps OTLP fields to its canonical Event model:
+Quetzalog automatically maps OTLP fields to its canonical Event model:
 
 ### Resource Attributes
 
 Resource attributes (from the `resource` object) are mapped to event attributes:
 
-| OTLP Field | SIEMto Field | Notes |
+| OTLP Field | Quetzalog Field | Notes |
 |------------|--------------|-------|
 | `resource.attributes[i].key="service.name"` | `Event.Attributes["service.name"]` | Standard OpenTelemetry resource attribute |
 | `resource.attributes[i].key="host.name"` | `Event.Attributes["host.name"]` | Standard OpenTelemetry resource attribute |
@@ -41,7 +41,7 @@ Resource attributes (from the `resource` object) are mapped to event attributes:
 
 Scope attributes (from the `scope` object) are mapped similarly:
 
-| OTLP Field | SIEMto Field | Notes |
+| OTLP Field | Quetzalog Field | Notes |
 |------------|--------------|-------|
 | `scope.attributes[i].key=<key>` | `Event.Attributes["<key>"]` | Scoped attributes become event attributes |
 | `scope.name` | `Event.Source` | Scope name used as source identifier |
@@ -49,7 +49,7 @@ Scope attributes (from the `scope` object) are mapped similarly:
 
 ### Log Record Fields
 
-| OTLP Field | SIEMto Field | Notes |
+| OTLP Field | Quetzalog Field | Notes |
 |------------|--------------|-------|
 | `logRecords[i].body.stringValue` | `Event.Message` | String body -> message |
 | `logRecords[i].body.numberValue` | `Event.Attributes["body"]` | Numeric body -> attribute |
@@ -59,16 +59,16 @@ Scope attributes (from the `scope` object) are mapped similarly:
 | `logRecords[i].severityText` | `Event.Severity` | Mapped to canonical severity |
 | `logRecords[i].severityNumber` | `Event.Severity` | Numeric severity mapped to level |
 | `logRecords[i].timeUnixNano` | `Event.Timestamp` | Nanosecond Unix timestamp |
-| `logRecords[i].observedTimeUnixNano` | `Event.ReceivedAt` | When SIEMto received the event |
+| `logRecords[i].observedTimeUnixNano` | `Event.ReceivedAt` | When Quetzalog received the event |
 | `logRecords[i].attributes[i].key="user"` | `Event.Attributes["user"]` | Log attributes become event attributes |
 | `logRecords[i].traceId` | `Event.Attributes["trace_id"]` | Trace ID stored as hex string attribute |
 | `logRecords[i].spanId` | `Event.Attributes["span_id"]` | Span ID stored as hex string attribute |
 
 ### Severity Mapping
 
-OTLP severity numbers are mapped to SIEMto canonical severity levels:
+OTLP severity numbers are mapped to Quetzalog canonical severity levels:
 
-| OTLP Severity Number | OTLP Severity Text | SIEMto Severity |
+| OTLP Severity Number | OTLP Severity Text | Quetzalog Severity |
 |---------------------|---------------------|-----------------|
 | 1 | UNSPECIFIED | info |
 | 2 | TRACE | debug |

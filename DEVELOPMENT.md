@@ -1,6 +1,6 @@
 # Development Guide
 
-This guide covers building, testing, and extending SIEMto.
+This guide covers building, testing, and extending Quetzalog.
 
 ## Prerequisites
 
@@ -353,7 +353,7 @@ migrations/
 Migrations are applied automatically on server startup.
 
 ```bash
-# SIEMto auto-applies migrations on start
+# Quetzalog auto-applies migrations on start
 ./quetzalog serve --db quetzalog.db
 
 # Check migration status

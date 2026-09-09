@@ -1,7 +1,7 @@
-# SIEMto - A Lightweight Go/SQLite SIEM Platform
+# Quetzalog - A Lightweight Go/SQLite SIEM Platform
 
 A lightweight, local-first Security Information and Event Management (SIEM) platform built in Go
-with SQLite. SIEMto provides real-time event ingestion, SPL-like search, automated detection,
+with SQLite. Quetzalog provides real-time event ingestion, SPL-like search, automated detection,
 alerting, and incident management -- all in a single binary with no external dependencies.
 
 ## Badges
@@ -68,7 +68,7 @@ CGO_ENABLED=1 go build -o quetzalog ./cmd/quetzalog
 
 ## Ingestion Methods
 
-SIEMto supports multiple ingestion methods for maximum flexibility.
+Quetzalog supports multiple ingestion methods for maximum flexibility.
 
 ### JSON HTTP API
 
@@ -168,7 +168,7 @@ tail -f /var/log/syslog | ./quetzalog ingest --source syslog
 
 ## Search
 
-SIEMto uses a Splunk-like query language (SPL) for searching events.
+Quetzalog uses a Splunk-like query language (SPL) for searching events.
 
 ### Basic Search
 
@@ -329,7 +329,7 @@ cat events.json | quetzalog ingest --source stdin
 
 ## Configuration
 
-SIEMto is configured via YAML file and/or environment variables.
+Quetzalog is configured via YAML file and/or environment variables.
 
 ### Example Configuration
 
@@ -373,13 +373,13 @@ risk_scoring:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `SIEMTO_HOST` | Bind host | `0.0.0.0` |
-| `SIEMTO_PORT` | Bind port | `8080` |
-| `SIEMTO_DB_PATH` | SQLite database path | `./quetzalog.db` |
-| `SIEMTO_API_TOKENS` | Comma-separated API tokens | (none) |
-| `SIEMTO_HEC_TOKENS` | Comma-separated HEC tokens | (none) |
-| `SIEMTO_SYSLOG_UDP` | Syslog UDP port | `1514` |
-| `SIEMTO_SYSLOG_TCP` | Syslog TCP port | `1515` |
+| `QUETZALOG_HOST` | Bind host | `0.0.0.0` |
+| `QUETZALOG_PORT` | Bind port | `8080` |
+| `QUETZALOG_DB_PATH` | SQLite database path | `./quetzalog.db` |
+| `QUETZALOG_API_TOKENS` | Comma-separated API tokens | (none) |
+| `QUETZALOG_HEC_TOKENS` | Comma-separated HEC tokens | (none) |
+| `QUETZALOG_SYSLOG_UDP` | Syslog UDP port | `1514` |
+| `QUETZALOG_SYSLOG_TCP` | Syslog TCP port | `1515` |
 
 ---
 
@@ -406,7 +406,7 @@ curl http://localhost:8080/api/v1/stats
 
 ## Splunk Compatibility
 
-SIEMto provides Splunk-compatible endpoints for seamless integration:
+Quetzalog provides Splunk-compatible endpoints for seamless integration:
 
 | Endpoint | Description |
 |----------|-------------|
@@ -423,15 +423,15 @@ See [API.md](API.md#splunk-hec-compatibility) for full documentation.
 
 ## OpenTelemetry Compatibility
 
-SIEMto accepts OpenTelemetry Protocol (OTLP) log exports:
+Quetzalog accepts OpenTelemetry Protocol (OTLP) log exports:
 
 | Endpoint | Format | Description |
 |----------|--------|-------------|
 | `POST /v1/logs` | JSON | OTLP JSON encoding |
 | `POST /v1/logs` | Protobuf | OTLP protobuf encoding (stub) |
 
-Field mapping from OTLP to SIEMto events is automatic -- resource attributes become event attributes,
-severity maps to SIEMto severity, and the log body becomes the event message.
+Field mapping from OTLP to Quetzalog events is automatic -- resource attributes become event attributes,
+severity maps to Quetzalog severity, and the log body becomes the event message.
 
 See [OpenTelemetry Documentation](OPENTELEMETRY.md) for details.
 

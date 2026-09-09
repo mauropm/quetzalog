@@ -1,11 +1,11 @@
 # Splunk Compatibility Matrix
 
-This document describes SIEMto's compatibility with Splunk HTTP Event Collector (HEC)
+This document describes Quetzalog's compatibility with Splunk HTTP Event Collector (HEC)
 and Splunk Search REST API endpoints.
 
 ## Overview
 
-SIEMto aims to provide Splunk-compatible ingestion and search endpoints for easy
+Quetzalog aims to provide Splunk-compatible ingestion and search endpoints for easy
 migration and integration with existing Splunk tooling. Full Splunk compatibility is
 not a goal -- the focus is on the most commonly used endpoints.
 
@@ -106,7 +106,7 @@ curl -k https://localhost:8088/services/collector/raw \
 
 ### Supported Search Commands
 
-| Splunk Command | SIEMto Support | Notes |
+| Splunk Command | Quetzalog Support | Notes |
 |---------------|----------------|-------|
 | `search` | Full | Full support with field=value syntax |
 | `where` | Full | Comparison and boolean expressions |
@@ -153,7 +153,7 @@ curl -k https://localhost:8088/services/search/jobs/1725392400.12345/results \
 ### What Is Not Supported
 
 1. **Full Splunk SPL** - Only a subset of commands and functions are implemented
-2. **Real-time search** - SIEMto uses batch processing, not real-time streams
+2. **Real-time search** - Quetzalog uses batch processing, not real-time streams
 3. **Search peering** - No distributed search across multiple Splunk instances
 4. **Saved searches** - No pre-defined search templates (detection rules serve this purpose)
 5. **Scheduled reports** - No recurring report generation
@@ -165,7 +165,7 @@ curl -k https://localhost:8088/services/search/jobs/1725392400.12345/results \
 
 ### Differences from Splunk
 
-| Aspect | Splunk | SIEMto |
+| Aspect | Splunk | Quetzalog |
 |--------|--------|--------|
 | Storage | Proprietary index engine | SQLite |
 | Scale | Distributed, petabyte-scale | Single-node, gigabyte-scale |
@@ -183,21 +183,21 @@ curl -k https://localhost:8088/services/search/jobs/1725392400.12345/results \
 
 1. Update the HEC endpoint in your forwarder configuration:
    - Splunk: `https://splunk-server:8088/services/collector`
-   - SIEMto: `http://quetzalog:8080/services/collector`
+   - Quetzalog: `http://quetzalog:8080/services/collector`
 
 2. Update the HEC token in your configuration
 
-3. No changes needed to event format -- SIEMto accepts the same JSON format
+3. No changes needed to event format -- Quetzalog accepts the same JSON format
 
 ### Migrating Search Queries
 
-1. Test queries against SIEMto using the `POST /api/v1/search` endpoint
+1. Test queries against Quetzalog using the `POST /api/v1/search` endpoint
 2. Some Splunk-specific functions (eval, stats) may need syntax adjustment
 3. Use the [SPL Compatibility](../SPL_COMPATIBILITY.md) reference for supported commands
 
 ### Using with Splunk Forwarders
 
-Heavy and Universal Forwarders can be configured to send data to SIEMto:
+Heavy and Universal Forwarders can be configured to send data to Quetzalog:
 
 ```
 [http://localhost:8080/services/collector]

@@ -121,8 +121,8 @@ func (n *WebhookNotifier) Notify(ctx context.Context, alert *Alert, event string
 			return nil, err
 		}
 		req.Header.Set("Content-Type", n.config.ContentType)
-		req.Header.Set("X-Siemto-Signature", sig)
-		req.Header.Set("X-Siemto-Event", event)
+		req.Header.Set("X-Quetzalog-Signature", sig)
+		req.Header.Set("X-Quetzalog-Event", event)
 		for k, v := range n.config.Headers {
 			req.Header.Set(k, v)
 		}

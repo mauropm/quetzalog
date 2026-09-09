@@ -26,7 +26,7 @@ func TestWHSec_RetryResendsFullPayload(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		mu.Lock()
-		got = append(got, seen{body: string(b), sig: r.Header.Get("X-Siemto-Signature")})
+		got = append(got, seen{body: string(b), sig: r.Header.Get("X-Quetzalog-Signature")})
 		mu.Unlock()
 		if len(got) < 3 {
 			w.WriteHeader(500)
