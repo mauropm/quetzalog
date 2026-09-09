@@ -6,12 +6,10 @@ alerting, and incident management -- all in a single binary with no external dep
 
 ## Badges
 
-```
 [![Build Status](https://github.com/mauro/quetzalog/actions/workflows/build.yml/badge.svg)](https://github.com/mauro/quetzalog/actions)
 [![Go Report Card](https://goreportcard.com/badge/github.com/mauro/quetzalog)](https://goreportcard.com/report/github.com/mauro/quetzalog)
 [![Go Version](https://img.shields.io/badge/go-1.23+-blue.svg)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-```
 
 ## Features
 
