@@ -69,8 +69,8 @@ func (g *Graph) initTables(ctx context.Context) error {
 			id TEXT PRIMARY KEY,
 			type TEXT NOT NULL,
 			value TEXT NOT NULL,
-			first_seen TEXT NOT NULL,
-			last_seen TEXT NOT NULL,
+			first_seen DATETIME NOT NULL DEFAULT (datetime('now')),
+			last_seen DATETIME NOT NULL DEFAULT (datetime('now')),
 			count INTEGER NOT NULL DEFAULT 1,
 			metadata TEXT,
 			UNIQUE(type, value)
@@ -83,7 +83,7 @@ func (g *Graph) initTables(ctx context.Context) error {
 			to_value TEXT NOT NULL,
 			relation TEXT NOT NULL,
 			weight INTEGER NOT NULL DEFAULT 1,
-			created_at TEXT NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT (datetime('now')),
 			UNIQUE(from_type, from_value, to_type, to_value, relation)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_entities_type_value ON entities(type, value)`,
@@ -136,7 +136,7 @@ func (g *Graph) UpsertEntity(ctx context.Context, entity *Entity) error {
 			count = count + 1,
 			metadata = excluded.metadata`,
 		entity.ID, entity.Type, entity.Value,
-		entity.FirstSeen.Format(time.RFC3339), entity.LastSeen.Format(time.RFC3339),
+		entity.FirstSeen.UTC(), entity.LastSeen.UTC(),
 		entity.Count, metadataJSON,
 	)
 	if err != nil {
@@ -167,7 +167,7 @@ func (g *Graph) AddRelationship(ctx context.Context, rel *Relationship) error {
 		 ON CONFLICT(from_type, from_value, to_type, to_value, relation) DO UPDATE SET
 			weight = weight + excluded.weight`,
 		rel.ID, rel.FromType, rel.FromValue, rel.ToType, rel.ToValue, rel.Relation, rel.Weight,
-		rel.CreatedAt.Format(time.RFC3339),
+		rel.CreatedAt.UTC(),
 	)
 	if err != nil {
 		return fmt.Errorf("insert relationship: %w", err)

@@ -313,14 +313,14 @@ func TestMyHandler(t *testing.T) {
 
 ## Database Migrations
 
-Database migrations are stored in the `migrations/` directory.
+Database migrations are embedded from `internal/database/migrations/` (there is no top-level `migrations/` directory).
 
 ### Adding a Migration
 
-Create a new SQL file in `migrations/`:
+Create a new SQL file in `internal/database/migrations/` with the next number (current highest is `004`):
 
 ```
-# migrations/002_create_incidents.sql
+# internal/database/migrations/005_create_incidents.sql
 
 CREATE TABLE incidents (
     id          TEXT PRIMARY KEY,
@@ -341,12 +341,14 @@ ALTER TABLE alerts ADD COLUMN incident_id TEXT REFERENCES incidents(id);
 ### Migration Naming Convention
 
 ```
-migrations/
-  001_init.sql           # Initial schema
-  002_create_incidents.sql   # Add incidents table
-  003_add_alert_status.sql   # Modify alerts table
+internal/database/migrations/
+  001_initial.sql                    # Initial schema
+  002_schema_fixes.sql               # Notes, api_tokens, audit_log fixes
+  004_entities_correlation_schema.sql # Rebuild entities/relationships for correlation graph
   ...
 ```
+
+Note: `003` was used by an early build and later folded into `004`; keep the next file at `005`.
 
 ### Running Migrations
 
@@ -354,10 +356,10 @@ Migrations are applied automatically on server startup.
 
 ```bash
 # Quetzalog auto-applies migrations on start
-./quetzalog serve --db quetzalog.db
+./quetzalog serve
 
 # Check migration status
-sqlite3 quetzalog.db "SELECT * FROM schema_migrations;"
+sqlite3 data/siem.db "SELECT * FROM schema_migrations;"
 ```
 
 ## Web UI Development

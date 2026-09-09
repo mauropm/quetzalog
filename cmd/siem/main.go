@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"os/signal"
@@ -83,7 +84,7 @@ func run() int {
 		}
 		return cmdServe(*configFile, *debug)
 	case "demo":
-		return cmdDemo()
+		return cmdDemo(subArgs())
 	case "ingest":
 		return cmdIngest(subArgs())
 	case "search":
@@ -211,7 +212,6 @@ func cmdServe(cfgFile string, debug bool) int {
 	detectionStore := detections.NewStore(db)
 	searchSvc := query.NewService(db)
 	authStore := auth.NewStore(db)
-	_ = correlation.NewGraph(db)
 	geoEnricher, _ := enrichment.BuildGeoIPEnricher(enrichment.GeoIPConfig{Enabled: false})
 	_ = enrichment.NewCompositeEnricher([]enrichment.Enricher{
 		enrichment.NewLocalIPEnricher(),
@@ -430,7 +430,16 @@ func hardenDataFiles(dbPath string) {
 	}
 }
 
-func cmdDemo() int {
+func cmdDemo(args []string) int {
+	var (
+		configFile string
+		reset      bool
+	)
+	fs := flag.NewFlagSet("demo", flag.ExitOnError)
+	fs.StringVar(&configFile, "config", "", "path to config file")
+	fs.BoolVar(&reset, "reset", false, "delete the database first so each run starts clean")
+	parseMixed(fs, args)
+
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
@@ -445,7 +454,35 @@ func cmdDemo() int {
  ████  ███  █████   █   █████ █   █ █████  ███   ████`)
 	fmt.Println()
 
-	db, err := database.Open(":memory:", 5, 2, "5m")
+	cfg := config.DefaultConfig()
+	if configFile != "" {
+		loaded, err := config.LoadConfig(configFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			return 1
+		}
+		cfg = loaded
+	}
+
+	dbPath := cfg.Database.Path
+	if dbPath == "" {
+		dbPath = "./data/siem.db"
+	}
+	if reset && dbPath != ":memory:" && !strings.HasPrefix(dbPath, "file::memory:") {
+		for _, suffix := range []string{"", "-wal", "-shm"} {
+			if err := os.Remove(dbPath + suffix); err != nil && !os.IsNotExist(err) {
+				fmt.Fprintf(os.Stderr, "Error removing %s%s: %v\n", dbPath, suffix, err)
+				return 1
+			}
+		}
+		fmt.Printf("Reset database: %s\n", dbPath)
+	}
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating data directory: %v\n", err)
+		return 1
+	}
+
+	db, err := database.Open(dbPath, cfg.Database.MaxOpenConns, cfg.Database.MaxIdleConns, cfg.Database.MaxIdleTime)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
 		return 1
@@ -456,6 +493,7 @@ func cmdDemo() int {
 		fmt.Fprintf(os.Stderr, "Error running migrations: %v\n", err)
 		return 1
 	}
+	hardenDataFiles(dbPath)
 
 	eventStore := events.NewStore(db)
 	alertStore := alerts.NewStore(db)
@@ -468,12 +506,14 @@ func cmdDemo() int {
 	hosts := []string{"web01", "db01", "fw01", "auth01", "app01", "mail01", "proxy01"}
 	users := []string{"admin", "root", "deploy", "www-data", "postgres", "backup", "unknown", "attacker"}
 
-	fmt.Println("Generating ~200 synthetic security events...")
+	fmt.Println("Generating ~200 synthetic security events (random order)...")
 
 	batch := make([]*event.Event, 0, 20)
 	now := time.Now()
 
-	for i := 0; i < 200; i++ {
+	// Shuffled iteration: the same 200-event dataset is ingested in a
+	// different order on every run.
+	for _, i := range rand.Perm(200) {
 		ev := event.NewEvent()
 		ev.Timestamp = now.Add(-time.Duration(200-i) * time.Minute)
 		ev.Source = sources[i%len(sources)]
@@ -661,7 +701,8 @@ func cmdDemo() int {
 	fmt.Printf("  Detection rules:    %d\n", len(allRules))
 	fmt.Printf("  Alerts generated:   %d\n", totalAlerts)
 	fmt.Printf("  Time:               %s\n", time.Since(now).Round(time.Millisecond))
-	fmt.Println("\nData was stored in an in-memory SQLite database (no persistence).")
+	fmt.Printf("\nData persisted to %s\n", dbPath)
+	fmt.Println("Run 'quetzalog serve' (with the same --config, if any) to browse events, alerts, and the entity graph in the web UI.")
 
 	return 0
 }

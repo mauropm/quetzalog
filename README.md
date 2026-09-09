@@ -49,11 +49,19 @@ make build
 
 ### Run Demo (with sample data)
 
-Generates 200 synthetic events in an in-memory database, runs the detection rules, prints results, and exits (no server is started):
+Generates ~200 synthetic events, runs the detection rules, and persists everything (events, alerts, entity correlation graph, demo users) to the configured database (`./data/siem.db` by default). Then start the server to browse it in the web UI:
 
 ```bash
 ./quetzalog demo
+./quetzalog serve
 ```
+
+Both commands read the same `--config` file, so point them at the same `database.path` to view the demo data at http://localhost:8080.
+
+Notes:
+
+- The demo **appends** to the database, so re-running it accumulates events, alerts, and detection rules. Use `--reset` to delete the database first and get a clean run: `./quetzalog demo --reset`.
+- The ~200 events are generated in a **random order** on every run (realistic out-of-order arrival), so the row/insertion order differs each time even though the event mix is the same.
 
 ### Run Server
 
@@ -292,8 +300,10 @@ quetzalog serve [--config path] [--debug]
 ### Demo
 
 ```bash
-quetzalog demo
+quetzalog demo [--config path] [--reset]
 ```
+
+Seeds the configured database with ~200 synthetic events (generated in a random order each run) plus detection rules, alerts, and demo users. Runs append to existing data; `--reset` deletes the database first for a clean run.
 
 Search for events (`--limit`, `--offset`, `--format text|json`):
 
@@ -495,7 +505,6 @@ quetzalog/
   internal/           # Internal packages
   pkg/                # Public packages
   web/                # Web UI source
-  migrations/         # Database migrations
   examples/           # Example configurations and rules
   tests/              # Integration tests
   benchmarks/         # Performance benchmarks

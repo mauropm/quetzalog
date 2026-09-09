@@ -9,12 +9,14 @@ import (
 	"regexp"
 	"strings"
 
+	"quetzalog/internal/correlation"
 	"quetzalog/pkg/event"
 )
 
 // Store persists events to a SQLite database with FTS5 full-text search support.
 type Store struct {
-	db *sql.DB
+	db    *sql.DB
+	graph *correlation.Graph
 }
 
 // ErrInvalidQuery indicates the caller supplied a query value that cannot be safely mapped to SQL.
@@ -26,7 +28,7 @@ const MaxSearchLimit = 50000
 
 // NewStore creates a new event store backed by the given database connection.
 func NewStore(db *sql.DB) *Store {
-	return &Store{db: db}
+	return &Store{db: db, graph: correlation.NewGraph(db)}
 }
 
 // Create inserts a single event into the database.
@@ -51,6 +53,12 @@ func (s *Store) Create(ctx context.Context, ev *event.Event) error {
 	_, err := s.db.ExecContext(ctx, insertSQL, vals...)
 	if err != nil {
 		return fmt.Errorf("insert event: %w", err)
+	}
+
+	// Populate the entity correlation graph outside the insert so a graph
+	// write failure surfaces instead of silently leaving the feature dead.
+	if err := s.graph.AddEntityFromEvent(ctx, ev); err != nil {
+		return fmt.Errorf("correlate event: %w", err)
 	}
 
 	return nil
@@ -92,7 +100,23 @@ func (s *Store) CreateBatch(ctx context.Context, events []*event.Event) error {
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit batch transaction: %w", err)
+	}
+
+	// Populate the entity correlation graph after the commit: the graph
+	// writes use separate statements, and doing them in the same transaction
+	// would contend with the batch writer on another connection.
+	for _, ev := range events {
+		if ev == nil {
+			continue
+		}
+		if err := s.graph.AddEntityFromEvent(ctx, ev); err != nil {
+			return fmt.Errorf("correlate event %s: %w", ev.ID, err)
+		}
+	}
+
+	return nil
 }
 
 // GetByID retrieves a single event by its ID.
