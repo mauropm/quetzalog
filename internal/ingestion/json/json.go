@@ -1,6 +1,7 @@
 package json
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -170,14 +171,82 @@ func readBody(r *http.Request) ([]byte, error) {
 	return body, err
 }
 
-// isBatch checks if the JSON body contains an "events" array at the top level.
+// isBatch checks if the JSON body contains an "events" key at the top level.
+// It walks the token stream instead of unmarshalling the whole document, so the
+// body only gets fully decoded once, by the handler that actually needs it.
 func isBatch(body []byte) bool {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(body, &raw); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(body))
+
+	first, err := dec.Token()
+	if err != nil {
 		return false
 	}
-	_, hasEvents := raw["events"]
-	return hasEvents
+	if first != json.Delim('{') {
+		return false
+	}
+
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return false
+		}
+		if _, ok := tok.(json.Delim); ok {
+			// Only the object's own closing brace can appear here, which means
+			// the document has no events key.
+			return false
+		}
+		key, ok := tok.(string)
+		if !ok {
+			return false
+		}
+
+		val, err := dec.Token()
+		if err != nil {
+			return false
+		}
+		if key == "events" {
+			return true
+		}
+
+		// The member is not the one we are looking for; walk past its value,
+		// descending through any nested objects or arrays.
+		if err := skipValue(dec, val); err != nil {
+			return false
+		}
+	}
+}
+
+// skipValue consumes the remainder of a value whose first token has already
+// been read. Scalars are consumed by the caller's Token call, so only opening
+// delimiters need to be tracked here.
+func skipValue(dec *json.Decoder, first any) error {
+	delim, ok := first.(json.Delim)
+	if !ok {
+		return nil
+	}
+	if delim != json.Delim('{') && delim != json.Delim('[') {
+		return nil
+	}
+
+	depth := 1
+	for depth > 0 {
+		tok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		d, ok := tok.(json.Delim)
+		if !ok {
+			continue
+		}
+		if d == json.Delim('{') || d == json.Delim('[') {
+			depth++
+			continue
+		}
+		if d == json.Delim('}') || d == json.Delim(']') {
+			depth--
+		}
+	}
+	return nil
 }
 
 func errorResponse(w http.ResponseWriter, code int, reason string) error {

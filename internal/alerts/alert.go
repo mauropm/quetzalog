@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -212,12 +213,16 @@ func (s *Store) List(ctx context.Context, filter Filter) ([]*Alert, error) {
 	}
 	rows.Close()
 
+	ids := make([]string, 0, len(alerts))
 	for _, a := range alerts {
-		notes, err := s.GetNotes(ctx, a.ID)
-		if err != nil {
-			return nil, fmt.Errorf("get notes for alert %s: %w", a.ID, err)
-		}
-		a.Notes = notes
+		ids = append(ids, a.ID)
+	}
+	notesByAlert, err := s.notesByAlertIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("get notes for alerts: %w", err)
+	}
+	for _, a := range alerts {
+		a.Notes = notesByAlert[a.ID]
 	}
 
 	return alerts, nil
@@ -314,6 +319,59 @@ func (s *Store) GetNotes(ctx context.Context, alertID string) ([]Note, error) {
 			return nil, fmt.Errorf("scan note row: %w", err)
 		}
 		notes = append(notes, n)
+	}
+
+	return notes, nil
+}
+
+// notesPerQuery bounds how many alert ids go into a single IN (...) list so a
+// large page cannot exceed the host SQLite build's variable limit.
+const notesPerQuery = 500
+
+// notesByAlertIDs loads the notes for many alerts in one query per chunk and
+// groups them by alert id. Alerts without notes are absent from the map, which
+// mirrors GetNotes returning a nil slice.
+func (s *Store) notesByAlertIDs(ctx context.Context, ids []string) (map[string][]Note, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	notes := make(map[string][]Note, len(ids))
+
+	for start := 0; start < len(ids); start += notesPerQuery {
+		end := start + notesPerQuery
+		if end > len(ids) {
+			end = len(ids)
+		}
+		chunk := ids[start:end]
+
+		placeholders := strings.Repeat("?, ", len(chunk))
+		placeholders = placeholders[:len(placeholders)-2]
+
+		args := make([]any, 0, len(chunk))
+		for _, id := range chunk {
+			args = append(args, id)
+		}
+
+		query := `SELECT id, alert_id, created_at, content, author FROM notes WHERE alert_id IN (` + placeholders + `) ORDER BY alert_id, created_at ASC`
+		rows, err := s.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("query notes: %w", err)
+		}
+
+		for rows.Next() {
+			var n Note
+			if err := rows.Scan(&n.ID, &n.AlertID, &n.CreatedAt, &n.Content, &n.Author); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("scan note row: %w", err)
+			}
+			notes[n.AlertID] = append(notes[n.AlertID], n)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("iterate notes: %w", err)
+		}
+		rows.Close()
 	}
 
 	return notes, nil

@@ -126,6 +126,12 @@ var ingestOnlyPaths = map[string]bool{
 // opens the API implicitly: when Auth is enabled (the default) a credential
 // is always required, except for health and login.
 func apiTokenAuth(next http.Handler, cfg config.Config, authStore *auth.Store) http.Handler {
+	// The HEC credential list comes from static configuration, so it is
+	// flattened once here rather than rebuilt on every authenticated request.
+	hecTokens := make([]config.HECToken, 0, len(cfg.Auth.HECTokens)+len(cfg.Splunk.HECTokens))
+	hecTokens = append(hecTokens, cfg.Auth.HECTokens...)
+	hecTokens = append(hecTokens, cfg.Splunk.HECTokens...)
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cleanPath := pathClean(r.URL.Path)
 
@@ -154,7 +160,7 @@ func apiTokenAuth(next http.Handler, cfg config.Config, authStore *auth.Store) h
 			return
 		}
 
-		for _, token := range append(append([]config.HECToken{}, cfg.Auth.HECTokens...), cfg.Splunk.HECTokens...) {
+		for _, token := range hecTokens {
 			if subtle.ConstantTimeCompare([]byte(token.Token), provided) == 1 {
 				if r.Method != http.MethodPost || !ingestOnlyPaths[cleanPath] {
 					api.WriteJSON(w, http.StatusForbidden, api.Forbidden("HEC tokens may only post events"))

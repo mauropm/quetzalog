@@ -207,6 +207,30 @@ func severityRank(s string) int {
 	}
 }
 
+// timestampLayouts is tried in order by ParseTimestamp. It lives at package
+// scope so that parsing a timestamp does not rebuild the candidate list on
+// every call, which is a hot path for every log source.
+var timestampLayouts = []string{
+	time.RFC3339Nano,
+	time.RFC3339,
+	"2006-01-02T15:04:05.000Z07:00",
+	"2006-01-02T15:04:05.000000Z07:00",
+	"2006-01-02T15:04:05.000Z07:00",
+	"2006-01-02T15:04:05Z0700",
+	"2006-01-02T15:04:05",
+	"2006-01-02 15:04:05.000",
+	"2006-01-02 15:04:05.000000",
+	"2006-01-02 15:04:05",
+	"2006-01-02T15:04:05.000000-07:00",
+	"02 Jan 2006 15:04:05 MST",
+	"02/Jan/2006:15:04:05 -0700",
+	time.RFC1123,
+	time.RFC1123Z,
+	time.RFC822,
+	time.RFC822Z,
+	"20060102150405",
+}
+
 // ParseTimestamp attempts to parse a timestamp string using multiple common formats.
 func ParseTimestamp(s string) time.Time {
 	s = strings.TrimSpace(s)
@@ -214,28 +238,7 @@ func ParseTimestamp(s string) time.Time {
 		return time.Time{}
 	}
 
-	formats := []string{
-		time.RFC3339Nano,
-		time.RFC3339,
-		"2006-01-02T15:04:05.000Z07:00",
-		"2006-01-02T15:04:05.000000Z07:00",
-		"2006-01-02T15:04:05.000Z07:00",
-		"2006-01-02T15:04:05Z0700",
-		"2006-01-02T15:04:05",
-		"2006-01-02 15:04:05.000",
-		"2006-01-02 15:04:05.000000",
-		"2006-01-02 15:04:05",
-		"2006-01-02T15:04:05.000000-07:00",
-		"02 Jan 2006 15:04:05 MST",
-		"02/Jan/2006:15:04:05 -0700",
-		time.RFC1123,
-		time.RFC1123Z,
-		time.RFC822,
-		time.RFC822Z,
-		"20060102150405",
-	}
-
-	for _, layout := range formats {
+	for _, layout := range timestampLayouts {
 		if t, err := time.Parse(layout, s); err == nil {
 			return t
 		}

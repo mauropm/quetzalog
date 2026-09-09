@@ -32,6 +32,10 @@ const (
 	maxAPIPageOffset = 1000000
 )
 
+// statsSourceSample bounds how many of the newest events the by-source
+// dashboard tally is drawn from.
+const statsSourceSample = 5000
+
 // Handler wraps the dependencies for all HTTP API handlers.
 type Handler struct {
 	store          *events.Store
@@ -98,17 +102,10 @@ func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
 	}
 	counts["by_severity"] = countBySeverity
 
-	countBySource := make(map[string]int)
-	{
-		q := events.Query{Limit: 5000}
-		sources, err := h.store.Search(ctx, q)
-		if err != nil {
-			h.logger.Error("list events for source stats", "error", err)
-		} else {
-			for _, e := range sources {
-				countBySource[e.Source]++
-			}
-		}
+	countBySource, err := h.store.SourceCounts(ctx, statsSourceSample)
+	if err != nil {
+		h.logger.Error("list events for source stats", "error", err)
+		countBySource = make(map[string]int)
 	}
 	counts["by_source"] = countBySource
 

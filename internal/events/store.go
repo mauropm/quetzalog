@@ -37,15 +37,18 @@ func (s *Store) Create(ctx context.Context, ev *event.Event) error {
 
 	m := event.EventToMap(ev)
 
-	// Build column list and placeholders from the map keys in a deterministic order.
-	cols, vals, placeholders := mapToInsert(m)
+	// The column order is fixed, so the statement text is constant and can be
+	// prepared once and reused by database/sql's statement cache.
+	vals := make([]any, 0, len(insertColumnOrder))
+	for _, col := range insertColumnOrder {
+		if v, ok := m[col]; ok {
+			vals = append(vals, v)
+		} else {
+			vals = append(vals, nil)
+		}
+	}
 
-	q := fmt.Sprintf("INSERT INTO events (%s) VALUES (%s)",
-		strings.Join(cols, ", "),
-		strings.Join(placeholders, ", "),
-	)
-
-	_, err := s.db.ExecContext(ctx, q, vals...)
+	_, err := s.db.ExecContext(ctx, insertSQL, vals...)
 	if err != nil {
 		return fmt.Errorf("insert event: %w", err)
 	}
@@ -65,7 +68,7 @@ func (s *Store) CreateBatch(ctx context.Context, events []*event.Event) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	stmt, err := tx.PrepareContext(ctx, batchInsertTemplate())
+	stmt, err := tx.PrepareContext(ctx, insertSQL)
 	if err != nil {
 		return fmt.Errorf("prepare batch insert: %w", err)
 	}
@@ -167,13 +170,10 @@ func (s *Store) Search(ctx context.Context, q Query) ([]*event.Event, error) {
 
 // Count returns the total number of events matching the query criteria.
 func (s *Store) Count(ctx context.Context, q Query) (int, error) {
-	sqlParts, args, err := buildSearchQuery(q)
+	countSQL, args, err := buildCountQuery(q)
 	if err != nil {
 		return 0, fmt.Errorf("build count query: %w", err)
 	}
-
-	// Replace SELECT ... FROM with SELECT COUNT(*) FROM while keeping WHERE/ORDER/LIMIT intact.
-	countSQL := rewriteToCount(sqlParts)
 
 	var total int
 	err = s.db.QueryRowContext(ctx, countSQL, args...).Scan(&total)
@@ -182,6 +182,41 @@ func (s *Store) Count(ctx context.Context, q Query) (int, error) {
 	}
 
 	return total, nil
+}
+
+// SourceCounts returns the number of events per source among the most recent
+// limit rows. The sampling window matches the newest-first ordering used by
+// Search, and the tally is done by the database rather than by materialising
+// every sampled row into an Event.
+func (s *Store) SourceCounts(ctx context.Context, limit int) (map[string]int, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > MaxSearchLimit {
+		limit = MaxSearchLimit
+	}
+
+	const q = "SELECT source, COUNT(*) FROM (SELECT source FROM events ORDER BY timestamp DESC LIMIT ?) GROUP BY source"
+
+	rows, err := s.db.QueryContext(ctx, q, limit)
+	if err != nil {
+		return nil, fmt.Errorf("group events by source: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int)
+	for rows.Next() {
+		var src string
+		var n int
+		if err := rows.Scan(&src, &n); err != nil {
+			return nil, fmt.Errorf("scan source count: %w", err)
+		}
+		counts[src] += n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate source counts: %w", err)
+	}
+	return counts, nil
 }
 
 // DeleteByID removes a single event by its ID.
@@ -251,12 +286,15 @@ func scanEventRow(row rowScanner) (*event.Event, error) {
 	if raw.Valid {
 		ev.Raw = []byte(raw.String)
 	}
-	ev.Attributes = make(map[string]any)
 	if attrs.Valid && attrs.String != "" {
 		var m map[string]any
 		if err := json.Unmarshal([]byte(attrs.String), &m); err == nil {
 			ev.Attributes = m
+		} else {
+			ev.Attributes = map[string]any{}
 		}
+	} else {
+		ev.Attributes = map[string]any{}
 	}
 
 	return &ev, nil
@@ -265,24 +303,6 @@ func scanEventRow(row rowScanner) (*event.Event, error) {
 // rowScanner is a common interface for sql.Row and sql.Rows Scan methods.
 type rowScanner interface {
 	Scan(dest ...any) error
-}
-
-// mapToInsert converts a map of column names to values into ordered column
-// lists and placeholder slices suitable for a parameterized INSERT statement.
-func mapToInsert(m map[string]any) (cols []string, vals []any, placeholders []string) {
-	cols = make([]string, 0, len(m))
-	vals = make([]any, 0, len(m))
-	placeholders = make([]string, 0, len(m))
-
-	for _, key := range orderedInsertColumns {
-		if v, ok := m[key]; ok {
-			cols = append(cols, key)
-			vals = append(vals, v)
-			placeholders = append(placeholders, "?")
-		}
-	}
-
-	return cols, vals, placeholders
 }
 
 // orderedInsertColumns defines a deterministic ordering for map keys to ensure
@@ -323,7 +343,12 @@ var orderedInsertColumns = []string{
 // insertColumnOrder matches the columns in the same deterministic order.
 var insertColumnOrder = orderedInsertColumns
 
-func batchInsertTemplate() string {
+// insertSQL is the fully rendered single-row INSERT statement for events. It
+// is derived once from insertColumnOrder instead of being rebuilt on every
+// write so hot insert paths never touch fmt or strings.Join.
+var insertSQL = buildInsertSQL()
+
+func buildInsertSQL() string {
 	cols := strings.Join(insertColumnOrder, ", ")
 	placeholders := strings.Repeat("?, ", len(insertColumnOrder))
 	// Remove trailing comma+space
@@ -370,15 +395,34 @@ func sanitizeFTSMatch(q string) string {
 	if len(tokens) == 0 {
 		return `""`
 	}
-	quoted := make([]string, len(tokens))
+	// Tokens are restricted to the alnum/underscore class above, so wrapping
+	// them in FTS5 quotes needs no escaping and can be written directly.
+	var sb strings.Builder
+	sb.Grow(len(q) + 4*len(tokens))
 	for i, tok := range tokens {
-		quoted[i] = fmt.Sprintf(`"%s"`, tok)
+		if i > 0 {
+			sb.WriteString(" AND ")
+		}
+		sb.WriteByte('"')
+		sb.WriteString(tok)
+		sb.WriteByte('"')
 	}
-	return strings.Join(quoted, " AND ")
+	return sb.String()
 }
 
 // buildSearchQuery constructs the SQL query and arguments for the Search operation.
 func buildSearchQuery(q Query) (string, []any, error) {
+	return buildEventQuery(q, false)
+}
+
+// buildCountQuery builds the COUNT(*) variant of the same predicate. It shares
+// all WHERE construction with buildSearchQuery rather than rebuilding the wide
+// SELECT list only to discard it again afterwards.
+func buildCountQuery(q Query) (string, []any, error) {
+	return buildEventQuery(q, true)
+}
+
+func buildEventQuery(q Query, countOnly bool) (string, []any, error) {
 	if q.Limit <= 0 {
 		q.Limit = 100
 	}
@@ -399,11 +443,15 @@ func buildSearchQuery(q Query) (string, []any, error) {
 	var args []any
 	argIdx := 1
 
-	sb.WriteString("SELECT events.id, events.timestamp, events.received_at, events.source, events.source_type, events.host, events.ip, events.service, " +
-		"events.application, events.severity, events.message, events.event_type, events.category, events.action, events.outcome, " +
-		"events.user, events.user_id, events.process, events.process_id, events.parent_pid, events.file_path, " +
-		"events.destination_ip, events.destination_port, events.source_ip, events.source_port, " +
-		"events.raw, events.raw_format, events.trace_id, events.span_id, events.attributes FROM events")
+	if countOnly {
+		sb.WriteString("SELECT COUNT(*) FROM events")
+	} else {
+		sb.WriteString("SELECT events.id, events.timestamp, events.received_at, events.source, events.source_type, events.host, events.ip, events.service, " +
+			"events.application, events.severity, events.message, events.event_type, events.category, events.action, events.outcome, " +
+			"events.user, events.user_id, events.process, events.process_id, events.parent_pid, events.file_path, " +
+			"events.destination_ip, events.destination_port, events.source_ip, events.source_port, " +
+			"events.raw, events.raw_format, events.trace_id, events.span_id, events.attributes FROM events")
+	}
 
 	hasWhere := false
 
@@ -543,41 +591,12 @@ func buildSearchQuery(q Query) (string, []any, error) {
 	if !ok {
 		return "", nil, fmt.Errorf("%w: invalid sort column %q", ErrInvalidQuery, q.SortBy)
 	}
-	sb.WriteString(fmt.Sprintf(" ORDER BY %s %s", col, q.SortOrder))
+	if !countOnly {
+		sb.WriteString(fmt.Sprintf(" ORDER BY %s %s", col, q.SortOrder))
 
-	// Pagination
-	sb.WriteString(fmt.Sprintf(" LIMIT %d OFFSET %d", q.Limit, q.Offset))
+		// Pagination
+		sb.WriteString(fmt.Sprintf(" LIMIT %d OFFSET %d", q.Limit, q.Offset))
+	}
 
 	return sb.String(), args, nil
-}
-
-// rewriteToCount replaces the SELECT clause with SELECT COUNT(*) while
-// preserving the WHERE clause but removing ORDER BY, LIMIT, and OFFSET.
-func rewriteToCount(q string) string {
-	// Find the first FROM keyword (case-insensitive).
-	lower := strings.ToLower(q)
-	idx := strings.Index(lower, " from ")
-	if idx == -1 {
-		// Fallback: just return a count query
-		return "SELECT COUNT(*) FROM events"
-	}
-
-	// Take the part after FROM
-	base := "SELECT COUNT(*) FROM " + q[idx+len(" from "):]
-
-	// Remove ORDER BY and everything after it
-	if oi := strings.Index(strings.ToLower(base), " order by "); oi > 0 {
-		base = base[:oi]
-	}
-	// Remove LIMIT and everything after it
-	if li := strings.Index(strings.ToLower(base), " limit "); li > 0 {
-		base = base[:li]
-	}
-	// Remove OFFSET and everything after it
-	if oi := strings.Index(strings.ToLower(base), " offset "); oi > 0 {
-		base = base[:oi]
-	}
-
-	// Trim trailing whitespace and add semicolon
-	return strings.TrimSpace(base)
 }

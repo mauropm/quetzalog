@@ -30,17 +30,11 @@ func New(db *sql.DB) *Executor {
 }
 
 func (e *Executor) Execute(ctx context.Context, query *ast.Query) ([]map[string]any, []string, error) {
-	p, err := parser.New(queryToString(query))
-	if err != nil {
-		return nil, nil, fmt.Errorf("re-parse failed: %w", err)
+	if query == nil {
+		return nil, nil, fmt.Errorf("nil query")
 	}
 
-	parsed, err := p.Parse()
-	if err != nil {
-		return nil, nil, fmt.Errorf("re-parse failed: %w", err)
-	}
-
-	plan := planner.PlanQuery(parsed)
+	plan := planner.PlanQuery(query)
 	sqlQuery, err := planner.BuildSQL(plan)
 	if err != nil {
 		return nil, nil, fmt.Errorf("build SQL failed: %w", err)
@@ -72,18 +66,20 @@ func (e *Executor) Execute(ctx context.Context, query *ast.Query) ([]map[string]
 
 	var results []map[string]any
 
-	for rows.Next() {
-		vals := make([]any, len(columns))
-		valPtrs := make([]any, len(columns))
-		for i := range vals {
-			valPtrs[i] = &vals[i]
-		}
+	// The column set is fixed for the whole result set, so the scan targets
+	// are built once and refilled by Scan on every row.
+	vals := make([]any, len(columns))
+	valPtrs := make([]any, len(columns))
+	for i := range vals {
+		valPtrs[i] = &vals[i]
+	}
 
+	for rows.Next() {
 		if err := rows.Scan(valPtrs...); err != nil {
 			return nil, nil, fmt.Errorf("scan row failed: %w", err)
 		}
 
-		row := make(map[string]any)
+		row := make(map[string]any, len(renamedCols))
 		for i, col := range renamedCols {
 			v := vals[i]
 			// Convert []byte to string for SQLite
@@ -286,114 +282,4 @@ func (e *EvalEvaluator) TransformRex(event map[string]any, node *ast.RexNode) er
 	}
 
 	return nil
-}
-
-func queryToString(q *ast.Query) string {
-	var parts []string
-
-	for i, cmd := range q.Commands {
-		if i > 0 {
-			parts = append(parts, "|")
-		}
-		parts = append(parts, nodeToString(cmd))
-	}
-
-	return strings.Join(parts, " ")
-}
-
-func nodeToString(n ast.Node) string {
-	switch node := n.(type) {
-	case *ast.SearchNode:
-		var parts []string
-		for k, v := range node.Fields {
-			parts = append(parts, fmt.Sprintf("%s=%s", k, v))
-		}
-		if node.Text != "" {
-			parts = append(parts, node.Text)
-		}
-		if len(parts) == 0 {
-			return "search *"
-		}
-		return "search " + strings.Join(parts, " ")
-
-	case *ast.WhereNode:
-		var conds []string
-		for i, c := range node.Conditions {
-			conds = append(conds, fmt.Sprintf("%s %s %s", c.Field, c.Operator, c.Value))
-			if i < len(node.Conditions)-1 {
-				conds[i] += " AND"
-			}
-		}
-		return "where " + strings.Join(conds, " ")
-
-	case *ast.StatsNode:
-		var aggs []string
-		for _, a := range node.Aggs {
-			s := fmt.Sprintf("%s(%s)", a.Function, a.Field)
-			if a.Alias != "" {
-				s += " AS " + a.Alias
-			}
-			aggs = append(aggs, s)
-		}
-		result := "stats " + strings.Join(aggs, " ")
-		if len(node.GroupBy) > 0 {
-			result += " by " + strings.Join(node.GroupBy, " ")
-		}
-		return result
-
-	case *ast.SortNode:
-		var fields []string
-		for _, f := range node.Fields {
-			if f.Desc {
-				fields = append(fields, "-"+f.Field)
-			} else {
-				fields = append(fields, f.Field)
-			}
-		}
-		return "sort " + strings.Join(fields, " ")
-
-	case *ast.HeadNode:
-		return fmt.Sprintf("head %d", node.N)
-
-	case *ast.TailNode:
-		return fmt.Sprintf("tail %d", node.N)
-
-	case *ast.DedupNode:
-		return fmt.Sprintf("dedup %s", node.Field)
-
-	case *ast.RenameNode:
-		var parts []string
-		for old, new := range node.Mappings {
-			parts = append(parts, fmt.Sprintf("%s as %s", old, new))
-		}
-		return "rename " + strings.Join(parts, " ")
-
-	case *ast.TableNode:
-		return "table " + strings.Join(node.Fields, ", ")
-
-	case *ast.EvalNode:
-		return fmt.Sprintf("eval %s=%s", node.Field, node.Expr)
-
-	case *ast.TimechartNode:
-		s := fmt.Sprintf("timechart span=%s %s", node.Span, node.Func.Function)
-		if node.Func.Field != "*" {
-			s += "(" + node.Func.Field + ")"
-		}
-		if len(node.GroupBy) > 0 {
-			s += " by " + strings.Join(node.GroupBy, " ")
-		}
-		return s
-
-	case *ast.RexNode:
-		s := fmt.Sprintf(`rex field=%s "%s"`, node.Field, node.Pattern)
-		if node.Rename != "" {
-			s += fmt.Sprintf(" rename=%s", node.Rename)
-		}
-		if node.Mode != "" {
-			s += fmt.Sprintf(" mode=%s", node.Mode)
-		}
-		return s
-	}
-
-	return ""
 }

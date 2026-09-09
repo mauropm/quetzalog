@@ -212,12 +212,12 @@ func (p *Pipeline) worker(ctx context.Context) {
 			batch = append(batch, e)
 			if len(batch) >= p.batchSize {
 				p.flushBatch(ctx, batch)
-				batch = make([]*event.Event, 0, p.batchSize)
+				batch = batch[:0]
 			}
 		case <-ticker.C:
 			if len(batch) > 0 {
 				p.flushBatch(ctx, batch)
-				batch = make([]*event.Event, 0, p.batchSize)
+				batch = batch[:0]
 			}
 		}
 	}
@@ -240,7 +240,7 @@ func (p *Pipeline) drainWorkerChan(batch []*event.Event) {
 			batch = append(batch, e)
 			if len(batch) >= p.batchSize {
 				p.flushBatch(context.Background(), batch)
-				batch = make([]*event.Event, 0, p.batchSize)
+				batch = batch[:0]
 			}
 		default:
 			if drained {

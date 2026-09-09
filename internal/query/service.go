@@ -77,6 +77,18 @@ func (s *Service) Execute(ctx context.Context, req SearchRequest) (*SearchRespon
 	}
 
 	store := events.NewStore(s.db)
+
+	// A stats pipeline aggregates the returned rows in process and reports the
+	// number of groups, so the total row count would be computed and thrown
+	// away. Skip it for that path.
+	if hasStats(pipeCommands) {
+		evts, err := store.Search(ctx, q)
+		if err != nil {
+			return nil, fmt.Errorf("search events: %w", err)
+		}
+		return s.applyStats(evts, pipeCommands), nil
+	}
+
 	total, err := store.Count(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("count events: %w", err)
@@ -85,10 +97,6 @@ func (s *Service) Execute(ctx context.Context, req SearchRequest) (*SearchRespon
 	evts, err := store.Search(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("search events: %w", err)
-	}
-
-	if hasStats(pipeCommands) {
-		return s.applyStats(evts, pipeCommands), nil
 	}
 
 	evts = s.applySort(evts, pipeCommands)
@@ -515,17 +523,20 @@ func (s *Service) toResponse(events []*event.Event, total int) *SearchResponse {
 	cols := []string{"id", "timestamp", "source", "severity", "event_type", "host", "message"}
 	results := make([]map[string]any, len(events))
 
+	// The projected columns are a small fixed subset of the canonical event.
+	// Reading them straight off the struct avoids materialising the full
+	// storage map (including a JSON re-encode of attributes) per row just to
+	// copy seven values out of it.
 	for i, ev := range events {
-		m := event.EventToMap(ev)
-		row := make(map[string]any)
-		for _, col := range cols {
-			if v, ok := m[col]; ok {
-				row[col] = v
-			} else {
-				row[col] = ""
-			}
+		results[i] = map[string]any{
+			"id":         ev.ID,
+			"timestamp":  ev.Timestamp.UTC(),
+			"source":     ev.Source,
+			"severity":   event.ParseSeverity(ev.Severity),
+			"event_type": ev.EventType,
+			"host":       ev.Host,
+			"message":    ev.Message,
 		}
-		results[i] = row
 	}
 
 	return &SearchResponse{
