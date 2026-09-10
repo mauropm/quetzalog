@@ -92,6 +92,12 @@ tr.clickable { cursor: pointer; }
 .icon-btn { background: none; border: none; cursor: pointer; color: var(--text-secondary); padding: 2px 6px; vertical-align: middle; display: inline-flex; align-items: center; }
 .icon-btn:hover { color: var(--accent); }
 .modal-section { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 8px; font-weight: 600; font-size: 13px; color: var(--text-secondary); }
+.comment { border: 1px solid var(--border); background: var(--bg-primary); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }
+.comment .meta { font-size: 11px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.comment .body { font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+.comments-scroll { max-height: 240px; overflow-y: auto; margin-top: 8px; }
+.comment.highlight { border-color: var(--accent); }
+.status-pill { margin-right: 6px; margin-bottom: 6px; }
 </style>
 </head>
 <body>
@@ -144,7 +150,7 @@ tr.clickable { cursor: pointer; }
   </div>
   <div id="page-incidents" class="page">
     <div class="page-header"><h2>Incidents</h2><p>Security incident management</p></div>
-    <button class="btn btn-primary" onclick="showCreateIncident()" style="margin-bottom:16px">+ New Incident</button>
+    <button class="btn btn-primary" onclick="showCreateIncidentModal()" style="margin-bottom:16px">+ New Incident</button>
     <div class="card"><div class="card-body" id="incidents-list"><div class="loading">Loading...</div></div></div>
   </div>
   <div id="page-detections" class="page">
@@ -195,9 +201,49 @@ tr.clickable { cursor: pointer; }
     <div id="event-detail"><div class="loading">Loading...</div></div>
   </div>
 </div>
+<div class="overlay" id="incident-modal" onclick="if (event.target === this) closeIncidentModal()">
+  <div class="modal-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <h2 style="font-size:16px;color:var(--accent);flex:1">Incident Details</h2>
+      <div style="white-space:nowrap">
+        <button class="icon-btn" id="incident-share-btn" title="Copy share link" onclick="shareIncidentLink()" style="display:none">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.7-1.7"/></svg>
+        </button>
+        <button class="btn btn-sm" onclick="closeIncidentModal()">Close</button>
+      </div>
+    </div>
+    <div id="incident-body"><div class="loading">Loading...</div></div>
+  </div>
+</div>
+<div class="overlay" id="create-incident-modal" onclick="if (event.target === this) closeCreateIncidentModal()">
+  <div class="modal-card" style="width:480px">
+    <h2 style="font-size:16px;color:var(--accent);margin-bottom:12px">New Incident</h2>
+    <div class="form-group"><label>Title *</label><input type="text" id="inc-title" placeholder="Short summary of the incident"></div>
+    <div class="form-group"><label>Severity</label>
+      <select id="inc-severity">
+        <option value="critical">critical</option>
+        <option value="err">err</option>
+        <option value="warning" selected>warning</option>
+        <option value="info">info</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Description</label><textarea id="inc-desc" rows="4" placeholder="What happened, scope, references..."></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn" onclick="closeCreateIncidentModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="doCreateIncident()">Create</button>
+    </div>
+  </div>
+</div>
 <script>
 const API = '/api/v1';
-const sharedEventId = new URLSearchParams(location.search).get('event');
+const sharedParams = new URLSearchParams(location.search);
+const sharedEventId = sharedParams.get('event');
+const sharedIncidentId = sharedParams.get('incident');
+const sharedCommentId = sharedParams.get('comment');
+function openSharedItems() {
+  if (sharedIncidentId) showIncidentDetails(sharedIncidentId, sharedCommentId);
+  else if (sharedEventId) showEventDetails(sharedEventId);
+}
 let token = sessionStorage.getItem('quetzalog_token') || '';
 let currentUser = null;
 function authHeaders() {
@@ -230,7 +276,7 @@ async function doLogin() {
     document.getElementById('whoami').textContent = currentUser.username + ' (' + currentUser.role + ')';
     document.getElementById('login-overlay').classList.remove('visible');
     loadPage(currentPage);
-    if (sharedEventId) showEventDetails(sharedEventId);
+    openSharedItems();
   } catch(e) {
     err.style.display = 'block';
     err.textContent = e.message;
@@ -302,7 +348,9 @@ function closeEventModal() {
   document.getElementById('share-btn').style.display = 'none';
   currentEventId = null;
 }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeEventModal(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeEventModal(); closeIncidentModal(); closeCreateIncidentModal(); }
+});
 async function showEventDetails(id) {
   const body = document.getElementById('event-detail');
   document.getElementById('event-modal').classList.add('visible');
@@ -458,7 +506,9 @@ async function loadIncidents() {
     if (!incs.length) { el.innerHTML = '<div class="empty">No incidents found</div>'; return; }
     let html = '<table><thead><tr><th>Created</th><th>Severity</th><th>Title</th><th>Status</th></tr></thead><tbody>';
     for (const i of incs) {
-      html += '<tr><td>' + new Date(i.created_at).toLocaleString() + '</td><td><span class="badge badge-yellow">' + i.severity + '</span></td><td>' + (i.title||'') + '</td><td><span class="badge badge-blue">' + i.status + '</span></td></tr>';
+      const st = canonicalStatus(i.status);
+      const stBadge = {new: 'badge-gray', acknowledged: 'badge-yellow', in_progress: 'badge-blue', solved: 'badge-green', cancelled: 'badge-gray', closed: 'badge-gray'}[st] || 'badge-blue';
+      html += '<tr class="clickable" title="View incident details" onclick="showIncidentDetails(\'' + i.id + '\')"><td>' + new Date(i.created_at).toLocaleString() + '</td><td><span class="badge badge-yellow">' + (i.severity||'') + '</span></td><td>' + (i.title||'') + '</td><td><span class="badge ' + stBadge + '">' + esc(st) + '</span></td></tr>';
     }
     html += '</tbody></table>';
     el.innerHTML = html;
@@ -510,12 +560,172 @@ async function execDetection(id) {
     toast('Detection run: ' + JSON.stringify(r), 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
-function showCreateIncident() {
-  const title = prompt('Incident title:');
-  if (!title) return;
-  const sev = prompt('Severity (critical, err, warning, info):', 'warning');
-  api('/incidents', {method: 'POST', body: JSON.stringify({title, severity: sev||'warning', status: 'open'})}).then(() => {
-    toast('Incident created', 'success'); loadIncidents();
+const ICON_LINK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.7-1.7"/></svg>';
+const ICON_EDIT = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>';
+const INCIDENT_STATUSES = [
+  ['new', 'New'],
+  ['acknowledged', 'Ack'],
+  ['in_progress', 'In progress'],
+  ['solved', 'Solved'],
+  ['cancelled', 'Cancelled'],
+  ['closed', 'Closed']
+];
+const STATUS_ALIAS = {open: 'new', investigating: 'in_progress', resolved: 'solved'};
+const INC_SEVERITIES = ['critical', 'err', 'warning', 'info'];
+function canonicalStatus(s) { return STATUS_ALIAS[s] || s || 'new'; }
+let currentIncidentId = null;
+function closeIncidentModal() {
+  document.getElementById('incident-modal').classList.remove('visible');
+  document.getElementById('incident-share-btn').style.display = 'none';
+  currentIncidentId = null;
+}
+async function showIncidentDetails(id, focusComment) {
+  currentIncidentId = id;
+  document.getElementById('incident-modal').classList.add('visible');
+  document.getElementById('incident-share-btn').style.display = 'inline-flex';
+  const body = document.getElementById('incident-body');
+  body.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const [inc, cmts] = await Promise.all([
+      api('/incidents/' + encodeURIComponent(id)),
+      api('/incidents/' + encodeURIComponent(id) + '/comments').catch(() => [])
+    ]);
+    renderIncident(inc, cmts || []);
+    if (focusComment) {
+      const el = document.getElementById('comment-' + focusComment);
+      if (el) {
+        el.classList.add('highlight');
+        el.scrollIntoView({block: 'nearest'});
+        setTimeout(() => el.classList.remove('highlight'), 5000);
+      }
+    }
+  } catch(e) {
+    body.innerHTML = '<div class="empty">Failed to load incident: ' + esc(e.message) + '</div>';
+  }
+}
+function commentHtml(c) {
+  return '<div class="comment" id="comment-' + esc(c.id) + '">' +
+    '<div class="meta"><span><strong>' + esc(c.author || 'unknown') + '</strong> · ' + (c.created_at ? new Date(c.created_at).toLocaleString() : '') + '</span>' +
+    '<button class="icon-btn" title="Copy comment link" onclick="shareComment(\'' + esc(c.id) + '\')">' + ICON_LINK + '</button></div>' +
+    '<div class="body">' + esc(c.body) + '</div></div>';
+}
+function renderIncident(inc, comments) {
+  const body = document.getElementById('incident-body');
+  const status = canonicalStatus(inc.status);
+  const statusBadge = {new: 'badge-gray', acknowledged: 'badge-yellow', in_progress: 'badge-blue', solved: 'badge-green', cancelled: 'badge-gray', closed: 'badge-gray'}[status] || 'badge-gray';
+  const statusLabel = (INCIDENT_STATUSES.find(s => s[0] === status) || [status, status])[1];
+  let html = '<table class="kv"><tbody>';
+  html += '<tr><td>ID</td><td>' + esc(inc.id) + ' <button class="icon-btn" title="Copy incident ID" onclick="copyText(\'' + esc(inc.id) + '\', \'Incident ID copied\')">' + ICON_COPY + '</button></td></tr>';
+  html += '<tr><td>Status</td><td><span class="badge ' + statusBadge + '">' + esc(statusLabel) + '</span></td></tr>';
+  html += '<tr><td>Severity</td><td>' + esc(inc.severity || '') + '</td></tr>';
+  if (inc.assignee) html += '<tr><td>Assignee</td><td>' + esc(inc.assignee) + '</td></tr>';
+  if (inc.created_at) html += '<tr><td>Created</td><td>' + esc(new Date(inc.created_at).toLocaleString()) + '</td></tr>';
+  if (inc.updated_at) html += '<tr><td>Updated</td><td>' + esc(new Date(inc.updated_at).toLocaleString()) + '</td></tr>';
+  html += '</tbody></table>';
+
+  html += '<div class="modal-section" style="display:flex;justify-content:space-between;align-items:center"><span>Title</span><button class="icon-btn" title="Edit title" onclick="toggleIncidentEdit(\'title\')">' + ICON_EDIT + '</button></div>';
+  html += '<div id="incident-title-view" style="font-size:14px;margin-top:4px">' + esc(inc.title || '') + '</div>';
+  html += '<div id="incident-title-edit" style="display:none;margin-top:4px"><input type="text" style="width:100%;background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text-primary);padding:8px 12px;border-radius:6px;font-size:14px" value="' + esc(inc.title || '') + '"><div style="margin-top:6px;display:flex;gap:6px"><button class="btn btn-sm btn-primary" onclick="saveIncidentField(\'title\')">Save</button><button class="btn btn-sm" onclick="toggleIncidentEdit(\'title\')">Cancel</button></div></div>';
+
+  html += '<div class="modal-section" style="display:flex;justify-content:space-between;align-items:center"><span>Description</span><button class="icon-btn" title="Edit description" onclick="toggleIncidentEdit(\'description\')">' + ICON_EDIT + '</button></div>';
+  html += '<pre class="attr" id="incident-description-view" style="margin-top:4px">' + esc(inc.description || '(no description)') + '</pre>';
+  html += '<div id="incident-description-edit" style="display:none;margin-top:4px"><textarea rows="4" style="width:100%;background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text-primary);padding:8px 12px;border-radius:6px;font-size:14px">' + esc(inc.description || '') + '</textarea><div style="margin-top:6px;display:flex;gap:6px"><button class="btn btn-sm btn-primary" onclick="saveIncidentField(\'description\')">Save</button><button class="btn btn-sm" onclick="toggleIncidentEdit(\'description\')">Cancel</button></div></div>';
+
+  html += '<div class="modal-section">Set status</div><div style="margin-top:6px">';
+  for (const [value, label] of INCIDENT_STATUSES) {
+    if (value !== status) html += '<button class="btn btn-sm status-pill" onclick="changeIncidentStatus(\'' + value + '\')">' + label + '</button>';
+  }
+  html += '</div>';
+
+  const curSev = inc.severity || 'warning';
+  const sevOptions = INC_SEVERITIES.includes(curSev) ? INC_SEVERITIES : [curSev, ...INC_SEVERITIES];
+  html += '<div class="modal-section">Set severity</div><div style="margin-top:6px">';
+  for (const s of sevOptions) {
+    if (s !== curSev) html += '<button class="btn btn-sm status-pill" onclick="changeIncidentSeverity(\'' + esc(s) + '\')">' + esc(s) + '</button>';
+  }
+  html += '</div>';
+
+  html += '<div class="modal-section">Comments (' + comments.length + ')</div>';
+  html += '<div class="comments-scroll" id="incident-comments">';
+  html += comments.length ? comments.map(commentHtml).join('') : '<div class="empty">No comments yet</div>';
+  html += '</div>';
+  html += '<div class="search-box" style="margin-top:10px;margin-bottom:0"><input id="comment-input" placeholder="Add a comment..." onkeydown="if (event.key === \'Enter\' &amp;&amp; (event.metaKey || event.ctrlKey)) addIncidentComment()"><button class="btn btn-primary btn-sm" onclick="addIncidentComment()">Post</button></div>';
+  body.innerHTML = html;
+}
+function toggleIncidentEdit(field) {
+  const view = document.getElementById('incident-' + field + '-view');
+  const edit = document.getElementById('incident-' + field + '-edit');
+  if (edit.style.display === 'none') {
+    view.style.display = 'none';
+    edit.style.display = 'block';
+  } else {
+    view.style.display = 'block';
+    edit.style.display = 'none';
+  }
+}
+async function saveIncidentField(field) {
+  const edit = document.getElementById('incident-' + field + '-edit');
+  const value = edit.querySelector('input, textarea').value;
+  try {
+    await api('/incidents/' + encodeURIComponent(currentIncidentId), {method: 'PUT', body: JSON.stringify({[field]: value})});
+    toast('Incident updated', 'success');
+    showIncidentDetails(currentIncidentId);
+    loadIncidents();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+async function changeIncidentStatus(status) {
+  try {
+    await api('/incidents/' + encodeURIComponent(currentIncidentId) + '/status', {method: 'POST', body: JSON.stringify({status})});
+    toast('Status set to ' + status, 'success');
+    showIncidentDetails(currentIncidentId);
+    loadIncidents();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+async function changeIncidentSeverity(severity) {
+  try {
+    await api('/incidents/' + encodeURIComponent(currentIncidentId), {method: 'PUT', body: JSON.stringify({severity})});
+    toast('Severity set to ' + severity, 'success');
+    showIncidentDetails(currentIncidentId);
+    loadIncidents();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+async function addIncidentComment() {
+  const input = document.getElementById('comment-input');
+  const text = input.value.trim();
+  if (!text) return;
+  try {
+    await api('/incidents/' + encodeURIComponent(currentIncidentId) + '/comments', {method: 'POST', body: JSON.stringify({body: text})});
+    input.value = '';
+    showIncidentDetails(currentIncidentId);
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+function shareIncidentLink() {
+  if (!currentIncidentId) return;
+  copyText(location.origin + location.pathname + '?incident=' + encodeURIComponent(currentIncidentId), 'Incident link copied');
+}
+function shareComment(commentId) {
+  if (!currentIncidentId) return;
+  copyText(location.origin + location.pathname + '?incident=' + encodeURIComponent(currentIncidentId) + '&comment=' + encodeURIComponent(commentId), 'Comment link copied');
+}
+function showCreateIncidentModal() {
+  document.getElementById('inc-title').value = '';
+  document.getElementById('inc-desc').value = '';
+  document.getElementById('inc-severity').value = 'warning';
+  document.getElementById('create-incident-modal').classList.add('visible');
+  document.getElementById('inc-title').focus();
+}
+function closeCreateIncidentModal() {
+  document.getElementById('create-incident-modal').classList.remove('visible');
+}
+function doCreateIncident() {
+  const title = document.getElementById('inc-title').value.trim();
+  if (!title) { toast('Title is required', 'error'); return; }
+  const severity = document.getElementById('inc-severity').value;
+  const description = document.getElementById('inc-desc').value;
+  api('/incidents', {method: 'POST', body: JSON.stringify({title, severity, description, status: 'new'})}).then(() => {
+    toast('Incident created', 'success');
+    closeCreateIncidentModal();
+    loadIncidents();
   }).catch(e => toast('Error: ' + e.message, 'error'));
 }
 function showCreateDetection() {
@@ -532,7 +742,7 @@ if (token) {
     currentUser = me;
     document.getElementById('whoami').textContent = me.username + ' (' + me.role + ')';
     loadPage(currentPage);
-    if (sharedEventId) showEventDetails(sharedEventId);
+    openSharedItems();
   }).catch(() => {});
 } else {
   requireLogin();

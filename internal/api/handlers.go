@@ -681,6 +681,176 @@ func (h *Handler) ResolveIncident(w http.ResponseWriter, r *http.Request) {
 	api.WriteJSON(w, http.StatusOK, api.Success(map[string]any{"resolved": true}))
 }
 
+// UpdateIncidentRequest carries the editable fields of an incident. Pointer
+// fields keep the distinction between "absent" and "explicitly empty".
+type UpdateIncidentRequest struct {
+	Title       *string `json:"title,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Severity    *string `json:"severity,omitempty"`
+	Assignee    *string `json:"assignee,omitempty"`
+}
+
+// UpdateIncident patches title, description, severity or assignee.
+func (h *Handler) UpdateIncident(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	id := r.PathValue("id")
+	if id == "" {
+		api.WriteJSON(w, http.StatusBadRequest, api.BadRequest("missing incident ID"))
+		return
+	}
+
+	var req UpdateIncidentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.WriteJSON(w, http.StatusBadRequest, api.BadRequest("invalid request body"))
+		return
+	}
+
+	inc, err := h.incidentStore.GetByID(ctx, id)
+	if err != nil {
+		api.WriteJSON(w, http.StatusNotFound, api.NotFound(fmt.Sprintf("incident %s not found", id)))
+		return
+	}
+
+	if req.Title != nil {
+		if strings.TrimSpace(*req.Title) == "" {
+			api.WriteJSON(w, http.StatusBadRequest, api.BadRequest("title must not be empty"))
+			return
+		}
+		inc.Title = *req.Title
+	}
+	if req.Description != nil {
+		inc.Description = *req.Description
+	}
+	if req.Severity != nil {
+		inc.Severity = *req.Severity
+	}
+	if req.Assignee != nil {
+		inc.Assignee = *req.Assignee
+	}
+
+	if err := h.incidentStore.Update(ctx, inc); err != nil {
+		h.logger.Error("update incident", "id", id, "error", err)
+		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to update incident"))
+		return
+	}
+
+	h.logger.Info("incident updated", "id", id)
+	api.WriteJSON(w, http.StatusOK, api.Success(inc))
+}
+
+// SetIncidentStatusRequest carries the target lifecycle status.
+type SetIncidentStatusRequest struct {
+	Status string `json:"status"`
+}
+
+// SetIncidentStatus moves an incident along its lifecycle.
+func (h *Handler) SetIncidentStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	id := r.PathValue("id")
+	if id == "" {
+		api.WriteJSON(w, http.StatusBadRequest, api.BadRequest("missing incident ID"))
+		return
+	}
+
+	var req SetIncidentStatusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.WriteJSON(w, http.StatusBadRequest, api.BadRequest("invalid request body"))
+		return
+	}
+	if !incidents.ValidStatus(req.Status) {
+		api.WriteJSON(w, http.StatusBadRequest, api.BadRequest(
+			fmt.Sprintf("invalid status %q, expected one of: %s", req.Status, strings.Join(incidents.Statuses, ", "))))
+		return
+	}
+
+	if _, err := h.incidentStore.GetByID(ctx, id); err != nil {
+		api.WriteJSON(w, http.StatusNotFound, api.NotFound(fmt.Sprintf("incident %s not found", id)))
+		return
+	}
+
+	if err := h.incidentStore.UpdateStatus(ctx, id, req.Status); err != nil {
+		h.logger.Error("set incident status", "id", id, "status", req.Status, "error", err)
+		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to update incident status"))
+		return
+	}
+
+	h.logger.Info("incident status changed", "id", id, "status", req.Status)
+	api.WriteJSON(w, http.StatusOK, api.Success(map[string]any{"id": id, "status": req.Status}))
+}
+
+// AddIncidentCommentRequest carries a new comment body.
+type AddIncidentCommentRequest struct {
+	Body string `json:"body"`
+}
+
+// maxCommentBytes bounds a single incident comment.
+const maxCommentBytes = 4000
+
+// AddIncidentComment appends a comment to an incident timeline.
+func (h *Handler) AddIncidentComment(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	id := r.PathValue("id")
+	if id == "" {
+		api.WriteJSON(w, http.StatusBadRequest, api.BadRequest("missing incident ID"))
+		return
+	}
+
+	var req AddIncidentCommentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.WriteJSON(w, http.StatusBadRequest, api.BadRequest("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.Body) == "" {
+		api.WriteJSON(w, http.StatusBadRequest, api.BadRequest("body is required"))
+		return
+	}
+	if len(req.Body) > maxCommentBytes {
+		api.WriteJSON(w, http.StatusBadRequest, api.BadRequest(fmt.Sprintf("comment too long (max %d bytes)", maxCommentBytes)))
+		return
+	}
+
+	author := ""
+	if hdr := r.Header.Get("Authorization"); hdr != "" {
+		ctx = context.WithValue(ctx, auth.AuthCtxKey{}, hdr)
+		if user, err := currentUser(ctx, h.authStore); err == nil && user != nil {
+			author = user.Username
+		}
+	}
+
+	comment, err := h.incidentStore.AddComment(ctx, id, author, req.Body)
+	if err != nil {
+		h.logger.Error("add incident comment", "id", id, "error", err)
+		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to add comment"))
+		return
+	}
+
+	h.logger.Info("incident comment added", "incident", id, "comment", comment.ID)
+	api.WriteJSON(w, http.StatusCreated, api.Success(comment))
+}
+
+// ListIncidentComments returns the comment timeline of an incident.
+func (h *Handler) ListIncidentComments(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	id := r.PathValue("id")
+	if id == "" {
+		api.WriteJSON(w, http.StatusBadRequest, api.BadRequest("missing incident ID"))
+		return
+	}
+
+	comments, err := h.incidentStore.ListComments(ctx, id)
+	if err != nil {
+		h.logger.Error("list incident comments", "id", id, "error", err)
+		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to list comments"))
+		return
+	}
+
+	api.WriteJSON(w, http.StatusOK, api.Success(comments))
+}
+
 // ─────────────────────────────────────────────
 // Detection Handlers
 // ─────────────────────────────────────────────

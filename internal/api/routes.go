@@ -67,6 +67,10 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 	mux.HandleFunc("GET /api/v1/incidents/{id}", handler.GetIncident)
 	mux.HandleFunc("POST /api/v1/incidents/{id}/acknowledge", handler.AcknowledgeIncident)
 	mux.HandleFunc("POST /api/v1/incidents/{id}/resolve", handler.ResolveIncident)
+	mux.HandleFunc("PUT /api/v1/incidents/{id}", handler.UpdateIncident)
+	mux.HandleFunc("POST /api/v1/incidents/{id}/status", handler.SetIncidentStatus)
+	mux.HandleFunc("GET /api/v1/incidents/{id}/comments", handler.ListIncidentComments)
+	mux.HandleFunc("POST /api/v1/incidents/{id}/comments", handler.AddIncidentComment)
 
 	// Detections
 	mux.HandleFunc("GET /api/v1/detections", handler.ListDetections)

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,6 +37,28 @@ type Filter struct {
 	Status   string
 	Limit    int
 	Offset   int
+}
+
+// Comment is a timeline entry attached to an incident.
+type Comment struct {
+	ID         string    `json:"id"`
+	IncidentID string    `json:"incident_id"`
+	Author     string    `json:"author"`
+	Body       string    `json:"body"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// Lifecycle statuses supported by the incident workflow.
+var Statuses = []string{"new", "acknowledged", "in_progress", "solved", "cancelled", "closed"}
+
+// ValidStatus reports whether status is part of the incident lifecycle.
+func ValidStatus(status string) bool {
+	for _, s := range Statuses {
+		if s == status {
+			return true
+		}
+	}
+	return false
 }
 
 // NewStore creates a new incident store backed by the given database.
@@ -302,4 +325,60 @@ func (s *Store) Update(ctx context.Context, inc *Incident) error {
 	}
 
 	return nil
+}
+
+// AddComment stores a new comment on an incident.
+func (s *Store) AddComment(ctx context.Context, incidentID, author, body string) (*Comment, error) {
+	if incidentID == "" {
+		return nil, fmt.Errorf("empty incident ID")
+	}
+	if strings.TrimSpace(body) == "" {
+		return nil, fmt.Errorf("empty comment body")
+	}
+
+	c := &Comment{
+		ID:         uuid.New().String(),
+		IncidentID: incidentID,
+		Author:     author,
+		Body:       body,
+		CreatedAt:  time.Now(),
+	}
+
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO incident_comments (id, incident_id, author, body, created_at) VALUES (?, ?, ?, ?, ?)`,
+		c.ID, c.IncidentID, c.Author, c.Body, c.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("add incident comment: %w", err)
+	}
+
+	return c, nil
+}
+
+// ListComments returns the comments of an incident in chronological order.
+func (s *Store) ListComments(ctx context.Context, incidentID string) ([]*Comment, error) {
+	if incidentID == "" {
+		return nil, fmt.Errorf("empty incident ID")
+	}
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, incident_id, author, body, created_at FROM incident_comments
+		 WHERE incident_id = ? ORDER BY created_at ASC, id ASC`, incidentID)
+	if err != nil {
+		return nil, fmt.Errorf("list incident comments: %w", err)
+	}
+	defer rows.Close()
+
+	var comments []*Comment
+	for rows.Next() {
+		c := &Comment{}
+		if err := rows.Scan(&c.ID, &c.IncidentID, &c.Author, &c.Body, &c.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan comment row: %w", err)
+		}
+		comments = append(comments, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate comments: %w", err)
+	}
+
+	return comments, nil
 }
