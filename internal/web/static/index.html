@@ -77,6 +77,21 @@ tr:hover { background: var(--bg-tertiary); }
 .toast.error { border-left: 3px solid var(--danger); }
 .loading { text-align: center; padding: 40px; color: var(--text-secondary); }
 .empty { text-align: center; padding: 40px; color: var(--text-muted); }
+.overlay { position: fixed; inset: 0; background: rgba(15, 17, 23, 0.92); display: none; align-items: center; justify-content: center; z-index: 2000; }
+.overlay.visible { display: flex; }
+.login-card { width: 340px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 24px; }
+.login-card h2 { font-size: 18px; margin-bottom: 4px; color: var(--accent); }
+.login-card p { font-size: 12px; color: var(--text-secondary); margin-bottom: 16px; }
+.user-info { padding: 12px 16px 0; margin-top: 16px; border-top: 1px solid var(--border); font-size: 13px; color: var(--text-secondary); display: flex; justify-content: space-between; align-items: center; }
+.modal-card { width: 680px; max-width: 90vw; max-height: 82vh; overflow-y: auto; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+.kv { width: 100%; border-collapse: collapse; }
+.kv td { padding: 4px 8px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: top; }
+.kv td:first-child { color: var(--text-secondary); width: 180px; white-space: nowrap; }
+pre.attr { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin-top: 8px; }
+tr.clickable { cursor: pointer; }
+.icon-btn { background: none; border: none; cursor: pointer; color: var(--text-secondary); padding: 2px 6px; vertical-align: middle; display: inline-flex; align-items: center; }
+.icon-btn:hover { color: var(--accent); }
+.modal-section { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 8px; font-weight: 600; font-size: 13px; color: var(--text-secondary); }
 </style>
 </head>
 <body>
@@ -92,6 +107,7 @@ tr:hover { background: var(--bg-tertiary); }
     <a class="nav-item" data-page="sources">&#x1F50C; Sources</a>
     <a class="nav-item" data-page="entities">&#x1F310; Entities</a>
   </nav>
+  <div class="user-info"><span id="whoami"></span><button class="btn btn-sm" onclick="doLogout()">Logout</button></div>
 </div>
 <div class="main">
   <div id="page-dashboard" class="page active">
@@ -155,8 +171,76 @@ tr:hover { background: var(--bg-tertiary); }
   </div>
 </div>
 <div class="toast" id="toast"></div>
+<div class="overlay" id="login-overlay">
+  <div class="login-card">
+    <h2>Quetzalog</h2>
+    <p>Sign in to access the SIEM console. Run <code>quetzalog demo</code> to create <code>analyst</code>/<code>viewer</code> accounts.</p>
+    <div class="form-group"><label>Username</label><input type="text" id="login-user" autocomplete="username"></div>
+    <div class="form-group"><label>Password</label><input type="password" id="login-pass" autocomplete="current-password"></div>
+    <div id="login-error" style="color:var(--danger);font-size:12px;margin-bottom:12px;display:none"></div>
+    <button class="btn btn-primary" style="width:100%" onclick="doLogin()">Sign in</button>
+  </div>
+</div>
+<div class="overlay" id="event-modal" onclick="if (event.target === this) closeEventModal()">
+  <div class="modal-card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="font-size:16px;color:var(--accent)">Event Details</h2>
+      <div>
+        <button class="icon-btn" id="share-btn" title="Copy share link" onclick="copyShareLink()" style="display:none">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.7-1.7"/></svg>
+        </button>
+        <button class="btn btn-sm" onclick="closeEventModal()">Close</button>
+      </div>
+    </div>
+    <div id="event-detail"><div class="loading">Loading...</div></div>
+  </div>
+</div>
 <script>
 const API = '/api/v1';
+const sharedEventId = new URLSearchParams(location.search).get('event');
+let token = sessionStorage.getItem('quetzalog_token') || '';
+let currentUser = null;
+function authHeaders() {
+  const h = {'Content-Type': 'application/json'};
+  if (token) h['Authorization'] = 'Bearer ' + token;
+  return h;
+}
+function requireLogin(msg) {
+  token = '';
+  currentUser = null;
+  sessionStorage.removeItem('quetzalog_token');
+  document.getElementById('whoami').textContent = '';
+  document.getElementById('login-overlay').classList.add('visible');
+  const err = document.getElementById('login-error');
+  err.style.display = msg ? 'block' : 'none';
+  if (msg) err.textContent = msg;
+}
+async function doLogin() {
+  const username = document.getElementById('login-user').value.trim();
+  const password = document.getElementById('login-pass').value;
+  const err = document.getElementById('login-error');
+  err.style.display = 'none';
+  try {
+    const r = await fetch(API + '/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username, password})});
+    const d = await r.json();
+    if (r.status !== 200 || d.status >= 400 || !d.data || !d.data.token) throw new Error(d.message || 'login failed');
+    token = d.data.token;
+    currentUser = d.data.user;
+    sessionStorage.setItem('quetzalog_token', token);
+    document.getElementById('whoami').textContent = currentUser.username + ' (' + currentUser.role + ')';
+    document.getElementById('login-overlay').classList.remove('visible');
+    loadPage(currentPage);
+    if (sharedEventId) showEventDetails(sharedEventId);
+  } catch(e) {
+    err.style.display = 'block';
+    err.textContent = e.message;
+  }
+}
+async function doLogout() {
+  try { await api('/logout', {method: 'POST'}); } catch(e) {}
+  requireLogin();
+}
+document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 let currentPage = 'dashboard';
 document.querySelectorAll('.nav-item').forEach(item => {
   item.addEventListener('click', () => {
@@ -170,8 +254,9 @@ document.querySelectorAll('.nav-item').forEach(item => {
   });
 });
 async function api(path, opts) {
-  const r = await fetch(API + path, {headers: {'Content-Type': 'application/json'}, ...opts});
+  const r = await fetch(API + path, {headers: authHeaders(), ...(opts || {})});
   const d = await r.json();
+  if (r.status === 401 || d.status === 401) { requireLogin('Session expired, please sign in again'); throw new Error(d.message || 'unauthorized'); }
   if (d.status >= 400) throw new Error(d.message || 'API error');
   return d.data;
 }
@@ -181,6 +266,92 @@ function toast(msg, type) {
   t.className = 'toast ' + (type || '');
   t.style.display = 'block';
   setTimeout(() => t.style.display = 'none', 3000);
+}
+function esc(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+const ICON_COPY = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+let currentEventId = null;
+function copyText(text, okMsg) {
+  const done = () => toast(okMsg || 'Copied to clipboard', 'success');
+  const secure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  if (secure && navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else {
+    fallbackCopy(text, done);
+  }
+}
+function fallbackCopy(text, done) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+  done();
+}
+function copyShareLink() {
+  if (!currentEventId) return;
+  const url = location.origin + location.pathname + '?event=' + encodeURIComponent(currentEventId);
+  copyText(url, 'Share link copied');
+}
+function closeEventModal() {
+  document.getElementById('event-modal').classList.remove('visible');
+  document.getElementById('share-btn').style.display = 'none';
+  currentEventId = null;
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeEventModal(); });
+async function showEventDetails(id) {
+  const body = document.getElementById('event-detail');
+  document.getElementById('event-modal').classList.add('visible');
+  body.innerHTML = '<div class="loading">Loading...</div>';
+  currentEventId = id;
+  document.getElementById('share-btn').style.display = 'inline-flex';
+  try {
+    const e = await api('/events/' + encodeURIComponent(id));
+    const pairs = [
+      ['ID', e.id],
+      ['Timestamp', e.timestamp && new Date(e.timestamp).toLocaleString()],
+      ['Received At', e.received_at && new Date(e.received_at).toLocaleString()],
+      ['Severity', e.severity],
+      ['Event Type', e.event_type],
+      ['Category', e.category],
+      ['Action', e.action],
+      ['Outcome', e.outcome],
+      ['Source', e.source],
+      ['Source Type', e.source_type],
+      ['Source IP', e.source_ip],
+      ['Source Port', e.source_port],
+      ['Destination IP', e.destination_ip],
+      ['Destination Port', e.destination_port],
+      ['Host', e.host],
+      ['IP', e.ip],
+      ['Service', e.service],
+      ['Application', e.application],
+      ['User', e.user],
+      ['User ID', e.user_id],
+      ['Process', e.process],
+      ['Process ID', e.process_id],
+      ['Parent PID', e.parent_pid],
+      ['File Path', e.file_path],
+      ['Trace ID', e.trace_id],
+      ['Span ID', e.span_id],
+      ['Raw Format', e.raw_format]
+    ].filter(p => p[1] !== null && p[1] !== undefined && p[1] !== '' && p[1] !== 0 && p[1] !== false);
+    let html = '<table class="kv"><tbody>';
+    for (const [k, v] of pairs) {
+      const extra = k === 'ID' ? ' <button class="icon-btn" title="Copy event ID" onclick="copyText(\'' + esc(e.id) + '\', \'Event ID copied\')">' + ICON_COPY + '</button>' : '';
+      html += '<tr><td>' + esc(k) + '</td><td>' + esc(v) + extra + '</td></tr>';
+    }
+    html += '</tbody></table>';
+    if (e.message) html += '<div class="modal-section">Message</div><pre class="attr">' + esc(e.message) + '</pre>';
+    if (e.attributes && Object.keys(e.attributes).length) html += '<div class="modal-section">Attributes</div><pre class="attr">' + esc(JSON.stringify(e.attributes, null, 2)) + '</pre>';
+    body.innerHTML = html;
+  } catch(err) {
+    body.innerHTML = '<div class="empty">Failed to load event: ' + esc(err.message) + '</div>';
+  }
 }
 function loadPage(page) {
   switch(page) {
@@ -213,7 +384,7 @@ async function loadDashboard() {
     let html = '<table><thead><tr><th>Time</th><th>Severity</th><th>Source</th><th>Host</th><th>Event Type</th><th>Message</th></tr></thead><tbody>';
     for (const e of events) {
       const sevBadge = {critical:'badge-red',err:'badge-yellow',warning:'badge-yellow',info:'badge-blue',debug:'badge-gray'}[e.severity] || 'badge-gray';
-      html += '<tr><td>' + new Date(e.timestamp).toLocaleString() + '</td><td><span class="badge ' + sevBadge + '">' + e.severity + '</span></td><td>' + (e.source||'') + '</td><td>' + (e.host||'') + '</td><td>' + (e.event_type||'') + '</td><td>' + (e.message||'').substring(0,100) + '</td></tr>';
+      html += '<tr class="clickable" title="View event details" onclick="showEventDetails(\'' + e.id + '\')"><td>' + new Date(e.timestamp).toLocaleString() + '</td><td><span class="badge ' + sevBadge + '">' + e.severity + '</span></td><td>' + (e.source||'') + '</td><td>' + (e.host||'') + '</td><td>' + (e.event_type||'') + '</td><td>' + (e.message||'').substring(0,100) + '</td></tr>';
     }
     html += '</tbody></table>';
     el.innerHTML = html;
@@ -226,9 +397,8 @@ function doSearch() {
   if (!q) return;
   const el = document.getElementById('search-results');
   el.innerHTML = '<div class="loading">Searching...</div>';
-  fetch(API + '/search', {method: 'POST', body: JSON.stringify({query: q})}).then(r => r.json()).then(d => {
-    if (d.errors) { el.innerHTML = '<div class="empty">Error: ' + d.message + '</div>'; return; }
-    const data = d.data || {};
+  api('/search', {method: 'POST', body: JSON.stringify({query: q})}).then(res => {
+    const data = res || {};
     const cols = data.columns || [];
     const rows = data.results || [];
     let html = '';
@@ -253,7 +423,7 @@ async function loadEvents() {
     let html = '<table><thead><tr><th>Time</th><th>Severity</th><th>Source</th><th>Host</th><th>Message</th></tr></thead><tbody>';
     for (const e of evs) {
       const sevBadge = {critical:'badge-red',err:'badge-yellow',warning:'badge-yellow',info:'badge-blue',debug:'badge-gray'}[e.severity] || 'badge-gray';
-      html += '<tr><td>' + new Date(e.timestamp).toLocaleString() + '</td><td><span class="badge ' + sevBadge + '">' + e.severity + '</span></td><td>' + (e.source||'') + '</td><td>' + (e.host||'') + '</td><td>' + (e.message||'').substring(0,100) + '</td></tr>';
+      html += '<tr class="clickable" title="View event details" onclick="showEventDetails(\'' + e.id + '\')"><td>' + new Date(e.timestamp).toLocaleString() + '</td><td><span class="badge ' + sevBadge + '">' + e.severity + '</span></td><td>' + (e.source||'') + '</td><td>' + (e.host||'') + '</td><td>' + (e.message||'').substring(0,100) + '</td></tr>';
     }
     html += '</tbody></table>';
     el.innerHTML = html;
@@ -344,23 +514,30 @@ function showCreateIncident() {
   const title = prompt('Incident title:');
   if (!title) return;
   const sev = prompt('Severity (critical, err, warning, info):', 'warning');
-  fetch(API + '/incidents', {method: 'POST', body: JSON.stringify({title, severity: sev||'warning', status: 'open'})}).then(r => r.json()).then(d => {
-    if (d.errors) { toast('Error: ' + d.message, 'error'); return; }
+  api('/incidents', {method: 'POST', body: JSON.stringify({title, severity: sev||'warning', status: 'open'})}).then(() => {
     toast('Incident created', 'success'); loadIncidents();
-  });
+  }).catch(e => toast('Error: ' + e.message, 'error'));
 }
 function showCreateDetection() {
   const name = prompt('Rule name:');
   if (!name) return;
   const query = prompt('Query (SPL-like):', 'event_type=authentication');
   const sev = prompt('Severity:', 'warning');
-  fetch(API + '/detections', {method: 'POST', body: JSON.stringify({name, query, severity: sev||'warning'})}).then(r => r.json()).then(d => {
-    if (d.errors) { toast('Error: ' + d.message, 'error'); return; }
+  api('/detections', {method: 'POST', body: JSON.stringify({name, query, severity: sev||'warning'})}).then(() => {
     toast('Detection created', 'success'); loadDetections();
-  });
+  }).catch(e => toast('Error: ' + e.message, 'error'));
 }
-loadDashboard();
-setInterval(() => { if (currentPage === 'dashboard') loadDashboard(); }, 30000);
+if (token) {
+  api('/users/me').then(me => {
+    currentUser = me;
+    document.getElementById('whoami').textContent = me.username + ' (' + me.role + ')';
+    loadPage(currentPage);
+    if (sharedEventId) showEventDetails(sharedEventId);
+  }).catch(() => {});
+} else {
+  requireLogin();
+}
+setInterval(() => { if (currentPage === 'dashboard' && token) loadDashboard(); }, 30000);
 </script>
 </body>
 </html>

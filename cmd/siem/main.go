@@ -378,7 +378,12 @@ func cmdServe(cfgFile string, debug bool) int {
 	}()
 	defer jsonServer.Shutdown(context.Background())
 
-	metricsAddr := fmt.Sprintf(":%d", cfg.Server.Port+1)
+	// The JSON ingestor binds :8081 unconditionally, so keep metrics off that port.
+	metricsPort := cfg.Server.Port + 1
+	if metricsPort == 8081 {
+		metricsPort = cfg.Server.Port + 2
+	}
+	metricsAddr := fmt.Sprintf(":%d", metricsPort)
 	metricsServer := telemetryMetrics.RegisterHTTP(metricsAddr)
 	go func() {
 		logger.Info("metrics server starting", "addr", metricsServer.Addr)
