@@ -3,13 +3,13 @@
 GO := $(shell which go 2>/dev/null || echo "/home/mauropm/go/go/bin/go")
 
 build:
-	CGO_ENABLED=1 CGO_CFLAGS="-DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_JSON1" CGO_LDFLAGS="-lm" $(GO) build -o quetzalog ./cmd/siem/
+	CGO_ENABLED=1 CGO_CFLAGS="-DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_JSON1" $(GO) build -o quetzalog ./cmd/siem/
 
 test:
-	CGO_ENABLED=1 CGO_CFLAGS="-DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_JSON1" CGO_LDFLAGS="-lm" $(GO) test -p 1 -timeout 20m ./...
+	CGO_ENABLED=1 CGO_CFLAGS="-DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_JSON1" $(GO) test -p 1 -timeout 20m ./...
 
 test-coverage:
-	CGO_ENABLED=1 CGO_CFLAGS="-DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_JSON1" CGO_LDFLAGS="-lm" $(GO) test -p 1 -timeout 20m -cover ./...
+	CGO_ENABLED=1 CGO_CFLAGS="-DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_JSON1" $(GO) test -p 1 -timeout 20m -cover ./...
 
 lint:
 	$(GO) vet ./...
