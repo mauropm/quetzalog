@@ -88,6 +88,9 @@ tr:hover { background: var(--bg-tertiary); }
 .kv td { padding: 4px 8px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: top; }
 .kv td:first-child { color: var(--text-secondary); width: 180px; white-space: nowrap; }
 pre.attr { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin-top: 8px; }
+code { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+.help-section-title { font-weight: 600; font-size: 14px; color: var(--accent); margin-top: 20px; margin-bottom: 4px; }
+.help-note { font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
 tr.clickable { cursor: pointer; }
 .icon-btn { background: none; border: none; cursor: pointer; color: var(--text-secondary); padding: 2px 6px; vertical-align: middle; display: inline-flex; align-items: center; }
 .icon-btn:hover { color: var(--accent); }
@@ -130,7 +133,12 @@ tr.clickable { cursor: pointer; }
     </div>
   </div>
   <div id="page-search" class="page">
-    <div class="page-header"><h2>Search</h2><p>Query security events with SPL-like syntax</p></div>
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div><h2>Search</h2><p>Query security events with SPL-like syntax</p></div>
+      <button class="icon-btn" title="SPL reference" onclick="showSplHelp()" style="margin-top:4px">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+      </button>
+    </div>
     <div class="search-box">
       <input type="text" id="search-input" placeholder="e.g., severity=err | stats count by host">
       <button class="btn btn-primary" onclick="doSearch()">Search</button>
@@ -246,6 +254,115 @@ tr.clickable { cursor: pointer; }
       <button class="btn" onclick="closeCreateIncidentModal()">Cancel</button>
       <button class="btn btn-primary" onclick="doCreateIncident()">Create</button>
     </div>
+  </div>
+</div>
+<div class="overlay" id="spl-help-modal" onclick="if (event.target === this) closeSplHelp()">
+  <div class="modal-card" style="width:760px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="font-size:16px;color:var(--accent)">SPL Quick Reference</h2>
+      <button class="btn btn-sm" onclick="closeSplHelp()">Close</button>
+    </div>
+
+    <div class="help-section-title">1. Start with the mental model</div>
+    <p class="help-note">SPL is essentially: <code>search → filter → transform → aggregate → visualize</code></p>
+    <pre class="attr">index=security sourcetype=auth
+| where status="failed"
+| stats count by user
+| sort -count</pre>
+    <p class="help-note">Read it as: Find authentication events → keep failures → count them per user → sort by frequency. The <code>|</code> is the key concept — each command receives the results from the previous command.</p>
+
+    <div class="help-section-title">2. Learn these commands first</div>
+    <p class="help-note">Don't try to learn all of SPL. These will get you surprisingly far:</p>
+    <table style="margin-top:8px">
+      <thead><tr><th>Command</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>search</code></td><td>Find events</td></tr>
+        <tr><td><code>where</code></td><td>Filter using expressions</td></tr>
+        <tr><td><code>fields</code></td><td>Select/remove fields</td></tr>
+        <tr><td><code>table</code></td><td>Display specific fields</td></tr>
+        <tr><td><code>rename</code></td><td>Rename fields</td></tr>
+        <tr><td><code>eval</code></td><td>Create/modify fields</td></tr>
+        <tr><td><code>stats</code></td><td>Aggregate data</td></tr>
+        <tr><td><code>timechart</code></td><td>Time-based aggregation</td></tr>
+        <tr><td><code>sort</code></td><td>Sort results</td></tr>
+        <tr><td><code>dedup</code></td><td>Remove duplicates</td></tr>
+        <tr><td><code>rex</code></td><td>Extract fields with regex</td></tr>
+        <tr><td><code>lookup</code></td><td>Enrich events</td></tr>
+        <tr><td><code>eventstats</code></td><td>Add aggregate statistics to events</td></tr>
+        <tr><td><code>streamstats</code></td><td>Running/windowed statistics</td></tr>
+        <tr><td><code>bin</code></td><td>Bucket values, especially time</td></tr>
+        <tr><td><code>join</code></td><td>Combine datasets — learn it</td></tr>
+      </tbody>
+    </table>
+    <p class="help-note">Focus on: <code>search</code>, <code>where</code>, <code>eval</code>, <code>stats</code>, <code>timechart</code>, <code>rex</code>, <code>lookup</code>.</p>
+
+    <div class="help-section-title">3. Learn stats extremely well</div>
+    <p class="help-note">This is probably the single most important SPL command.</p>
+    <pre class="attr">index=web
+| stats count by status</pre>
+    <p class="help-note">Output conceptually:</p>
+    <pre class="attr">status    count
+200       15432
+404       821
+500       93</pre>
+    <pre class="attr">index=web
+| stats count avg(response_time) max(response_time) by endpoint</pre>
+    <pre class="attr">index=web
+| stats
+    count as requests
+    avg(response_time) as avg_latency
+    max(response_time) as max_latency
+  by endpoint</pre>
+    <p class="help-note">Once you understand <code>stats</code>, you're already quite far into SIEM-style querying.</p>
+
+    <div class="help-section-title">4. Then learn eval</div>
+    <pre class="attr">index=web
+| eval duration_ms=duration*1000
+| eval slow=if(duration_ms > 1000, "yes", "no")
+| stats count by slow</pre>
+    <p class="help-note">You can think of <code>eval</code> somewhat like:</p>
+    <pre class="attr">SELECT
+    ...,
+    duration * 1000 AS duration_ms</pre>
+    <p class="help-note">...but SPL's expression language has its own functions.</p>
+
+    <div class="help-section-title">5. Learn time-series queries</div>
+    <p class="help-note">This becomes extremely important for a SIEM.</p>
+    <pre class="attr">index=security
+| timechart count by severity</pre>
+    <pre class="attr">index=security
+| timechart span=5m count</pre>
+    <pre class="attr">index=security
+| timechart span=1h count by source_ip</pre>
+    <p class="help-note">This is where SPL starts becoming particularly useful for security analytics.</p>
+
+    <div class="help-section-title">6. Learn field extraction</div>
+    <p class="help-note">Real logs aren't always nicely structured:</p>
+    <pre class="attr">Failed login from 192.168.1.50 for user mauro</pre>
+    <p class="help-note">You can use:</p>
+    <pre class="attr">| rex "from (?&lt;src_ip&gt;\d+\.\d+\.\d+\.\d+)"</pre>
+    <p class="help-note">Now you have: <code>src_ip = 192.168.1.50</code>. This is very relevant to Quetzalog, because you'll likely want your ingestion layer to normalize different log formats into fields that SPL queries can operate on.</p>
+
+    <div class="help-section-title">7. Practice with security questions</div>
+    <p class="help-note">Rather than doing generic SPL exercises, learn it through actual SIEM questions:</p>
+    <p class="help-note" style="margin-top:10px"><strong>Top attacking IPs</strong></p>
+    <pre class="attr">index=security
+| stats count by src_ip
+| sort -count
+| head 20</pre>
+    <p class="help-note"><strong>Failed logins by user</strong></p>
+    <pre class="attr">index=auth action=failed
+| stats count by user
+| sort -count</pre>
+    <p class="help-note"><strong>Brute-force candidates</strong></p>
+    <pre class="attr">index=auth action=failed
+| stats count as failures by src_ip
+| where failures > 20</pre>
+    <p class="help-note"><strong>Successful login after many failures</strong> — exactly the kind of query you should work toward:</p>
+    <pre class="attr">index=auth
+| sort 0 src_ip _time
+| streamstats count(eval(action="failed")) as failures by src_ip
+| where action="success" AND failures > 10</pre>
   </div>
 </div>
 <script>
@@ -366,7 +483,7 @@ function closeEventModal() {
   currentEventId = null;
 }
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeEventModal(); closeIncidentModal(); closeCreateIncidentModal(); closeAlertModal(); }
+  if (e.key === 'Escape') { closeEventModal(); closeIncidentModal(); closeCreateIncidentModal(); closeAlertModal(); closeSplHelp(); }
 });
 async function showEventDetails(id) {
   const body = document.getElementById('event-detail');
@@ -506,6 +623,12 @@ async function alertAction(kind) {
 function shareAlertLink() {
   if (!currentAlertId) return;
   copyText(location.origin + location.pathname + '?alert=' + encodeURIComponent(currentAlertId), 'Alert link copied');
+}
+function showSplHelp() {
+  document.getElementById('spl-help-modal').classList.add('visible');
+}
+function closeSplHelp() {
+  document.getElementById('spl-help-modal').classList.remove('visible');
 }
 function loadPage(page) {
   switch(page) {
