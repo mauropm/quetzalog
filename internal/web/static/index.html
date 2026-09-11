@@ -201,6 +201,20 @@ tr.clickable { cursor: pointer; }
     <div id="event-detail"><div class="loading">Loading...</div></div>
   </div>
 </div>
+<div class="overlay" id="alert-modal" onclick="if (event.target === this) closeAlertModal()">
+  <div class="modal-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <h2 style="font-size:16px;color:var(--accent);flex:1">Alert Details</h2>
+      <div style="white-space:nowrap">
+        <button class="icon-btn" id="alert-share-btn" title="Copy share link" onclick="shareAlertLink()" style="display:none">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.7-1.7"/></svg>
+        </button>
+        <button class="btn btn-sm" onclick="closeAlertModal()">Close</button>
+      </div>
+    </div>
+    <div id="alert-detail"><div class="loading">Loading...</div></div>
+  </div>
+</div>
 <div class="overlay" id="incident-modal" onclick="if (event.target === this) closeIncidentModal()">
   <div class="modal-card">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
@@ -240,8 +254,11 @@ const sharedParams = new URLSearchParams(location.search);
 const sharedEventId = sharedParams.get('event');
 const sharedIncidentId = sharedParams.get('incident');
 const sharedCommentId = sharedParams.get('comment');
+const sharedAlertId = sharedParams.get('alert');
+const sharedNoteId = sharedParams.get('note');
 function openSharedItems() {
   if (sharedIncidentId) showIncidentDetails(sharedIncidentId, sharedCommentId);
+  else if (sharedAlertId) showAlertDetails(sharedAlertId, sharedNoteId);
   else if (sharedEventId) showEventDetails(sharedEventId);
 }
 let token = sessionStorage.getItem('quetzalog_token') || '';
@@ -349,7 +366,7 @@ function closeEventModal() {
   currentEventId = null;
 }
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeEventModal(); closeIncidentModal(); closeCreateIncidentModal(); }
+  if (e.key === 'Escape') { closeEventModal(); closeIncidentModal(); closeCreateIncidentModal(); closeAlertModal(); }
 });
 async function showEventDetails(id) {
   const body = document.getElementById('event-detail');
@@ -400,6 +417,95 @@ async function showEventDetails(id) {
   } catch(err) {
     body.innerHTML = '<div class="empty">Failed to load event: ' + esc(err.message) + '</div>';
   }
+}
+const ALERT_SEV_BADGE = {critical: 'badge-red', err: 'badge-yellow', warning: 'badge-yellow', info: 'badge-blue', debug: 'badge-gray', emergency: 'badge-red'};
+const ALERT_STATUS_BADGE = {new: 'badge-yellow', acknowledged: 'badge-blue', resolved: 'badge-green', false_positive: 'badge-gray'};
+let currentAlertId = null;
+function closeAlertModal() {
+  document.getElementById('alert-modal').classList.remove('visible');
+  document.getElementById('alert-share-btn').style.display = 'none';
+  currentAlertId = null;
+}
+function prettyJSON(s) {
+  if (!s) return '';
+  try { return JSON.stringify(JSON.parse(s), null, 2); } catch(e) { return s; }
+}
+async function showAlertDetails(id, focusNote) {
+  currentAlertId = id;
+  document.getElementById('alert-modal').classList.add('visible');
+  document.getElementById('alert-share-btn').style.display = 'inline-flex';
+  const body = document.getElementById('alert-detail');
+  body.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const a = await api('/alerts/' + encodeURIComponent(id));
+    renderAlert(a);
+    if (focusNote) {
+      const el = document.getElementById('note-' + focusNote);
+      if (el) {
+        el.classList.add('highlight');
+        el.scrollIntoView({block: 'nearest'});
+        setTimeout(() => el.classList.remove('highlight'), 5000);
+      }
+    }
+  } catch(e) {
+    body.innerHTML = '<div class="empty">Failed to load alert: ' + esc(e.message) + '</div>';
+  }
+}
+async function addAlertNote() {
+  const input = document.getElementById('note-input');
+  const text = input.value.trim();
+  if (!text) return;
+  try {
+    await api('/alerts/' + encodeURIComponent(currentAlertId) + '/notes', {method: 'POST', body: JSON.stringify({content: text})});
+    input.value = '';
+    showAlertDetails(currentAlertId);
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+function shareNote(noteId) {
+  if (!currentAlertId) return;
+  copyText(location.origin + location.pathname + '?alert=' + encodeURIComponent(currentAlertId) + '&note=' + encodeURIComponent(noteId), 'Note link copied');
+}
+function renderAlert(a) {
+  const body = document.getElementById('alert-detail');
+  let html = '<table class="kv"><tbody>';
+  html += '<tr><td>ID</td><td>' + esc(a.id) + ' <button class="icon-btn" title="Copy alert ID" onclick="copyText(\'' + esc(a.id) + '\', \'Alert ID copied\')">' + ICON_COPY + '</button></td></tr>';
+  html += '<tr><td>Title</td><td>' + esc(a.title || '') + '</td></tr>';
+  html += '<tr><td>Status</td><td><span class="badge ' + (ALERT_STATUS_BADGE[a.status] || 'badge-gray') + '">' + esc(a.status || '') + '</span></td></tr>';
+  html += '<tr><td>Severity</td><td><span class="badge ' + (ALERT_SEV_BADGE[a.severity] || 'badge-gray') + '">' + esc(a.severity || '') + '</span></td></tr>';
+  if (a.timestamp) html += '<tr><td>Timestamp</td><td>' + esc(new Date(a.timestamp).toLocaleString()) + '</td></tr>';
+  if (a.detection_id) html += '<tr><td>Detection ID</td><td>' + esc(a.detection_id) + '</td></tr>';
+  if (a.risk_score) html += '<tr><td>Risk Score</td><td>' + esc(String(a.risk_score)) + '</td></tr>';
+  html += '</tbody></table>';
+  if (a.description) html += '<div class="modal-section">Description</div><pre class="attr">' + esc(a.description) + '</pre>';
+  for (const [label, value] of [['Entities', a.entities], ['Events', a.events]]) {
+    if (value && value !== '[]' && value !== 'null') html += '<div class="modal-section">' + label + '</div><pre class="attr">' + esc(prettyJSON(value)) + '</pre>';
+  }
+  if (a.metadata && a.metadata !== '{}' && a.metadata !== 'null') html += '<div class="modal-section">Metadata</div><pre class="attr">' + esc(prettyJSON(a.metadata)) + '</pre>';
+  const notes = a.notes || [];
+  html += '<div class="modal-section">Notes (' + notes.length + ')</div><div class="comments-scroll" id="alert-notes">';
+  html += notes.length ? notes.map(n =>
+    '<div class="comment" id="note-' + esc(n.id) + '"><div class="meta"><span><strong>' + esc(n.author || 'unknown') + '</strong> · ' + (n.created_at ? new Date(n.created_at).toLocaleString() : '') + '</span>' +
+    '<button class="icon-btn" title="Copy note link" onclick="shareNote(\'' + esc(n.id) + '\')">' + ICON_LINK + '</button></div><div class="body">' + esc(n.content || '') + '</div></div>'
+  ).join('') : '<div class="empty">No notes yet</div>';
+  html += '</div>';
+  html += '<div class="search-box" style="margin-top:10px;margin-bottom:0"><input id="note-input" placeholder="Add a note..." onkeydown="if (event.key === \'Enter\' &amp;&amp; (event.metaKey || event.ctrlKey)) addAlertNote()"><button class="btn btn-primary btn-sm" onclick="addAlertNote()">Post</button></div>';
+  html += '<div style="margin-top:10px;display:flex;gap:6px">';
+  if (a.status === 'new') html += '<button class="btn btn-sm btn-primary" onclick="alertAction(\'acknowledge\')">Acknowledge</button>';
+  if (a.status !== 'resolved') html += '<button class="btn btn-sm" onclick="alertAction(\'resolve\')">Resolve</button>';
+  html += '</div>';
+  body.innerHTML = html;
+}
+async function alertAction(kind) {
+  try {
+    await api('/alerts/' + encodeURIComponent(currentAlertId) + '/' + kind, {method: 'POST'});
+    toast(kind === 'acknowledge' ? 'Alert acknowledged' : 'Alert resolved', 'success');
+    showAlertDetails(currentAlertId);
+    loadAlerts();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+function shareAlertLink() {
+  if (!currentAlertId) return;
+  copyText(location.origin + location.pathname + '?alert=' + encodeURIComponent(currentAlertId), 'Alert link copied');
 }
 function loadPage(page) {
   switch(page) {
@@ -488,9 +594,9 @@ async function loadAlerts() {
     for (const a of alerts) {
       const sevBadge = {critical:'badge-red',err:'badge-yellow',warning:'badge-yellow',info:'badge-blue',emergency:'badge-red'}[a.severity] || 'badge-gray';
       const statusBadge = {new:'badge-yellow',acknowledged:'badge-blue',resolved:'badge-green',false_positive:'badge-gray'}[a.status] || 'badge-gray';
-      html += '<tr><td>' + new Date(a.timestamp).toLocaleString() + '</td><td><span class="badge ' + sevBadge + '">' + a.severity + '</span></td><td>' + (a.title||'') + '</td><td><span class="badge ' + statusBadge + '">' + a.status + '</span></td><td>';
-      if (a.status === 'new') html += '<button class="btn btn-sm" onclick="ackAlert(\'' + a.id + '\')">Ack</button> ';
-      if (a.status !== 'resolved') html += '<button class="btn btn-sm" onclick="resolveAlert(\'' + a.id + '\')">Resolve</button>';
+      html += '<tr class="clickable" title="View alert details" onclick="showAlertDetails(\'' + a.id + '\')"><td>' + new Date(a.timestamp).toLocaleString() + '</td><td><span class="badge ' + sevBadge + '">' + a.severity + '</span></td><td>' + (a.title||'') + '</td><td><span class="badge ' + statusBadge + '">' + a.status + '</span></td><td>';
+      if (a.status === 'new') html += '<button class="btn btn-sm" onclick="event.stopPropagation(); ackAlert(\'' + a.id + '\')">Ack</button> ';
+      if (a.status !== 'resolved') html += '<button class="btn btn-sm" onclick="event.stopPropagation(); resolveAlert(\'' + a.id + '\')">Resolve</button>';
       html += '</td></tr>';
     }
     html += '</tbody></table>';

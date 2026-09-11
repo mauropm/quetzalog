@@ -539,7 +539,18 @@ func (h *Handler) AddNotesToAlert(w http.ResponseWriter, r *http.Request) {
 		api.WriteJSON(w, http.StatusBadRequest, api.BadRequest("content is required"))
 		return
 	}
+	if len(req.Content) > maxCommentBytes {
+		api.WriteJSON(w, http.StatusBadRequest, api.BadRequest(fmt.Sprintf("note too long (max %d bytes)", maxCommentBytes)))
+		return
+	}
 
+	if req.Author == "" {
+		if hdr := r.Header.Get("Authorization"); hdr != "" {
+			if user, err := currentUser(context.WithValue(ctx, auth.AuthCtxKey{}, hdr), h.authStore); err == nil && user != nil {
+				req.Author = user.Username
+			}
+		}
+	}
 	if req.Author == "" {
 		req.Author = "anonymous"
 	}
