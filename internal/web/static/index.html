@@ -101,6 +101,72 @@ tr.clickable { cursor: pointer; }
 .comments-scroll { max-height: 240px; overflow-y: auto; margin-top: 8px; }
 .comment.highlight { border-color: var(--accent); }
 .status-pill { margin-right: 6px; margin-bottom: 6px; }
+/* ==== SPL Builder ==== */
+/* ── SPL Builder ── */
+.spl-btn { border:1px solid var(--border); background:var(--bg-tertiary); color:var(--text-primary); padding:7px 12px; border-radius:6px; cursor:pointer; font-size:13px; font-family:inherit; line-height:1; }
+.spl-btn:hover { border-color:var(--accent); color:var(--accent); }
+.spl-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.spl-seg { display:inline-flex; border:1px solid var(--border); border-radius:7px; overflow:hidden; }
+.spl-seg button { background:var(--bg-tertiary); color:var(--text-secondary); border:none; padding:7px 14px; cursor:pointer; font-size:13px; font-family:inherit; }
+.spl-seg button.active { background:var(--accent); color:#fff; }
+.spl-status { font-size:12px; margin-left:4px; }
+.spl-ok { color:var(--success); }
+.spl-warn { color:var(--warning); }
+.spl-err { color:var(--danger); display:block; margin-top:4px; }
+.spl-wrap { display:grid; grid-template-columns:220px minmax(0,1fr) 300px; gap:14px; align-items:start; }
+@media (max-width:1100px) { .spl-wrap { grid-template-columns:1fr; } }
+.spl-sidebar { max-height:52vh; overflow:auto; padding-right:6px; }
+.spl-ex { display:block; width:100%; text-align:left; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); padding:8px 10px; margin-bottom:6px; cursor:pointer; font-size:12px; font-family:inherit; }
+.spl-ex:hover { border-color:var(--accent); }
+.spl-cmds { margin-bottom:10px; flex-wrap:wrap; display:flex; gap:6px; }
+.spl-add { width:100%; text-align:left; background:var(--bg-tertiary); border:1px dashed var(--accent); color:var(--accent); border-radius:6px; padding:9px 12px; cursor:pointer; font-size:13px; font-family:inherit; }
+.spl-add:hover { background:var(--accent); color:#fff; border-style:solid; }
+.spl-card { background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:12px 14px; margin-bottom:12px; position:relative; }
+.spl-card-h { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+.spl-card-h .t { font-size:13px; font-weight:600; background:var(--bg-tertiary); color:var(--accent); border-radius:5px; padding:2px 9px; text-transform:uppercase; letter-spacing:.4px; }
+.spl-card-h .s { color:var(--text-secondary); font-size:11px; flex:1; }
+.spl-card-x { background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:15px; }
+.spl-card-x:hover { color:var(--danger); }
+.spl-del { background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:13px; }
+.spl-del:hover { color:var(--danger); }
+.spl-chips { display:flex; flex-wrap:wrap; gap:6px; }
+.spl-chip { background:var(--bg-tertiary); border:1px solid var(--border); border-radius:20px; padding:4px 10px; font-size:12px; color:var(--text-primary); display:inline-flex; gap:6px; align-items:center; }
+.spl-chip button { background:none; border:none; color:var(--text-secondary); cursor:pointer; padding:0; font-size:12px; line-height:1; }
+.spl-chip button:hover { color:var(--danger); }
+.spl-row { display:flex; align-items:center; gap:6px; margin-bottom:6px; flex-wrap:wrap; }
+.spl-row:last-child { margin-bottom:0; }
+.spl-input { background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); padding:6px 8px; font-size:12px; font-family:inherit; min-width:0; }
+.spl-input:focus { outline:none; border-color:var(--accent); }
+.spl-lbl { font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-secondary); margin-right:2px; }
+.spl-chk { font-size:12px; color:var(--text-secondary); display:inline-flex; align-items:center; gap:4px; cursor:pointer; }
+.spl-preview { background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:10px 12px; position:sticky; top:0; max-height:52vh; overflow:auto; }
+.spl-preview table { font-size:11px; width:100%; border-collapse:collapse; }
+.spl-preview th, .spl-preview td { padding:4px 6px; border-bottom:1px solid var(--border); text-align:left; white-space:nowrap; max-width:220px; overflow:hidden; text-overflow:ellipsis; }
+.spl-preview th { color:var(--text-secondary); position:sticky; top:0; background:var(--bg-secondary); }
+.spl-preview-head { display:flex; justify-content:space-between; align-items:center; font-size:12px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.5px; margin-bottom:8px; }
+.spl-preview-empty { color:var(--text-secondary); font-size:12px; padding:18px 6px; text-align:center; }
+#spl-builder-modal .modal { max-width:1180px; width:96%; }
+#spl-builder-modal .modal-body { padding:16px 22px; overflow:auto; max-height:calc(100vh - 220px); }
+#spl-builder-modal .modal-header h2 { display:flex; align-items:center; gap:10px; }
+#spl-builder-modal .modal-footer { gap:8px; align-items:center; }
+.spl-menu { position:absolute; right:22px; top:60px; background:var(--bg-tertiary); border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.4); z-index:10; min-width:240px; padding:6px; }
+.spl-menu button { display:block; width:100%; text-align:left; background:none; border:none; color:var(--text-primary); padding:8px 10px; border-radius:6px; cursor:pointer; font-size:13px; font-family:inherit; }
+.spl-menu button:hover { background:var(--bg-secondary); }
+.spl-advanced { border:1px dashed var(--warning); background:rgba(245,158,11,.06); }
+.spl-empty { text-align:center; padding:34px; color:var(--text-secondary); }
+.spl-empty button { background:var(--accent); border:none; color:#fff; border-radius:6px; padding:8px 16px; cursor:pointer; margin-top:10px; font-family:inherit; }
+#spl-raw { width:100%; min-height:320px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; color:var(--text-primary); font-family:monospace; font-size:14px; padding:16px; resize:vertical; line-height:1.6; box-sizing:border-box; }
+#spl-raw:focus { outline:none; border-color:var(--accent); }
+/* ==== Search pagination ==== */
+.rc-count { color: var(--text-secondary); font-weight: 400; font-size: 12px; }
+.rc-size { font-weight: 400; font-size: 12px; color: var(--text-secondary); float: right; display: inline-flex; align-items: center; gap: 6px; }
+.rc-size select { background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 5px; padding: 2px 6px; font-size: 12px; font-family: inherit; cursor: pointer; }
+.rc-pager { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; margin: 8px 0; justify-content: center; }
+.rc-page { background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 5px; min-width: 30px; height: 26px; padding: 0 8px; cursor: pointer; font-size: 12px; font-family: inherit; }
+.rc-page:hover:not(:disabled):not(.rc-cur) { border-color: var(--accent); color: var(--accent); }
+.rc-page:disabled { opacity: 0.4; cursor: default; }
+.rc-cur { background: var(--accent); color: #fff; border-color: var(--accent); }
+.rc-dots { color: var(--text-secondary); padding: 0 4px; }
 </style>
 </head>
 <body>
@@ -135,6 +201,7 @@ tr.clickable { cursor: pointer; }
   <div id="page-search" class="page">
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">
       <div><h2>Search</h2><p>Query security events with SPL-like syntax</p></div>
+      <button class="icon-btn" title="Open SPL Builder (press b)" onclick="openSPLBuilder()" style="margin-top:4px;margin-right:6px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="14"/><line x1="6" y1="10" x2="6" y2="4"/><line x1="12" y1="20" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="4"/><line x1="18" y1="20" x2="18" y2="16"/><line x1="18" y1="12" x2="18" y2="4"/><circle cx="6" cy="12" r="2"/><circle cx="12" cy="10" r="2"/><circle cx="18" cy="14" r="2"/></svg></button>
       <button class="icon-btn" title="SPL reference" onclick="showSplHelp()" style="margin-top:4px">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
       </button>
@@ -483,7 +550,20 @@ function closeEventModal() {
   currentEventId = null;
 }
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeEventModal(); closeIncidentModal(); closeCreateIncidentModal(); closeAlertModal(); closeSplHelp(); }
+  if (e.key === 'Escape') {
+    const b = document.getElementById('spl-builder-modal');
+    if (b && b.classList.contains('visible')) { closeSPLBuilder(); return; }
+    closeEventModal(); closeIncidentModal(); closeCreateIncidentModal(); closeAlertModal(); closeSplHelp();
+    return;
+  }
+  const t = e.target || {};
+  const typing = t.matches && t.matches('input, textarea, select');
+  if (e.key === 'Enter' && t.id === 'search-input') { doSearch(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'enter' && t.id === 'search-input') { doSearch(); return; }
+  if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'b') {
+    const open = Array.prototype.slice.call(document.querySelectorAll('.overlay')).some(function(o){ return o.classList.contains('visible'); });
+    if (!open) { e.preventDefault(); openSPLBuilder(); }
+  }
 });
 async function showEventDetails(id) {
   const body = document.getElementById('event-detail');
@@ -977,6 +1057,727 @@ if (token) {
   requireLogin();
 }
 setInterval(() => { if (currentPage === 'dashboard' && token) loadDashboard(); }, 30000);
+</script>
+<!-- SPL Builder Modal -->
+<div class="overlay" id="spl-builder-modal" onclick="if (event.target === this) closeSPLBuilder()">
+  <div class="modal-card" style="width:1180px;max-width:96vw;max-height:92vh;overflow:auto;display:flex;flex-direction:column;gap:14px;padding:20px 24px">
+
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <h2 style="font-size:16px;color:var(--accent);display:flex;align-items:center;gap:8px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/></svg>
+        SPL Builder
+      </h2>
+      <div class="spl-toolbar" style="gap:12px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary)">Earliest
+          <input type="datetime-local" class="spl-input" id="spl-earliest" onchange="splTimeRangeChanged()">
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary)">Latest
+          <input type="text" class="spl-input" id="spl-latest" placeholder="now" style="width:80px" onchange="splTimeRangeChanged()">
+        </label>
+        <div style="position:relative">
+          <button class="spl-btn" onclick="showSPLExamples(event)">Examples ▾</button>
+          <div class="spl-menu hidden" id="spl-examples"></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div class="spl-seg">
+        <button id="spl-seg-visual" class="active" onclick="switchSPLMode('visual')">Visual</button>
+        <button id="spl-seg-raw" onclick="switchSPLMode('raw')">SPL</button>
+      </div>
+      <span class="spl-status" id="spl-status"></span>
+    </div>
+
+    <div class="spl-wrap">
+      <div class="spl-sidebar">
+        <div class="spl-cmds" id="spl-cmds"></div>
+        <button class="spl-add" onclick="addCmd()">+ Add command to pipeline</button>
+      </div>
+      <div>
+        <div id="spl-visual"><div id="spl-cards"></div></div>
+        <textarea id="spl-raw" class="hidden" spellcheck="false" oninput="splRawEdited(this.value)"></textarea>
+      </div>
+      <div class="spl-preview hidden" id="spl-preview">
+        <div class="spl-preview-head">
+          <span>Live preview</span>
+          <button class="spl-btn" id="spl-preview-btn" onclick="splPreview()">Preview</button>
+        </div>
+        <div class="spl-preview-meta" id="spl-preview-meta" style="font-size:11px;color:var(--text-secondary);margin-bottom:6px"></div>
+        <div class="spl-preview-empty" id="spl-preview-body">Add a filter or command to preview matching events.</div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:12px">
+      <button class="spl-btn" onclick="splCopy()">Copy</button>
+      <button class="spl-btn" onclick="splBuildSPL()">Build SPL</button>
+      <button class="spl-btn" onclick="splSaveDetection()">Save as detection</button>
+      <button class="btn btn-sm" onclick="closeSPLBuilder()">Close</button>
+      <button class="btn btn-primary" onclick="splRun()">Run in Search</button>
+    </div>
+
+  </div>
+</div>
+<!-- /SPL Builder Modal -->
+<script>
+// ════ SPL Builder (wire contract: { version, commands:[...] }) ════
+const SPL = { ast: null, mode: 'visual', seq: 0, timer: null };
+const SPL_SELECTORS = ['index', 'sourcetype', 'source', 'host'];
+const SPL_VALUES = {};
+
+function escA(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function splClone(o) { try { return JSON.parse(JSON.stringify(o)); } catch (e) { return null; } }
+function splEmptyAST() { return { version: 1, commands: [{ type: 'search', fields: {}, text: '', _ui: { filters: [] } }] }; }
+
+function splTimeLabels(r) {
+  return { earliest: r === 'all' ? '-9999d' : ('-' + r), latest: 'now' };
+}
+function splTimeObj() {
+  const el = document.getElementById('spl-earliest');
+  const la = document.getElementById('spl-latest');
+  let earliest = el && el.value ? el.value.replace('T', ' ') : '-24h';
+  let latest = la && la.value.trim() ? la.value.trim() : 'now';
+  return { earliest, latest };
+}
+function splTimeRangeChanged() { schedulePreview(); }
+
+// ── model normalize ──
+function normalizeAST(raw) {
+  let ast = splClone(raw);
+  if (!ast || typeof ast !== 'object') ast = {};
+  ast.version = 1;
+  if (!Array.isArray(ast.commands) || ast.commands.length === 0) return splEmptyAST();
+  ast.commands = ast.commands.map((c) => {
+    const out = {};
+    Object.keys(c || {}).forEach((k) => { if (k[0] !== '_') out[k] = c[k]; });
+    if (!out.type) out.type = 'search';
+    return out;
+  });
+  if (ast.commands[0].type !== 'search') {
+    ast.commands.unshift({ type: 'search', fields: {}, text: '', _ui: { filters: [] } });
+  }
+  const c0 = ast.commands[0];
+  c0.fields = c0.fields || {};
+  c0.text = c0.text || '';
+  const src = Array.isArray(c0._ui && c0._ui.filters) ? c0._ui.filters : exprToFilters(c0.expr);
+  const keep = [];
+  (src || []).forEach((f) => {
+    if (!f) return;
+    const fld = (f.field || '').toLowerCase();
+    if (!f.not && (f.op || '=') === '=' && SPL_SELECTORS.indexOf(fld) >= 0) {
+      c0.fields[fld === 'sourcetype' ? 'sourcetype' : fld] = f.value;
+    } else keep.push(f);
+  });
+  c0._ui = { filters: keep };
+  return ast;
+}
+
+// ── expr <-> filters ──
+function filtersToExpr(list) {
+  if (!list || !list.length) return null;
+  const groups = [];
+  let cur = [];
+  list.forEach((f) => {
+    const leaf = { kind: 'cmp', field: f.field || '', op: f.op || '=', value: f.value == null ? '' : f.value, not: !!f.not };
+    if (String(leaf.op).toUpperCase() === 'IN') {
+      leaf.kind = 'in';
+      leaf.value = String(leaf.value).split(',').map((s) => s.trim()).filter((s) => s !== '');
+    }
+    if ((f.joiner || 'and') === 'or') { groups.push(cur); cur = [leaf]; }
+    else cur.push(leaf);
+  });
+  groups.push(cur);
+  const nonEmpty = groups.filter((g) => g.length);
+  if (!nonEmpty.length) return null;
+  const node = (arr) => (arr.length === 1 ? arr[0] : { kind: 'and', args: arr });
+  const built = nonEmpty.map(node);
+  return built.length === 1 ? built[0] : { kind: 'or', args: built };
+}
+function exprToFilters(e) {
+  if (!e) return [];
+  const leaf = (n) => ({
+    field: n.field || '', op: n.op || '=',
+    value: n.value == null ? '' : n.value,
+    not: !!n.not, joiner: 'and', kind: n.kind || 'cmp'
+  });
+  const flatten = (n) => (n && n.kind === 'and' ? (n.args || []).map(leaf) : [leaf(n)]);
+  if (e.kind === 'or') {
+    const out = [];
+    (e.args || []).forEach((a, idx) => {
+      flatten(a).forEach((x, pi) => { x.joiner = (idx > 0 && pi === 0) ? 'or' : 'and'; out.push(x); });
+    });
+    return out;
+  }
+  if (e.kind === 'and') {
+    return (e.args || []).map(leaf);
+  }
+  return [leaf(e)];
+}
+
+// ── open / close ──
+function openSPLBuilder() {
+  const si = document.getElementById('search-input');
+  const initial = (window.currentSearchQuery || (si && si.value) || '').trim();
+  const finish = () => {
+    SPL.mode = 'visual';
+    const t = splTimeLabels('24h');
+    const el = document.getElementById('spl-earliest');
+    const la = document.getElementById('spl-latest');
+    if (el) el.value = t.earliest.replace(/^-/, '').length > 8 ? nowLocal() : el.value;
+    if (el && !el.value) el.value = '-24h';
+    if (la) la.value = 'now';
+    setSPLSeg('visual');
+    renderSPLBuilder();
+    document.getElementById('spl-builder-modal').classList.add('visible');
+    document.body.style.overflow = 'hidden';
+    setTimeout(schedulePreview, 200);
+  };
+  if (initial) {
+    api('/spl/parse', { method: 'POST', body: JSON.stringify({ query: initial }) })
+      .then((d) => { SPL.ast = normalizeAST(d && d.ast ? d.ast : d); finish(); })
+      .catch(() => { SPL.ast = splEmptyAST(); finish(); });
+  } else {
+    SPL.ast = splEmptyAST();
+    finish();
+  }
+}
+function nowLocal() { const d = new Date(Date.now() - 24 * 3600 * 1000); return d.toISOString().slice(0, 16); }
+function closeSPLBuilder() {
+  const m = document.getElementById('spl-builder-modal');
+  if (m) m.classList.remove('visible');
+  document.body.style.overflow = '';
+  hideSPLExamples();
+}
+function setSPLSeg(m) {
+  SPL.mode = m;
+  const v = document.getElementById('spl-seg-visual');
+  const r = document.getElementById('spl-seg-raw');
+  if (v) v.classList.toggle('active', m === 'visual');
+  if (r) r.classList.toggle('active', m === 'raw');
+}
+function switchSPLMode(m) {
+  if (m === 'raw') {
+    const ta = document.getElementById('spl-raw');
+    if (ta && !ta.dataset.dirty) {
+      api('/spl/build', { method: 'POST', body: JSON.stringify(splWireForServer()) })
+        .then((d) => { ta.value = (d && (d.query || d.spl)) || ''; });
+    }
+  } else if (SPL.mode === 'raw') {
+    const ta = document.getElementById('spl-raw');
+    if (ta && ta.value.trim()) {
+      api('/spl/parse', { method: 'POST', body: JSON.stringify({ query: ta.value.trim() }) })
+        .then((d) => { SPL.ast = normalizeAST(d && d.ast ? d.ast : d); renderSPLBuilder(); })
+        .catch(() => toast('Could not parse raw SPL', 'error'));
+    }
+  }
+  setSPLSeg(m);
+  renderSPLBuilder();
+}
+
+// ── render ──
+function renderSPLBuilder() {
+  const v = document.getElementById('spl-visual');
+  const r = document.getElementById('spl-raw');
+  const pv = document.getElementById('spl-preview');
+  const st = document.getElementById('spl-status');
+  if (v) v.classList.toggle('hidden', SPL.mode !== 'visual');
+  if (r) r.classList.toggle('hidden', SPL.mode !== 'raw');
+  if (pv) pv.classList.toggle('hidden', SPL.mode !== 'visual');
+  if (st && SPL.mode === 'raw') st.innerHTML = '';
+  if (SPL.mode === 'visual') renderCards();
+  ensureFieldDatalist();
+}
+
+let SPL_CMDS = [
+  ['search', 'Search'], ['where', 'Where'], ['eval', 'Eval'],
+  ['stats', 'Stats'], ['timechart', 'Timechart'], ['sort', 'Sort'],
+  ['head', 'Head'], ['tail', 'Tail'], ['dedup', 'Dedup'],
+  ['fields', 'Fields'], ['table', 'Table'], ['rename', 'Rename'],
+  ['rex', 'Rex'], ['bin', 'Bin']
+];
+function renderCmdsMenu() {
+  const host = document.getElementById('spl-cmds');
+  if (!host) return;
+  host.innerHTML = SPL_CMDS.map((c) => '<button class="spl-btn" onclick="addCmdType(\'' + c[0] + '\')">+ ' + c[1] + '</button>').join('');
+}
+
+function ensureFieldDatalist() {
+  if (document.getElementById('dl-spl-fields')) return;
+  api('/spl/fields').then((d) => {
+    const fields = (d && d.fields) || [];
+    let host = document.getElementById('spl-dl-host');
+    if (!host) { host = document.createElement('div'); host.id = 'spl-dl-host'; host.style.display = 'none'; document.body.appendChild(host); }
+    host.innerHTML = '<datalist id="dl-spl-fields">' + fields.map((f) => '<option value="' + escA(f) + '"></option>').join('') + '</datalist>';
+  }).catch(() => {});
+}
+
+function cardShell(title, sub, bodyHTML, i) {
+  const rm = i > 0 ? '<button class="spl-card-x" title="Remove" onclick="delCmd(' + i + ')">✕</button>' : '';
+  return '<div class="spl-card"><div class="spl-card-h"><span class="t">' + escA(title) + '</span>' +
+    (sub ? '<span class="s">' + escA(sub) + '</span>' : '') + rm + '</div>' + bodyHTML + '</div>';
+}
+
+function renderCards() {
+  const host = document.getElementById('spl-cards');
+  if (!host) return;
+  host.innerHTML = SPL.ast.commands.map((c, i) => {
+    switch (c.type) {
+      case 'search': return searchCard(c, i);
+      case 'where': return whereCard(c, i);
+      case 'eval': return evalCard(c, i);
+      case 'stats': case 'eventstats': case 'streamstats': return statsCard(c, i);
+      case 'timechart': return timechartCard(c, i);
+      case 'sort': return sortCard(c, i);
+      case 'head': case 'tail': return headtailCard(c, i);
+      case 'dedup': return dedupCard(c, i);
+      case 'fields': case 'table': return fieldsCard(c, i);
+      case 'rename': return renameCard(c, i);
+      case 'rex': return rexCard(c, i);
+      case 'bin': return binCard(c, i);
+      default: return cardShell(c.type, 'advanced', '<input class="spl-input" style="width:100%" value="' + escA(c.raw || '') + '" placeholder="raw fragment" oninput="splSetRaw(' + i + ',this.value)">', i);
+    }
+  }).join('');
+  renderCmdsMenu();
+}
+
+function filterRow(ci, k, f) {
+  const ops = ['=', '!=', '>', '>=', '<', '<=', 'LIKE', 'IN', 'IS NULL'];
+  const opOpt = ops.map((o) => '<option value="' + o + '"' + ((f.op || '=') === o ? ' selected' : '') + '>' + o + '</option>').join('');
+  const joiner = '<select class="spl-input" style="width:66px" onchange="splJoiner(' + ci + ',' + k + ',this.value)">' +
+    '<option value="and"' + ((f.joiner || 'and') === 'and' ? ' selected' : '') + '>And</option>' +
+    '<option value="or"' + (f.joiner === 'or' ? ' selected' : '') + '>Or</option></select>';
+  const notChk = '<label class="spl-chk"><input type="checkbox"' + (f.not ? ' checked' : '') + ' onchange="splFilterNot(' + ci + ',' + k + ',this.checked)">NOT</label>';
+  const isNull = String(f.op || '').toUpperCase() === 'IS NULL';
+  const val = isNull ? '' : '<input class="spl-input" style="flex:1" value="' + escA(f.value == null ? '' : f.value) + '" placeholder="value" oninput="splFilterValue(' + ci + ',' + k + ',this.value)" onfocus="ensureValues(this.value,\'' + escA(f.field || '') + '\')">';
+  return '<div class="spl-row">' + joiner + notChk +
+    '<input class="spl-input" list="dl-spl-fields" value="' + escA(f.field) + '" placeholder="field" oninput="splFilterField(' + ci + ',' + k + ',this.value)">' +
+    '<select class="spl-input" onchange="splFilterOp(' + ci + ',' + k + ',this.value)">' + opOpt + '</select>' + val +
+    '<button class="spl-del" onclick="splDelFilter(' + ci + ',' + k + ')">✕</button></div>';
+}
+
+function searchCard(c, i) {
+  const sel = SPL_SELECTORS.map((key) =>
+    '<label class="spl-lbl">' + key + '<input class="spl-input" list="dl-spl-fields" value="' + escA((c.fields || {})[key] || '') + '" oninput="splSetSearchField(' + i + ',\'' + key + '\',this.value)"></label>'
+  ).join('');
+  const fl = ((c._ui && c._ui.filters) || []).map((f, k) => filterRow(i, k, f)).join('');
+  return cardShell('Search / filter', 'index, sourcetype, source, host, free text + filters',
+    '<div class="spl-row">' + sel + '</div>' +
+    '<div class="spl-row"><input class="spl-input" style="flex:1" value="' + escA(c.text || '') + '" placeholder="Free text (matches message)" oninput="splSetText(' + i + ',this.value)"></div>' +
+    '<div>' + fl + '</div><button class="spl-add" onclick="splAddFilter(' + i + ')">+ Filter</button>', i);
+}
+function whereCard(c, i) {
+  const fl = exprToFilters(c.expr).map((f, k) => filterRow(i, k, f)).join('');
+  return cardShell('Where', 'boolean expression → AND/OR filter list',
+    '<div>' + fl + '</div><button class="spl-add" onclick="splAddFilter(' + i + ')">+ Condition</button>', i);
+}
+function evalCard(c, i) {
+  const sets = (c.sets || []).map((s, k) =>
+    '<div class="spl-row"><input class="spl-input" list="dl-spl-fields" value="' + escA(s.name) + '" placeholder="new_field" oninput="splSetEvalField(' + i + ',' + k + ',this.value)">' +
+    '<span style="line-height:30px">=</span><input class="spl-input" style="flex:1" value="' + escA(s.expr) + '" placeholder="field, \"string\", or field==\"x\" && ... " oninput="splSetEvalExpr(' + i + ',' + k + ',this.value)">' +
+    '<button class="spl-del" onclick="splDelEval(' + i + ',' + k + ')">✕</button></div>'
+  ).join('');
+  return cardShell('Eval', 'computed fields (string compare, math)', '<div>' + sets + '</div><button class="spl-add" onclick="splAddEval(' + i + ')">+ Field</button>', i);
+}
+function statsCard(c, i) {
+  const aggs = (c.aggs || []).map((a, k) =>
+    '<div class="spl-row"><select class="spl-input" onchange="splAggFunc(' + i + ',' + k + ',this.value)">' +
+    ['count', 'sum', 'avg', 'min', 'max', 'dc'].map((fn) => '<option' + (a.func === fn ? ' selected' : '') + '>' + fn + '</option>').join('') + '</select>' +
+    '<input class="spl-input" list="dl-spl-fields" value="' + escA(a.field || '') + '" placeholder="field" oninput="splAggField(' + i + ',' + k + ',this.value)">' +
+    '<span style="line-height:30px">as</span><input class="spl-input" value="' + escA(a.alias || '') + '" placeholder="alias" oninput="splAggAlias(' + i + ',' + k + ',this.value)">' +
+    '<button class="spl-del" onclick="splDelAgg(' + i + ',' + k + ')">✕</button></div>'
+  ).join('');
+  const gb = (c.groupby || []).map((g, k) => '<span class="spl-chip">' + escA(g) + '<button onclick="splDelGroup(' + i + ',' + k + ')">✕</button></span>').join('');
+  return cardShell(c.type, 'aggregate by field(s)', '<div>' + aggs + '</div><button class="spl-add" onclick="splAddAgg(' + i + ')">+ Metric</button>' +
+    '<div style="margin-top:10px"><div class="spl-row"><span class="spl-lbl">group by</span><input class="spl-input" style="flex:1" list="dl-spl-fields" placeholder="host, user, severity" onkeydown="if(event.key===\'Enter\'){splAddGroup(' + i + ',this.value);this.value=\'\';event.preventDefault();}"><button class="spl-btn" onclick="splGroupAddBtn(' + i + ')">+ Add</button></div><div class="spl-chips">' + gb + '</div></div>', i);
+}
+function timechartCard(c, i) {
+  const a = (c.aggs || [])[0] || { func: 'count', field: '' };
+  const gb = (c.groupby || []).map((g, k) => '<span class="spl-chip">' + escA(g) + '<button onclick="splDelGroup(' + i + ',' + k + ')">✕</button></span>').join('');
+  return cardShell('Timechart', 'time-bucketed aggregate (span auto)',
+    '<div class="spl-row"><select class="spl-input" onchange="splTcFunc(' + i + ',this.value)">' + ['count', 'sum', 'avg', 'min', 'max', 'dc'].map((fn) => '<option' + (a.func === fn ? ' selected' : '') + '>' + fn + '</option>').join('') + '</select><input class="spl-input" list="dl-spl-fields" value="' + escA(a.field || '') + '" placeholder="field" oninput="splTcField(' + i + ',this.value)"></div>' +
+    '<div class="spl-row" style="margin-top:8px"><span class="spl-lbl">split by</span><input class="spl-input" style="flex:1" list="dl-spl-fields" placeholder="source (optional)" onkeydown="if(event.key===\'Enter\'){splAddGroup(' + i + ',this.value);this.value=\'\';event.preventDefault();}"><button class="spl-btn" onclick="splGroupAddBtn(' + i + ')">+ Add</button></div><div class="spl-chips">' + gb + '</div>', i);
+}
+function sortCard(c, i) {
+  const rows = (c.sort || []).map((s, k) =>
+    '<div class="spl-row"><input class="spl-input" list="dl-spl-fields" value="' + escA(s.field) + '" placeholder="field" oninput="sortField(' + i + ',' + k + ',this.value)">' +
+    '<label class="spl-chk"><input type="checkbox"' + (s.desc ? ' checked' : '') + ' onchange="sortDir(' + i + ',' + k + ',this.checked)">desc</label>' +
+    '<button class="spl-del" onclick="delSortField(' + i + ',' + k + ')">✕</button></div>'
+  ).join('');
+  return cardShell('Sort', 'order by field(s)', '<div>' + rows + '</div><button class="spl-add" onclick="addSortField(' + i + ')">+ Sort field</button>', i);
+}
+function headtailCard(c, i) {
+  return cardShell(c.type, 'limit row count', '<div class="spl-row"><input class="spl-input" type="number" min="1" style="width:120px" value="' + escA(c.n) + '" oninput="splSetHead(' + i + ',this.value)"></div>', i);
+}
+function dedupCard(c, i) {
+  return cardShell('Dedup', 'distinct by field(s)', '<div class="spl-row"><input class="spl-input" style="flex:1" list="dl-spl-fields" value="' + escA((c.fields || []).join(', ')) + '" placeholder="user, host" oninput="splSetDedup(' + i + ',this.value)"></div>', i);
+}
+function fieldsCard(c, i) {
+  return cardShell(c.type === 'table' ? 'Table' : 'Fields', 'displayed columns (comma separated)',
+    '<div class="spl-row"><input class="spl-input" style="flex:1" list="dl-spl-fields" value="' + escA((c.fields || []).join(', ')) + '" placeholder="_time, host, user" oninput="splSetTable(' + i + ',this.value)"></div>', i);
+}
+function renameCard(c, i) {
+  const rows = (c.pairs || []).map((p, k) =>
+    '<div class="spl-row"><input class="spl-input" value="' + escA(p.from) + '" placeholder="from" oninput="splSetNameFrom(' + i + ',' + k + ',this.value)">' +
+    '<span style="line-height:30px">as</span><input class="spl-input" value="' + escA(p.to) + '" placeholder="to" oninput="splSetNameTo(' + i + ',' + k + ',this.value)">' +
+    '<button class="spl-del" onclick="splDelName(' + i + ',' + k + ')">✕</button></div>'
+  ).join('');
+  return cardShell('Rename', 'rename result columns', '<div>' + rows + '</div><button class="spl-add" onclick="splAddName(' + i + ')">+ Rename</button>', i);
+}
+function rexCard(c, i) {
+  return cardShell('Rex', 'regex extraction', '<div class="spl-row"><input class="spl-input" style="flex:2" value="' + escA(c.expr || '') + '" placeholder="regex e.g. user=(?<user>\\w+)" oninput="splSetRex(' + i + ',\'expr\',this.value)"><input class="spl-input" style="flex:1" list="dl-spl-fields" value="' + escA(c.field || '') + '" placeholder="field" oninput="splSetRex(' + i + ',\'field\',this.value)"></div>', i);
+}
+function binCard(c, i) {
+  return cardShell('Bin', 'bucket numeric field', '<div class="spl-row"><input class="spl-input" style="width:160px" list="dl-spl-fields" value="' + escA(c.field || '') + '" placeholder="field" oninput="splSetBin(' + i + ',\'field\',this.value)"><input class="spl-input" style="width:120px" value="' + escA(c.span || '') + '" placeholder="span (e.g. 50)" oninput="splSetBin(' + i + ',\'span\',this.value)"></div>', i);
+}
+
+// ── command ops ──
+function cmd(i) { return SPL.ast.commands[i]; }
+function addCmdType(type) {
+  const t = type; let o = { type: t };
+  if (t === 'where') { o.expr = null; o._ui = { filters: [{ field: '', op: '=', value: '', not: false, joiner: 'and' }] }; }
+  else if (t === 'search') { o.fields = {}; o.text = ''; o._ui = { filters: [] }; }
+  else if (t === 'eval') o.sets = [{ name: '', expr: '' }];
+  else if (t === 'stats' || t === 'eventstats' || t === 'streamstats') o.aggs = [{ func: 'count', field: '', alias: '' }], o.groupby = [];
+  else if (t === 'timechart') o.aggs = [{ func: 'count', field: '', alias: '' }], o.groupby = [];
+  else if (t === 'sort') o.sort = [{ field: '', desc: false }];
+  else if (t === 'head' || t === 'tail') o.n = 10;
+  else if (t === 'dedup' || t === 'fields' || t === 'table') o.fields = [];
+  else if (t === 'rename') o.pairs = [{ from: '', to: '' }];
+  else if (t === 'rex') o.expr = '', o.field = '';
+  else if (t === 'bin') o.field = '', o.span = '';
+  SPL.ast.commands.push(o);
+  renderCards(); schedulePreview();
+}
+function addCmd() { addCmdType('where'); }
+function delCmd(i) { if (i <= 0) return; SPL.ast.commands.splice(i, 1); renderCards(); schedulePreview(); }
+
+// ── filter handlers ──
+function uiFilters(i) { const c = cmd(i); if (c.type === 'where' && !c._ui) c._ui = { filters: exprToFilters(c.expr) }; if (!c._ui) c._ui = { filters: [] }; return c._ui; }
+function splAddFilter(i) { uiFilters(i).filters.push({ field: '', op: '=', value: '', not: false, joiner: 'and' }); renderCards(); schedulePreview(); }
+function splDelFilter(i, k) { uiFilters(i).filters.splice(k, 1); renderCards(); schedulePreview(); }
+function splFilterField(i, k, v) { uiFilters(i).filters[k].field = v; schedulePreview(); }
+function splFilterValue(i, k, v) { uiFilters(i).filters[k].value = v; schedulePreview(); }
+function splFilterNot(i, k, v) { uiFilters(i).filters[k].not = v; schedulePreview(); }
+function splFilterOp(i, k, v) { const f = uiFilters(i).filters[k]; f.op = v; if (v === 'IS NULL') f.value = ''; renderCards(); schedulePreview(); }
+function splJoiner(i, k, v) { uiFilters(i).filters[k].joiner = v; schedulePreview(); }
+function splSetSearchField(i, key, val) { const c = cmd(i); c.fields = c.fields || {}; if (val == null || val === '') delete c.fields[key]; else c.fields[key] = val; schedulePreview(); }
+function splSetText(i, v) { cmd(i).text = v; schedulePreview(); }
+function splSetRaw(i, v) { cmd(i).raw = v; schedulePreview(); }
+
+// ── eval/stats/etc ──
+function splAddEval(i) { (cmd(i).sets = cmd(i).sets || []).push({ name: '', expr: '' }); renderCards(); schedulePreview(); }
+function splDelEval(i, k) { cmd(i).sets.splice(k, 1); renderCards(); schedulePreview(); }
+function splSetEvalField(i, k, v) { cmd(i).sets[k].name = v; schedulePreview(); }
+function splSetEvalExpr(i, k, v) { cmd(i).sets[k].expr = v; schedulePreview(); }
+function splAddAgg(i) { (cmd(i).aggs = cmd(i).aggs || []).push({ func: 'count', field: '', alias: '' }); renderCards(); schedulePreview(); }
+function splDelAgg(i, k) { cmd(i).aggs.splice(k, 1); renderCards(); schedulePreview(); }
+function splAggFunc(i, k, v) { cmd(i).aggs[k].func = v; schedulePreview(); }
+function splAggField(i, k, v) { cmd(i).aggs[k].field = v; schedulePreview(); }
+function splAggAlias(i, k, v) { cmd(i).aggs[k].alias = v; schedulePreview(); }
+function splAddGroup(i, v) { v = (v || '').trim(); if (!v) return; const c = cmd(i); (c.groupby = c.groupby || []).push(v); renderCards(); schedulePreview(); }
+function splGroupAddBtn(i) { const inp = document.activeElement; if (inp && inp.value && inp.placeholder) { splAddGroup(i, inp.value); inp.value = ''; } }
+function splDelGroup(i, k) { cmd(i).groupby.splice(k, 1); renderCards(); schedulePreview(); }
+function splTcFunc(i, v) { const c = cmd(i); c.aggs = c.aggs || [{}]; c.aggs[0].func = v; schedulePreview(); }
+function splTcField(i, v) { const c = cmd(i); c.aggs = c.aggs || [{}]; c.aggs[0].field = v; schedulePreview(); }
+function addSortField(i) { (cmd(i).sort = cmd(i).sort || []).push({ field: '', desc: false }); renderCards(); schedulePreview(); }
+function delSortField(i, k) { cmd(i).sort.splice(k, 1); renderCards(); schedulePreview(); }
+function sortField(i, k, v) { cmd(i).sort[k].field = v; schedulePreview(); }
+function sortDir(i, k, v) { cmd(i).sort[k].desc = v; schedulePreview(); }
+function splSetHead(i, v) { cmd(i).n = parseInt(v, 10) || 0; schedulePreview(); }
+function splSetDedup(i, v) { cmd(i).fields = String(v).split(',').map((s) => s.trim()).filter(Boolean); schedulePreview(); }
+function splSetTable(i, v) { cmd(i).fields = String(v).split(',').map((s) => s.trim()).filter(Boolean); schedulePreview(); }
+function splAddName(i) { (cmd(i).pairs = cmd(i).pairs || []).push({ from: '', to: '' }); renderCards(); schedulePreview(); }
+function splDelName(i, k) { cmd(i).pairs.splice(k, 1); renderCards(); schedulePreview(); }
+function splSetNameFrom(i, k, v) { cmd(i).pairs[k].from = v; schedulePreview(); }
+function splSetNameTo(i, k, v) { cmd(i).pairs[k].to = v; schedulePreview(); }
+function splSetRex(i, key, v) { cmd(i)[key] = v; schedulePreview(); }
+function splSetBin(i, key, v) { cmd(i)[key] = v; schedulePreview(); }
+
+// ── wire serialize ──
+function splWireForServer() {
+  if (SPL.mode === 'raw') {
+    const ta = document.getElementById('spl-raw');
+    if (ta && ta.value.trim()) return { version: 1, raw: ta.value.trim() };
+  }
+  const out = [];
+  (SPL.ast.commands || []).forEach((c) => {
+    const t = c.type;
+    if (t === 'search') {
+      const fields = {}; SPL_SELECTORS.forEach((k) => { const val = (c.fields || {})[k]; if (val != null && val !== '') fields[k] = String(val); });
+      const fl = ((c._ui && c._ui.filters) || []).filter((f) => f && f.field && f.field.trim());
+      const expr = filtersToExpr(fl);
+      const has = Object.keys(fields).length > 0 || expr != null || String(c.text || '').trim() !== '';
+      const sc = { type: 'search', fields: fields };
+      if (String(c.text || '').trim()) sc.text = String(c.text).trim();
+      if (expr) sc.expr = expr;
+      if (has || out.length === 0) out.push(sc);
+    } else if (t === 'where') {
+      const fl = ((c._ui && c._ui.filters) || []).filter((f) => f && f.field && f.field.trim());
+      const expr = filtersToExpr(fl);
+      if (expr) out.push({ type: 'where', expr: expr });
+    } else if (t === 'eval') {
+      const sets = (c.sets || []).filter((s) => s && s.name);
+      if (sets.length) out.push({ type: 'eval', sets: sets });
+    } else if (t === 'stats' || t === 'eventstats' || t === 'streamstats') {
+      const aggs = (c.aggs || []).filter((a) => a && a.func);
+      if (aggs.length) out.push({ type: t, aggs: aggs.map((a) => ({ func: a.func, field: a.field || '', alias: a.alias || '' })), groupby: (c.groupby || []).filter(Boolean) });
+    } else if (t === 'timechart') {
+      const aggs = (c.aggs || []).filter((a) => a && a.func);
+      if (aggs.length) out.push({ type: 'timechart', aggs: aggs.map((a) => ({ func: a.func, field: a.field || '', alias: a.alias || '' })), groupby: (c.groupby || []).filter(Boolean), span: c.span || '' });
+    } else if (t === 'sort') {
+      const sf = (c.sort || []).filter((s) => s && s.field);
+      if (sf.length) out.push({ type: 'sort', sort: sf.map((s) => ({ field: s.field, desc: !!s.desc })) });
+    } else if (t === 'head' || t === 'tail') {
+      const n = parseInt(c.n, 10); if (!isNaN(n)) out.push({ type: t, n: n });
+    } else if (t === 'dedup') {
+      const f = (c.fields || []).filter(Boolean); if (f.length) out.push({ type: 'dedup', fields: f });
+    } else if (t === 'fields' || t === 'table') {
+      const f = (c.fields || []).filter(Boolean); if (f.length) out.push({ type: t, fields: f });
+    } else if (t === 'rename') {
+      const pr = (c.pairs || []).filter((p) => p && p.from && p.to); if (pr.length) out.push({ type: 'rename', pairs: pr });
+    } else if (t === 'rex') {
+      if (c.expr) out.push({ type: 'rex', expr: c.expr, field: c.field || '' });
+    } else if (t === 'bin') {
+      if (c.field) out.push({ type: 'bin', field: c.field, span: c.span || '' });
+    } else if (String(c.raw || '').trim()) {
+      out.push({ type: t, raw: c.raw });
+    }
+  });
+  return { version: 1, commands: out };
+}
+
+// ── preview + actions ──
+function schedulePreview() {
+  if (SPL.mode !== 'visual') return;
+  clearTimeout(SPL.timer);
+  SPL.timer = setTimeout(splPreview, 650);
+}
+function splRawEdited(v) {
+  const ta = document.getElementById('spl-raw');
+  if (ta) ta.dataset.dirty = '1';
+  clearTimeout(SPL.timer);
+  SPL.timer = setTimeout(splRawPreview, 500);
+}
+function splRawPreview() {
+  const ta = document.getElementById('spl-raw');
+  const st = document.getElementById('spl-status');
+  if (!ta) return;
+  if (!ta.value.trim()) { if (st) st.innerHTML = ''; return; }
+  api('/spl/validate', { method: 'POST', body: JSON.stringify({ query: ta.value.trim() }) })
+    .then((d) => { if (st) st.innerHTML = d.ok ? '<span class="spl-ok">✓ Valid SPL</span>' : '<span class="spl-err">' + escA(d.message || 'Invalid') + '</span>'; })
+    .catch(() => { if (st) st.innerHTML = '<span class="spl-err">✕ Invalid SPL</span>'; });
+}
+function splPreview() {
+  const seq = ++SPL.seq;
+  const body = document.getElementById('spl-preview-body');
+  const meta = document.getElementById('spl-preview-meta');
+  const tr = splTimeObj();
+  if (body) body.innerHTML = '<div class="spl-preview-empty">Loading…</div>';
+  api('/spl/preview', { method: 'POST', body: JSON.stringify({ ast: splWireForServer(), earliest: tr.earliest, latest: tr.latest }) })
+    .then((res) => {
+      if (seq !== SPL.seq) return;
+      const r = res || {};
+      const ms = r.execution_ms != null ? r.execution_ms : r.elapsed_ms;
+      if (meta) meta.innerHTML = r.ok === false ? '<span style="color:var(--danger)">' + escA(r.error && (r.error.message || r.error.code) || 'Invalid SPL') + '</span>' : ((r.count != null ? escA(r.count) + ' events' : '') + (ms != null ? ' · ' + ms + ' ms' : ''));
+      if (r.ok === false) { if (body) body.innerHTML = '<div class="spl-preview-empty" style="color:var(--danger)">' + escA(r.error && r.error.message || 'Invalid SPL') + '</div>'; return; }
+      const cols = r.fields || r.columns || [];
+      const rows = r.results || r.rows || [];
+      if (!rows.length) { if (body) body.innerHTML = '<div class="spl-preview-empty">No events match (check time range / filters).</div>'; return; }
+      const show = cols.length ? cols : Object.keys(rows[0]);
+      let h = '<table><thead><tr>' + show.map((c) => '<th>' + escA(c) + '</th>').join('') + '</tr></thead><tbody>';
+      rows.forEach((row) => { h += '<tr>' + show.map((c) => { const v = row[c]; return '<td>' + escA(v == null ? '' : (typeof v === 'object' ? JSON.stringify(v) : v)) + '</td>'; }).join('') + '</tr>'; });
+      if (body) body.innerHTML = h + '</tbody></table>';
+    })
+    .catch((e) => { if (seq !== SPL.seq) return; if (body) body.innerHTML = '<div class="spl-preview-empty" style="color:var(--danger)">' + escA(String(e && e.message || e)) + '</div>'; });
+}
+
+// ── examples ──
+const SPL_EXAMPLES = [
+  ['Failed logins by user', 'index=auth sourcetype=*action* status="failed" | stats count by user | sort -count | head 20'],
+  ['Top paths (web)', 'sourcetype=access | stats count by uri | sort -count | head 20'],
+  ['Slowest requests', 'sourcetype=* response_time>1000 | table _time, host, response_time | sort -response_time | head 50'],
+  ['Events by host', '| stats count by host | sort -count'],
+  ['Distinct users', '| stats dc(user) as distinct_users'],
+  ['Error timeline', 'severity=err | timechart count by source'],
+  ['Priv escalation', 'action=sudo user!=root | stats count by user, host | sort -count']
+];
+function showSPLExamples(e) {
+  e.stopPropagation();
+  const m = document.getElementById('spl-examples');
+  if (!m.children.length) m.innerHTML = SPL_EXAMPLES.map((x) => '<button onclick="runSPLExample(\'' + escA(x[1]) + '\')">' + escA(x[0]) + '</button>').join('');
+  m.classList.toggle('hidden');
+}
+function hideSPLExamples() { const m = document.getElementById('spl-examples'); if (m) m.classList.add('hidden'); }
+function runSPLExample(q) {
+  hideSPLExamples();
+  api('/spl/parse', { method: 'POST', body: JSON.stringify({ query: q }) })
+    .then((d) => { SPL.ast = normalizeAST(d && d.ast ? d.ast : d); SPL.mode = 'visual'; setSPLSeg('visual'); renderSPLBuilder(); schedulePreview(); });
+}
+
+// ── actions ──
+function splRun() {
+  api('/spl/build', { method: 'POST', body: JSON.stringify(splWireForServer()) }).then((d) => {
+    const q = (d && (d.query || d.spl)) || '';
+    const si = document.getElementById('search-input');
+    if (si) si.value = q;
+    window.currentSearchQuery = q;
+    closeSPLBuilder();
+    document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
+    const pg = document.getElementById('page-search'); if (pg) pg.classList.add('active');
+    document.querySelectorAll('.nav-item').forEach((n) => n.classList.remove('active'));
+    const nav = document.querySelector('.nav-item[data-page="search"]'); if (nav) nav.classList.add('active');
+    doSearch();
+  }).catch(() => toast('Could not build SPL', 'error'));
+}
+function splBuildSPL() {
+  api('/spl/build', { method: 'POST', body: JSON.stringify(splWireForServer()) }).then((d) => {
+    const q = (d && (d.query || d.spl)) || '';
+    const ta = document.getElementById('spl-raw'); if (ta) { ta.value = q; ta.dataset.dirty = ''; }
+    setSPLSeg('raw'); renderSPLBuilder();
+  }).catch(() => toast('Could not build SPL', 'error'));
+}
+function splCopy() {
+  const ta = document.getElementById('spl-raw');
+  const getQ = () => (ta && ta.value.trim()) ? ta.value.trim() : '';
+  const finish = (q) => {
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(q).then(() => toast('Copied', 'success'), () => fallbackCopy(q));
+    else fallbackCopy(q);
+  };
+  if (ta && ta.value.trim()) { finish(ta.value.trim()); return; }
+  api('/spl/build', { method: 'POST', body: JSON.stringify(splWireForServer()) }).then((d) => { const q = (d && (d.query || d.spl)) || ''; if (ta) ta.value = q; finish(q); });
+}
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); toast('Copied', 'success'); } catch (e) { toast('Copy failed', 'error'); }
+  document.body.removeChild(ta);
+}
+function splSaveDetection() {
+  api('/spl/build', { method: 'POST', body: JSON.stringify(splWireForServer()) }).then((d) => {
+    const q = (d && (d.query || d.spl)) || '';
+    const name = prompt('Detection rule name:'); if (!name) return;
+    const sev = prompt('Severity (info/warning/error/critical):', 'warning') || 'warning';
+    api('/detections', { method: 'POST', body: JSON.stringify({ name: name, query: q, severity: sev }) })
+      .then(() => { toast('Detection created', 'success'); closeSPLBuilder(); if (window.loadDetections) loadDetections(); })
+      .catch((e) => toast('Error: ' + (e.message || e), 'error'));
+  });
+}
+
+// ── value autocomplete ──
+function ensureValues(val, field) {
+  field = (field || '').trim();
+  if (!field || SPL_VALUES[field] || document.getElementById('dl-spl-values-' + field)) return;
+  SPL_VALUES[field] = true;
+  api('/spl/values?field=' + encodeURIComponent(field) + '&limit=30').then((d) => {
+    const vals = (d && (d.values || d.data)) || [];
+    const host = document.getElementById('spl-dl-host') || document.body;
+    const dl = document.createElement('datalist'); dl.id = 'dl-spl-values-' + field;
+    dl.innerHTML = (Array.isArray(vals) ? vals : []).map((v) => '<option value="' + escA(v) + '"></option>').join('');
+    host.appendChild(dl);
+  }).catch(() => {});
+}
+</script>
+<script>
+// ── Search results pagination ──
+var SEARCH = { rows: [], cols: [], page: 1, size: 20, q: '' };
+var SEARCH_SIZES = [10, 20, 50, 100];
+
+function doSearch() {
+  var q = document.getElementById('search-input').value.trim();
+  if (!q) return;
+  var el = document.getElementById('search-results');
+  el.innerHTML = '<div class="loading">Searching...</div>';
+  api('/search', { method: 'POST', body: JSON.stringify({ query: q }) }).then(function (res) {
+    var data = res || {};
+    SEARCH.rows = data.results || [];
+    SEARCH.cols = data.columns || [];
+    SEARCH.q = q;
+    SEARCH.page = 1;
+    renderSearchResults();
+  }).catch(function (e) {
+    el.innerHTML = '<div class="empty">Error: ' + esc(e && e.message ? e.message : e) + '</div>';
+  });
+}
+
+function renderSearchResults() {
+  var el = document.getElementById('search-results');
+  var hdr = document.getElementById('search-results-header');
+  var st = SEARCH;
+  var total = st.rows.length;
+
+  if (!total) {
+    if (hdr) hdr.innerHTML = 'Results' + (st.q ? ' <span class="rc-count">for “' + esc(st.q) + '”</span>' : '');
+    el.innerHTML = '<div class="empty">No results</div>';
+    return;
+  }
+
+  var size = st.size;
+  var pages = Math.ceil(total / size) || 1;
+  if (st.page > pages) st.page = pages;
+  if (st.page < 1) st.page = 1;
+  var start = (st.page - 1) * size;
+  var end = Math.min(start + size, total);
+  var slice = st.rows.slice(start, end);
+  var cols = (st.cols && st.cols.length) ? st.cols : Object.keys(st.rows[0]);
+
+  if (hdr) {
+    hdr.innerHTML = 'Results <span class="rc-count">' + (start + 1) + '-' + end + ' of ' + total +
+      ' for “' + esc(st.q) + '”</span>' +
+      '<span class="rc-size">Rows <select onchange="setSearchSize(this.value)">' +
+      SEARCH_SIZES.map(function (n) { return '<option value="' + n + '"' + (n === size ? ' selected' : '') + '>' + n + '</option>'; }).join('') +
+      '</select></span>';
+  }
+
+  var html = '';
+  if (pages > 1) html += pagerBar(st.page, pages);
+  html += '<table><thead><tr>' + cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>';
+  slice.forEach(function (row) {
+    html += '<tr>' + cols.map(function (c) { var v = row[c]; return '<td>' + esc(v == null ? '' : String(v)) + '</td>'; }).join('') + '</tr>';
+  });
+  html += '</tbody></table>';
+  if (pages > 1) html += pagerBar(st.page, pages);
+  el.innerHTML = html;
+}
+
+function pagerBar(page, pages) {
+  var b = '<div class="rc-pager">';
+  b += pgBtn(page <= 1, '«', 'searchGoPage(1)');
+  b += pgBtn(page <= 1, '‹', 'searchGoPage(' + (page - 1) + ')');
+  var start = Math.max(1, page - 3);
+  var end = Math.min(pages, start + 6);
+  if (start > 1) b += pgNum(1, page) + (start > 2 ? '<span class="rc-dots">…</span>' : '');
+  for (var i = start; i <= end; i++) b += pgNum(i, page);
+  if (end < pages) b += (end < pages - 1 ? '<span class="rc-dots">…</span>' : '') + pgNum(pages, page);
+  b += pgBtn(page >= pages, '›', 'searchGoPage(' + (page + 1) + ')');
+  b += pgBtn(page >= pages, '»', 'searchGoPage(' + pages + ')');
+  b += '</div>';
+  return b;
+}
+function pgBtn(disabled, label, fn) {
+  if (disabled) return '<button class="rc-page" disabled>' + label + '</button>';
+  return '<button class="rc-page" onclick="' + fn + '">' + label + '</button>';
+}
+function pgNum(n, active) {
+  var cls = 'rc-page rc-num' + (n === active ? ' rc-cur' : '');
+  return '<button class="' + cls + '" onclick="searchGoPage(' + n + ')">' + n + '</button>';
+}
+function setSearchSize(v) {
+  var n = parseInt(v, 10);
+  SEARCH.size = (SEARCH_SIZES.indexOf(n) >= 0) ? n : 20;
+  SEARCH.page = 1;
+  renderSearchResults();
+}
+function searchGoPage(p) {
+  var total = SEARCH.rows.length;
+  var pages = Math.ceil(total / SEARCH.size) || 1;
+  SEARCH.page = Math.max(1, Math.min(p, pages));
+  renderSearchResults();
+  var el = document.getElementById('search-results');
+  if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' });
+}
 </script>
 </body>
 </html>

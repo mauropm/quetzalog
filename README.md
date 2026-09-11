@@ -13,6 +13,7 @@ alerting, and incident management -- all in a single binary with no external dep
 
 - **Multi-source ingestion** -- HTTP/JSON, Splunk HEC, Syslog (UDP/TCP), OTLP, file tailing, stdin
 - **SPL-like search** -- Familiar query language with `search`, `stats`, `sort`, `where`, and more
+- **Visual SPL Builder** -- Splunk-style drag/point query builder with live preview, unified into the search pipeline
 - **SQLite storage** -- Embedded database with FTS5 full-text search and WAL mode
 - **Detection engine** -- Threshold-based rules with time-windowed grouping
 - **Alert lifecycle** -- Full alert workflow: new, acknowledged, investigating, resolved, false_positive
@@ -219,6 +220,36 @@ POST /api/v1/search
 ```
 
 See [SPL Compatibility](SPL_COMPATIBILITY.md) for the complete list of supported commands.
+
+---
+
+## SPL Builder
+
+The Web UI includes a Splunk-compatible **SPL Builder** -- a visual query composer that produces a structured query language (SPL) AST, previews results live, and runs on the *exact same* pipeline as free-text search.
+
+Open it from the Search page (or press `b`): a factory-style icon sits next to the SPL help icon, and a modal presents command cards (Search, Where, Eval, Stats, Timechart, Sort, Head/Tail, Dedup, Fields/Table, Rename, Rex, Bin). A **Visual / SPL** toggle switches between the cards and the raw SPL text; both stay in sync.
+
+Key properties:
+
+- **One pipeline, one contract** -- the builder never maintains a separate search path. The UI serializes the AST to canonical SPL and the server re-parses and executes it through `internal/spl` -> planner -> `events` (SQLite). See the shared AST contract in [docs/spl-builder.md](docs/spl-builder.md).
+- **Field/value autocomplete** -- cards pull field names and distinct values from the storage layer via `/api/v1/spl/fields` and `/api/v1/spl/values`.
+- **Live preview** -- debounced preview renders results, columns, and row count inline; invalid SPL shows an inline error instead of a page alert.
+
+### Builder API
+
+All endpoints accept the shared `{ version, commands: [...] }` wire format and return the standard `{ status, message, data }` envelope.
+
+```
+POST /api/v1/spl/parse      # raw SPL text -> AST
+POST /api/v1/spl/build      # AST -> canonical SPL
+POST /api/v1/spl/validate   # AST validity + unsupported commands
+POST /api/v1/spl/preview    # AST -> columns, rows, count (200 + {ok:false} on user errors)
+GET  /api/v1/spl/fields     # canonical + attribute field names
+GET  /api/v1/spl/values     # distinct values for a field (autocomplete)
+GET  /api/v1/spl/{indexes,sourcetypes,sources,hosts}
+```
+
+The regular `POST /api/v1/search` endpoint also executes full pipelines (`search`, `stats`, `sort`, ...) and maps user-facing SPL errors to HTTP 400. Relative time ranges (`earliest=24h`, `-7d`, ...) are supported.
 
 ---
 

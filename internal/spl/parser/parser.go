@@ -1,3 +1,8 @@
+// Package parser turns an SPL token stream into the ast.Query tree. It is a
+// hand-written recursive-descent parser (NOT a "|"-split) that supports
+// boolean expressions with precedence (AND/OR/NOT, parentheses), field=value
+// pairs, quoted strings, negative/decimal numbers, IN/NOT IN, LIKE, IS [NOT]
+// NULL, function-call aggregations, and every builder-supported command.
 package parser
 
 import (
@@ -9,543 +14,1006 @@ import (
 	"quetzalog/internal/spl/lexer"
 )
 
+// Parser holds a token slice with a cursor.
 type Parser struct {
-	lexer  *lexer.Lexer
 	tokens []lexer.Token
+	input  string
 	pos    int
 }
 
+// New tokenizes input and prepares a parser.
 func New(input string) (*Parser, error) {
-	l := lexer.NewLexer(input)
-	var tokens []lexer.Token
-	for {
-		tok := l.NextToken()
-		tokens = append(tokens, tok)
-		if tok.Type == lexer.EOF {
-			break
-		}
-	}
-	p := &Parser{
-		lexer:  l,
-		tokens: tokens,
-		pos:    0,
-	}
-	return p, nil
-}
-
-func (p *Parser) Parse() (*ast.Query, error) {
-	commands, err := p.parseCommands()
+	tokens, err := lexer.Tokenize(input)
 	if err != nil {
 		return nil, err
 	}
-	return &ast.Query{Commands: commands}, nil
+	return &Parser{tokens: tokens, input: input}, nil
 }
 
-func (p *Parser) parseCommands() ([]ast.Node, error) {
-	var commands []ast.Node
-
-	for p.current().Type != lexer.EOF {
-		if p.current().Type == lexer.PIPE {
-			p.advance()
+// Parse returns the query tree.
+func (p *Parser) Parse() (*ast.Query, error) {
+	groups := p.splitPipes()
+	if len(groups) == 0 {
+		return &ast.Query{Version: 1}, nil
+	}
+	cmds := make([]ast.Node, 0, len(groups))
+	for i, g := range groups {
+		if len(g) == 0 {
+			continue
 		}
-
-		cmd, err := p.parseCommand()
+		node, err := p.dispatch(g, i == 0)
 		if err != nil {
 			return nil, err
 		}
-		commands = append(commands, cmd)
+		cmds = append(cmds, node)
 	}
-
-	return commands, nil
+	return &ast.Query{Version: 1, Commands: cmds}, nil
 }
 
-func (p *Parser) parseCommand() (ast.Node, error) {
-	tok := p.current()
-	name := strings.ToLower(tok.Value)
-
-	switch name {
-	case "search", "":
-		return p.parseSearch()
-	case "where":
-		p.advance()
-		return p.parseWhere()
-	case "stats":
-		p.advance()
-		return p.parseStats()
-	case "sort":
-		p.advance()
-		return p.parseSort()
-	case "head":
-		p.advance()
-		return p.parseHead()
-	case "tail":
-		p.advance()
-		return p.parseTail()
-	case "dedup":
-		p.advance()
-		return p.parseDedup()
-	case "rename":
-		p.advance()
-		return p.parseRename()
-	case "table":
-		p.advance()
-		return p.parseTable()
-	case "eval":
-		p.advance()
-		return p.parseEval()
-	case "timechart":
-		p.advance()
-		return p.parseTimechart()
-	case "rex":
-		p.advance()
-		return p.parseRex()
-	default:
-		return p.parseSearch()
-	}
-}
-
-func (p *Parser) parseArgs() ([]string, error) {
-	var args []string
-
-	for p.current().Type != lexer.EOF && p.current().Type != lexer.PIPE {
-		tok := p.current()
-
-		if tok.Type == lexer.PIPE {
-			break
-		}
-
-		if tok.Type == lexer.COMMA {
-			p.advance()
+// splitPipes splits the (non-EOF) tokens into per-command groups at Pipe tokens.
+func (p *Parser) splitPipes() [][]lexer.Token {
+	var groups [][]lexer.Token
+	var cur []lexer.Token
+	for _, t := range p.tokens {
+		if t.Kind == lexer.TokenEOF {
 			continue
 		}
-
-		// Check for key=value pattern
-		if tok.Type == lexer.IDENT && p.peek().Type == lexer.OP && p.peek().Value == "=" {
-			p.advance() // IDENT
-			p.advance() // OP "="
-
-			if p.current().Type == lexer.IDENT || p.current().Type == lexer.STRING || p.current().Type == lexer.NUMBER {
-				args = append(args, tok.Value+"="+p.current().Value)
-			} else {
-				return nil, fmt.Errorf("expected value after '=' at position %d", p.pos)
+		if t.Kind == lexer.TokenPipe {
+			if len(cur) > 0 {
+				groups = append(groups, cur)
+				cur = nil
 			}
-			p.advance()
 			continue
 		}
+		cur = append(cur, t)
+	}
+	if len(cur) > 0 {
+		groups = append(groups, cur)
+	}
+	return groups
+}
 
-		// Handle -count pattern for sort
-		if tok.Type == lexer.MINUS && p.peek().Type == lexer.IDENT {
-			p.advance() // MINUS
-			args = append(args, "-"+p.current().Value)
-			p.advance()
-			continue
+// commandKeywords are treated as explicit commands when they lead a group.
+var commandKeywords = map[string]func(*Parser, []lexer.Token) (ast.Node, error){
+	"search":      parseSearch,
+	"where":       parseWhere,
+	"eval":        parseEval,
+	"fields":      parseFields,
+	"table":       parseTable,
+	"rename":      parseRename,
+	"stats":       parseStats,
+	"timechart":   parseTimechart,
+	"sort":        parseSort,
+	"head":        parseHead,
+	"tail":        parseTail,
+	"dedup":       parseDedup,
+	"rex":         parseRex,
+	"bin":         parseBin,
+	"lookup":      parseLookup,
+	"eventstats":  parseEventstats,
+	"streamstats": parseStreamstats,
+}
+
+func (p *Parser) dispatch(g []lexer.Token, isSearch bool) (ast.Node, error) {
+	if g[0].Kind == lexer.TokenName {
+		if fn, ok := commandKeywords[strings.ToLower(g[0].Value)]; ok {
+			return fn(p, g[1:])
 		}
-
-		args = append(args, tok.Value)
-		p.advance()
 	}
-
-	return args, nil
+	// A pipe segment that leads with a non-keyword token is not a command we
+	// understand; preserve it verbatim so a real SPL query is never destroyed by
+	// an unsupported stage. The FIRST segment, by contrast, is the base search
+	// expression and may legitimately lead with a bare term.
+	if !isSearch {
+		return &ast.UnsupportedNode{Name: commandNameOf(g), Raw: p.rawSlice(g)}, nil
+	}
+	return parseSearch(p, g)
 }
 
-func (p *Parser) peek() lexer.Token {
-	next := p.pos + 1
-	if next >= len(p.tokens) {
-		return lexer.Token{Type: lexer.EOF}
+// commandNameOf returns the lowercased leading command name for an unsupported
+// group, used purely for messaging.
+func commandNameOf(g []lexer.Token) string {
+	if len(g) == 0 {
+		return ""
 	}
-	return p.tokens[next]
+	return strings.ToLower(g[0].Value)
 }
 
-func (p *Parser) parseSearch() (ast.Node, error) {
-	node := &ast.SearchNode{
-		Fields: make(map[string]string),
+// rawSlice reconstructs the original source text spanned by a token group.
+func (p *Parser) rawSlice(g []lexer.Token) string {
+	if len(g) == 0 || p.input == "" {
+		return ""
 	}
+	start := g[0].Pos
+	last := g[len(g)-1]
+	end := last.Pos + len(last.Raw)
+	if start < 0 || start >= len(p.input) {
+		return ""
+	}
+	if end > len(p.input) {
+		end = len(p.input)
+	}
+	return strings.TrimSpace(p.input[start:end])
+}
 
-	args, err := p.parseArgs()
+// ─────────────────────────── expression parser ───────────────────────────
+// Grammar (filter expressions used by search/where):
+//   or    := and (OR and)*
+//   and   := unary (AND? unary)*            // juxtaposition is implicit AND
+//   unary := NOT unary | primary
+//   primary := ( or ) | comparison | text-term
+//   comparison := field (=|!=|<|<=|>|>=) value
+//               | field [NOT] IN (v, v…) | field LIKE v | field IS [NOT] NULL
+
+// exprParser operates over a bounded token window.
+type exprParser struct {
+	toks []lexer.Token
+	pos  int
+}
+
+func parseExprTokens(toks []lexer.Token) (*ast.Expr, error) {
+	ep := &exprParser{toks: toks}
+	e, err := ep.parseOr()
 	if err != nil {
 		return nil, err
 	}
-
-	for _, arg := range args {
-		if idx := strings.Index(arg, "="); idx > 0 {
-			key := strings.TrimSpace(arg[:idx])
-			value := strings.Trim(arg[idx+1:], "\"'")
-			node.Fields[key] = value
-		} else {
-			if node.Text != "" {
-				node.Text += " " + arg
-			} else {
-				node.Text = arg
-			}
-		}
+	if ep.cur().Kind != lexer.TokenEOF {
+		return nil, fmt.Errorf("unexpected token %q at position %d", ep.cur().Raw, ep.cur().Pos)
 	}
-
-	return node, nil
+	return e, nil
 }
 
-func (p *Parser) parseWhere() (ast.Node, error) {
-	node := &ast.WhereNode{}
+func (ep *exprParser) cur() lexer.Token {
+	if ep.pos >= len(ep.toks) {
+		return lexer.Token{Kind: lexer.TokenEOF}
+	}
+	return ep.toks[ep.pos]
+}
+func (ep *exprParser) peek(n int) lexer.Token {
+	i := ep.pos + n
+	if i >= len(ep.toks) {
+		return lexer.Token{Kind: lexer.TokenEOF}
+	}
+	return ep.toks[i]
+}
+func (ep *exprParser) advance() lexer.Token {
+	t := ep.cur()
+	ep.pos++
+	return t
+}
 
-	conditions, err := p.parseConditions()
+func (ep *exprParser) kw(word string, t lexer.Token) bool {
+	return t.Kind == lexer.TokenName && strings.EqualFold(t.Value, word)
+}
+
+func (ep *exprParser) parseOr() (*ast.Expr, error) {
+	left, err := ep.parseAnd()
 	if err != nil {
 		return nil, err
 	}
-	node.Conditions = conditions
-
-	return node, nil
+	for ep.kw("or", ep.cur()) {
+		ep.advance()
+		right, err := ep.parseAnd()
+		if err != nil {
+			return nil, err
+		}
+		left = ast.Or(left, right)
+	}
+	return left, nil
 }
 
-func (p *Parser) parseConditions() ([]ast.Condition, error) {
-	var conditions []ast.Condition
-
+func (ep *exprParser) parseAnd() (*ast.Expr, error) {
+	left, err := ep.parseUnary()
+	if err != nil {
+		return nil, err
+	}
 	for {
-		if p.current().Type == lexer.EOF || p.current().Type == lexer.PIPE {
-			break
-		}
-
-		tok := p.current()
-		if tok.Type != lexer.IDENT {
-			return nil, fmt.Errorf("expected field name at position %d", p.pos)
-		}
-		field := tok.Value
-		p.advance()
-
-		if p.current().Type != lexer.OP {
-			return nil, fmt.Errorf("expected operator at position %d", p.pos)
-		}
-		operator := p.current().Value
-		p.advance()
-
-		var value string
-		if p.current().Type == lexer.IDENT || p.current().Type == lexer.STRING || p.current().Type == lexer.NUMBER {
-			value = p.current().Value
-			p.advance()
-		} else {
-			return nil, fmt.Errorf("expected value at position %d", p.pos)
-		}
-
-		conditions = append(conditions, ast.Condition{
-			Field:    field,
-			Operator: operator,
-			Value:    value,
-		})
-
-		// Handle "and" / "or" continuations
-		if p.current().Type == lexer.IDENT {
-			lower := strings.ToLower(p.current().Value)
-			if lower == "and" || lower == "or" {
-				p.advance()
-				continue
-			}
-		}
-		break
-	}
-
-	return conditions, nil
-}
-
-func (p *Parser) parseStats() (ast.Node, error) {
-	node := &ast.StatsNode{}
-
-	args, err := p.parseArgs()
-	if err != nil {
-		return nil, err
-	}
-
-	var groupBy []string
-	for _, arg := range args {
-		lower := strings.ToLower(arg)
-		if lower == "by" {
-			continue
-		}
-
-		if strings.HasPrefix(lower, "count(") || strings.HasPrefix(lower, "values(") ||
-			strings.HasPrefix(lower, "dc(") || strings.HasPrefix(lower, "sum(") ||
-			strings.HasPrefix(lower, "avg(") || strings.HasPrefix(lower, "min(") ||
-			strings.HasPrefix(lower, "max(") {
-			agg, err := p.parseAggregation(arg)
+		if ep.kw("and", ep.cur()) {
+			ep.advance()
+			right, err := ep.parseUnary()
 			if err != nil {
 				return nil, err
 			}
-			node.Aggs = append(node.Aggs, agg)
-		} else if lower == "count" {
-			node.Aggs = append(node.Aggs, ast.Aggregation{Function: "count", Field: "*"})
-		} else {
-			groupBy = append(groupBy, arg)
+			left = ast.And(left, right)
+			continue
 		}
-	}
-	node.GroupBy = groupBy
-
-	return node, nil
-}
-
-func (p *Parser) parseAggregation(arg string) (ast.Aggregation, error) {
-	agg := ast.Aggregation{}
-
-	if idx := strings.Index(arg, " as "); idx > 0 {
-		agg.Function, agg.Field, agg.Alias = parseAggFunc(arg[:idx])
-	} else if idx := strings.Index(arg, " AS "); idx > 0 {
-		agg.Function, agg.Field, agg.Alias = parseAggFunc(arg[:idx])
-	} else {
-		agg.Function, agg.Field, agg.Alias = parseAggFunc(arg)
-	}
-
-	return agg, nil
-}
-
-func parseAggFunc(s string) (function, field, alias string) {
-	s = strings.TrimSpace(s)
-	if idx := strings.IndexByte(s, '('); idx > 0 {
-		funcName := strings.ToLower(s[:idx])
-		content := strings.TrimRight(strings.TrimSpace(s[idx+1:]), ")")
-		if content == "*" {
-			return funcName, "*", ""
+		// Implicit AND by juxtaposition: next token starts a new operand
+		// (not an operator/keyword/paren-close that ends the current one).
+		if ep.startsOperand(ep.cur()) {
+			right, err := ep.parseUnary()
+			if err != nil {
+				return nil, err
+			}
+			left = ast.And(left, right)
+			continue
 		}
-		return funcName, content, ""
+		break
 	}
-	return "", "", s
+	return left, nil
 }
 
-func (p *Parser) parseSort() (ast.Node, error) {
-	node := &ast.SortNode{}
+// startsOperand reports whether a token can begin a new boolean operand.
+func (ep *exprParser) startsOperand(t lexer.Token) bool {
+	switch t.Kind {
+	case lexer.TokenName:
+		if ep.kw("or", t) || ep.kw("and", t) || ep.kw("in", t) ||
+			ep.kw("like", t) || ep.kw("is", t) || ep.kw("as", t) {
+			return false
+		}
+		return true
+	case lexer.TokenString, lexer.TokenNumber, lexer.TokenStar, lexer.TokenLParen:
+		return true
+	case lexer.TokenOp:
+		// a leading NOT is an operand start (handled in unary via Name NOT too)
+		return false
+	default:
+		return false
+	}
+}
 
-	args, err := p.parseArgs()
+func (ep *exprParser) parseUnary() (*ast.Expr, error) {
+	if ep.kw("not", ep.cur()) {
+		ep.advance()
+		inner, err := ep.parseUnary()
+		if err != nil {
+			return nil, err
+		}
+		return ast.Not(inner), nil
+	}
+	return ep.parsePrimary()
+}
+
+func (ep *exprParser) parsePrimary() (*ast.Expr, error) {
+	t := ep.cur()
+	if t.Kind == lexer.TokenLParen {
+		ep.advance()
+		inner, err := ep.parseOr()
+		if err != nil {
+			return nil, err
+		}
+		if ep.cur().Kind != lexer.TokenRParen {
+			return nil, fmt.Errorf("expected ')' at position %d", ep.cur().Pos)
+		}
+		ep.advance()
+		return inner, nil
+	}
+	if ep.kw("not", t) {
+		ep.advance()
+		inner, err := ep.parseUnary()
+		if err != nil {
+			return nil, err
+		}
+		return ast.Not(inner), nil
+	}
+	return ep.parseComparison()
+}
+
+// parseComparison parses one predicate. field can be a Name token; a bare
+// term (no operator follows) becomes a full-text term.
+func (ep *exprParser) parseComparison() (*ast.Expr, error) {
+	t := ep.cur()
+	switch t.Kind {
+	case lexer.TokenName:
+		// Look ahead for comparison operator.
+		if opTok, ok := ep.opAfter(1); ok {
+			field := t.Value
+			ep.advance() // field
+			ep.advance() // op
+			val, err := ep.readValue()
+			if err != nil {
+				return nil, err
+			}
+			return ast.Cmp(field, opTok, val), nil
+		}
+		// IN / NOT IN
+		if ep.kw("in", ep.peek(1)) {
+			field := t.Value
+			ep.advance()
+			ep.advance() // in
+			return ep.readValueList(field, false)
+		}
+		if ep.kw("not", ep.peek(1)) && ep.kw("in", ep.peek(2)) {
+			field := t.Value
+			ep.advance() // field
+			ep.advance() // not
+			ep.advance() // in
+			return ep.readValueList(field, true)
+		}
+		if ep.kw("like", ep.peek(1)) {
+			field := t.Value
+			ep.advance()
+			ep.advance() // like
+			val, err := ep.readValue()
+			if err != nil {
+				return nil, err
+			}
+			return ast.Like(field, false, val), nil
+		}
+		if ep.kw("is", ep.peek(1)) {
+			field := t.Value
+			ep.advance() // field
+			ep.advance() // is
+			neg := false
+			if ep.kw("not", ep.cur()) {
+				ep.advance()
+				neg = true
+			}
+			if !ep.kw("null", ep.cur()) {
+				return nil, fmt.Errorf("expected 'null' after IS at position %d", ep.cur().Pos)
+			}
+			ep.advance()
+			return ast.IsNull(field, neg), nil
+		}
+		// Bare term: full-text search for the raw token (may include a
+		// field=value with no spaces like "index=main" arriving as one name).
+		raw := t.Value
+		if opTok, v, ok := splitInlineAssignment(raw); ok {
+			ep.advance()
+			return ast.Cmp(opTok, "=", v), nil
+		}
+		ep.advance()
+		return &ast.Expr{Kind: "text", Value: raw}, nil
+	case lexer.TokenString:
+		ep.advance()
+		return &ast.Expr{Kind: "text", Value: t.Value, Pattern: t.Value, Negate: false}, nil
+	case lexer.TokenNumber:
+		ep.advance()
+		return &ast.Expr{Kind: "text", Value: t.Value}, nil
+	case lexer.TokenStar:
+		ep.advance()
+		return &ast.Expr{Kind: "text", Value: "*"}, nil
+	default:
+		return nil, fmt.Errorf("unexpected token %q at position %d", t.Raw, t.Pos)
+	}
+}
+
+// opAfter reports whether the token n positions ahead is a comparison operator.
+func (ep *exprParser) opAfter(n int) (string, bool) {
+	t := ep.peek(n)
+	if t.Kind != lexer.TokenOp {
+		return "", false
+	}
+	switch t.Value {
+	case "=", "!=", "<", "<=", ">", ">=":
+		return t.Value, true
+	}
+	return "", false
+}
+
+// readValue consumes a single right-hand value (string, number, name, wildcard).
+func (ep *exprParser) readValue() (string, error) {
+	t := ep.cur()
+	switch t.Kind {
+	case lexer.TokenString:
+		ep.advance()
+		return t.Value, nil
+	case lexer.TokenNumber, lexer.TokenName:
+		ep.advance()
+		return t.Value, nil
+	case lexer.TokenStar:
+		ep.advance()
+		return "*", nil
+	default:
+		return "", fmt.Errorf("expected value at position %d", t.Pos)
+	}
+}
+
+// readValueList parses "(v, v, …)" into an IN predicate.
+func (ep *exprParser) readValueList(field string, negate bool) (*ast.Expr, error) {
+	if ep.cur().Kind != lexer.TokenLParen {
+		return nil, fmt.Errorf("expected '(' after IN at position %d", ep.cur().Pos)
+	}
+	ep.advance()
+	var vals []string
+	for {
+		v, err := ep.readValue()
+		if err != nil {
+			return nil, err
+		}
+		vals = append(vals, v)
+		if ep.cur().Kind == lexer.TokenComma {
+			ep.advance()
+			continue
+		}
+		break
+	}
+	if ep.cur().Kind != lexer.TokenRParen {
+		return nil, fmt.Errorf("expected ')' after value list at position %d", ep.cur().Pos)
+	}
+	ep.advance()
+	return ast.In(field, negate, vals...), nil
+}
+
+// splitInlineAssignment parses "key=value" arriving inside one name token
+// (when there is no space around "="), returning field and value.
+func splitInlineAssignment(s string) (field, val string, ok bool) {
+	i := strings.Index(s, "=")
+	if i <= 0 {
+		return "", "", false
+	}
+	return s[:i], s[i+1:], true
+}
+
+// ───────────────────────────── commands ──────────────────────────────────
+
+func parseSearch(p *Parser, toks []lexer.Token) (ast.Node, error) {
+	sn := &ast.SearchNode{Fields: map[string]string{}}
+	// Drop a leading explicit "search" if present.
+	if len(toks) > 0 && toks[0].Kind == lexer.TokenName && strings.EqualFold(toks[0].Value, "search") {
+		toks = toks[1:]
+	}
+	if len(toks) == 0 {
+		return sn, nil
+	}
+	expr, err := parseExprTokens(toks)
 	if err != nil {
 		return nil, err
 	}
+	sn.Expr = flattenText(expr)
+	// Classic flat projection: when the tree is a pure AND of field=value
+	// equalities with no free text, populate Fields for the legacy planner.
+	if fields, ok := flatFieldEquality(expr); ok {
+		for k, v := range fields {
+			sn.Fields[k] = v
+		}
+	}
+	if text, ok := soleFreeText(expr); ok {
+		sn.Text = text
+	}
+	return sn, nil
+}
 
-	for _, arg := range args {
-		if arg == "by" {
+// flattenText keeps the general tree but normalises it; single-node passthrough.
+func flattenText(e *ast.Expr) *ast.Expr { return e }
+
+func soleFreeText(e *ast.Expr) (string, bool) {
+	if e != nil && e.Kind == "text" {
+		return e.Value, true
+	}
+	return "", false
+}
+
+// flatFieldEquality returns a key=value map when the entire expression is an
+// AND (possibly single) of field "="/"value" comparisons and nothing else.
+func flatFieldEquality(e *ast.Expr) (map[string]string, bool) {
+	m := map[string]string{}
+	var walk func(x *ast.Expr) bool
+	walk = func(x *ast.Expr) bool {
+		switch x.Kind {
+		case "cmp":
+			if x.Op == "=" && x.Field != "" {
+				m[x.Field] = x.Value
+				return true
+			}
+			return false
+		case "and":
+			for _, a := range x.Args {
+				if !walk(a) {
+					return false
+				}
+			}
+			return true
+		default:
+			return false
+		}
+	}
+	if !walk(e) {
+		return nil, false
+	}
+	return m, true
+}
+
+func parseWhere(p *Parser, toks []lexer.Token) (ast.Node, error) {
+	expr, err := parseExprTokens(toks)
+	if err != nil {
+		return nil, err
+	}
+	wn := &ast.WhereNode{Expr: expr}
+	if cs, ok := exprToConditionsClassic(expr); ok {
+		wn.Conditions = cs
+	}
+	return wn, nil
+}
+
+func exprToConditionsClassic(e *ast.Expr) ([]ast.Condition, bool) {
+	var out []ast.Condition
+	var walk func(x *ast.Expr) bool
+	walk = func(x *ast.Expr) bool {
+		switch x.Kind {
+		case "cmp":
+			if x.Field == "" {
+				return false
+			}
+			out = append(out, ast.Condition{Field: x.Field, Operator: x.Op, Value: x.Value})
+			return true
+		case "and":
+			for _, a := range x.Args {
+				if !walk(a) {
+					return false
+				}
+			}
+			return true
+		default:
+			return false
+		}
+	}
+	if !walk(e) {
+		return nil, false
+	}
+	return out, true
+}
+
+func parseEval(p *Parser, toks []lexer.Token) (ast.Node, error) {
+	if len(toks) == 0 {
+		return nil, fmt.Errorf("eval requires an expression")
+	}
+	// Collect up to the first top-level "=" to name the field, rest is expr.
+	field, rest := splitAtFirstEq(toks)
+	if field == "" {
+		return nil, fmt.Errorf("eval: expected field=expression")
+	}
+	// A bare string literal assignment (`status="failed"`) stores the decoded
+	// value; string literals nested inside larger expressions keep their quotes
+	// so the evaluator can tell literals from field references.
+	var exprStr string
+	if len(rest) == 1 && rest[0].Kind == lexer.TokenString {
+		exprStr = rest[0].Value
+	} else {
+		exprStr = renderTokens(rest)
+	}
+	if exprStr == "" {
+		return nil, fmt.Errorf("eval: empty expression for %s", field)
+	}
+	return &ast.EvalNode{Field: field, Expr: exprStr, Assignments: []ast.EvalAssignment{{Field: field, Expr: exprStr}}}, nil
+}
+
+// splitAtFirstEq returns the field name before the first top-level '=' op and
+// the remaining tokens after it.
+func splitAtFirstEq(toks []lexer.Token) (string, []lexer.Token) {
+	depth := 0
+	for i, t := range toks {
+		if t.Kind == lexer.TokenLParen {
+			depth++
+		} else if t.Kind == lexer.TokenRParen {
+			depth--
+		} else if t.Kind == lexer.TokenOp && t.Value == "=" && depth == 0 {
+			if i == 0 {
+				return "", toks
+			}
+			return toks[i-1].Value, toks[i+1:]
+		}
+	}
+	return "", toks
+}
+
+// renderTokens renders the token slice back into normalized SPL source for an
+// eval expression, preserving operators/functions and string literals.
+func renderTokens(toks []lexer.Token) string {
+	parts := make([]string, 0, len(toks))
+	for _, t := range toks {
+		switch t.Kind {
+		case lexer.TokenName:
+			parts = append(parts, t.Value)
+		case lexer.TokenNumber:
+			parts = append(parts, t.Value)
+		case lexer.TokenString:
+			parts = append(parts, lexer.StringLiteral(t.Value))
+		case lexer.TokenOp:
+			parts = append(parts, t.Value)
+		case lexer.TokenLParen:
+			parts = append(parts, "(")
+		case lexer.TokenRParen:
+			parts = append(parts, ")")
+		case lexer.TokenComma:
+			parts = append(parts, ",")
+		case lexer.TokenStar:
+			parts = append(parts, "*")
+		}
+	}
+	// Join tokens then normalise spacing: attach parentheses/commas, add
+	// spaces around operators. This yields "count * 2", "round(x/1000, 2)".
+	out := ""
+	for i, tk := range toks {
+		s := parts[i]
+		switch tk.Kind {
+		case lexer.TokenLParen:
+			out += s
+		case lexer.TokenRParen:
+			out = strings.TrimRight(out, " ")
+			out += s
+		case lexer.TokenComma:
+			out = strings.TrimRight(out, " ")
+			out += ", "
+		case lexer.TokenOp:
+			if out != "" && !strings.HasSuffix(out, " ") {
+				out += " "
+			}
+			out += s + " "
+		default:
+			if out != "" && !strings.HasSuffix(out, " ") && !strings.HasSuffix(out, "(") {
+				out += " "
+			}
+			// function call: name immediately followed by '(' -> no space
+			if tk.Kind == lexer.TokenName && i+1 < len(toks) && toks[i+1].Kind == lexer.TokenLParen {
+				out += s
+				continue
+			}
+			out += s
+		}
+	}
+	return strings.TrimSpace(out)
+}
+
+func parseStats(p *Parser, toks []lexer.Token) (ast.Node, error) {
+	node, err := parseAggregationNode(toks)
+	if err != nil {
+		return nil, err
+	}
+	return &ast.StatsNode{Aggs: node.aggs, GroupBy: node.groupby}, nil
+}
+
+type aggParseResult struct {
+	aggs    []ast.Aggregation
+	groupby []string
+	span    string
+	window  int
+}
+
+func parseAggregationNode(toks []lexer.Token) (aggParseResult, error) {
+	// Split at top-level "by".
+	byIdx := -1
+	depth := 0
+	for i, t := range toks {
+		switch t.Kind {
+		case lexer.TokenLParen:
+			depth++
+		case lexer.TokenRParen:
+			depth--
+		case lexer.TokenName:
+			if depth == 0 && strings.EqualFold(t.Value, "by") {
+				byIdx = i
+			}
+		}
+	}
+	var aggToks, groupToks []lexer.Token
+	if byIdx >= 0 {
+		aggToks = toks[:byIdx]
+		groupToks = toks[byIdx+1:]
+	} else {
+		aggToks = toks
+	}
+	var res aggParseResult
+	for _, t := range groupToks {
+		if t.Kind == lexer.TokenComma {
+			continue
+		}
+		if t.Kind == lexer.TokenName || t.Kind == lexer.TokenString {
+			res.groupby = append(res.groupby, t.Value)
+		}
+	}
+	// Parse aggregations: comma/space separated. Each: func[(field)][ as alias]
+	for i := 0; i < len(aggToks); {
+		t := aggToks[i]
+		if t.Kind == lexer.TokenComma {
+			i++
+			continue
+		}
+		if t.Kind != lexer.TokenName {
+			i++
+			continue
+		}
+		fn := strings.ToLower(t.Value)
+		field := ""
+		i++
+		// func(field)
+		if i < len(aggToks) && aggToks[i].Kind == lexer.TokenLParen {
+			i++ // (
+			var fb []string
+			for i < len(aggToks) && aggToks[i].Kind != lexer.TokenRParen {
+				if aggToks[i].Kind == lexer.TokenStar {
+					fb = append(fb, "*")
+				} else if aggToks[i].Kind == lexer.TokenName || aggToks[i].Kind == lexer.TokenNumber {
+					fb = append(fb, aggToks[i].Value)
+				}
+				i++
+			}
+			if i < len(aggToks) {
+				i++ // )
+			}
+			field = strings.Join(fb, "")
+		}
+		// optional "as alias"
+		alias := ""
+		if i < len(aggToks) && aggToks[i].Kind == lexer.TokenName && strings.EqualFold(aggToks[i].Value, "as") {
+			i++
+			if i < len(aggToks) && (aggToks[i].Kind == lexer.TokenName || aggToks[i].Kind == lexer.TokenString) {
+				alias = aggToks[i].Value
+				i++
+			}
+		}
+		if fn == "count" && field == "" {
+			field = "*"
+		}
+		res.aggs = append(res.aggs, ast.Aggregation{Function: fn, Field: field, Alias: alias})
+	}
+	return res, nil
+}
+
+func parseTimechart(p *Parser, toks []lexer.Token) (ast.Node, error) {
+	var span string
+	// extract span=N
+	var rest []lexer.Token
+	for i := 0; i < len(toks); i++ {
+		if toks[i].Kind == lexer.TokenName && strings.EqualFold(toks[i].Value, "span") &&
+			i+1 < len(toks) && toks[i+1].Kind == lexer.TokenOp && toks[i+1].Value == "=" &&
+			i+2 < len(toks) {
+			span = toks[i+2].Value
+			i += 2
+			continue
+		}
+		rest = append(rest, toks[i])
+	}
+	node, err := parseAggregationNode(rest)
+	if err != nil {
+		return nil, err
+	}
+	fn := ast.Aggregation{Function: "count", Field: "*"}
+	if len(node.aggs) > 0 {
+		fn = node.aggs[0]
+		if fn.Field == "" {
+			fn.Field = "*"
+		}
+	}
+	return &ast.TimechartNode{Func: fn, Span: span, GroupBy: node.groupby}, nil
+}
+
+func parseSort(p *Parser, toks []lexer.Token) (ast.Node, error) {
+	node := &ast.SortNode{}
+	for i := 0; i < len(toks); i++ {
+		t := toks[i]
+		if t.Kind == lexer.TokenName && strings.EqualFold(t.Value, "by") {
 			continue
 		}
 		desc := false
-		field := arg
-		if strings.HasPrefix(arg, "-") {
+		// leading - indicates desc
+		if t.Kind == lexer.TokenOp && t.Value == "-" && i+1 < len(toks) && toks[i+1].Kind == lexer.TokenName {
 			desc = true
-			field = arg[1:]
+			node.Fields = append(node.Fields, ast.SortField{Field: toks[i+1].Value, Desc: desc})
+			i++
+			continue
 		}
-		node.Fields = append(node.Fields, ast.SortField{
-			Field: field,
-			Desc:  desc,
-		})
+		if t.Kind == lexer.TokenName {
+			if _, err := strconv.Atoi(t.Value); err == nil {
+				continue // numeric sort limit arg (e.g. sort 100 field)
+			}
+			node.Fields = append(node.Fields, ast.SortField{Field: t.Value, Desc: false})
+		}
 	}
-
+	if len(node.Fields) == 0 {
+		return nil, fmt.Errorf("sort requires at least one field")
+	}
 	return node, nil
 }
 
-func (p *Parser) parseHead() (ast.Node, error) {
-	args, err := p.parseArgs()
+func parseHead(p *Parser, toks []lexer.Token) (ast.Node, error) {
+	n, err := parseCount(toks)
 	if err != nil {
-		return nil, err
-	}
-	if len(args) == 0 {
-		return nil, fmt.Errorf("head requires a number argument")
-	}
-	n, err := strconv.Atoi(args[0])
-	if err != nil {
-		return nil, fmt.Errorf("head argument must be a number: %s", args[0])
+		return nil, fmt.Errorf("head: %w", err)
 	}
 	return &ast.HeadNode{N: n}, nil
 }
 
-func (p *Parser) parseTail() (ast.Node, error) {
-	args, err := p.parseArgs()
+func parseTail(p *Parser, toks []lexer.Token) (ast.Node, error) {
+	n, err := parseCount(toks)
 	if err != nil {
-		return nil, err
-	}
-	if len(args) == 0 {
-		return nil, fmt.Errorf("tail requires a number argument")
-	}
-	n, err := strconv.Atoi(args[0])
-	if err != nil {
-		return nil, fmt.Errorf("tail argument must be a number: %s", args[0])
+		return nil, fmt.Errorf("tail: %w", err)
 	}
 	return &ast.TailNode{N: n}, nil
 }
 
-func (p *Parser) parseDedup() (ast.Node, error) {
-	args, err := p.parseArgs()
-	if err != nil {
-		return nil, err
-	}
-	if len(args) == 0 {
-		return nil, fmt.Errorf("dedup requires a field name")
-	}
-	return &ast.DedupNode{Field: args[0]}, nil
-}
-
-func (p *Parser) parseRename() (ast.Node, error) {
-	node := &ast.RenameNode{Mappings: make(map[string]string)}
-
-	args, err := p.parseArgs()
-	if err != nil {
-		return nil, err
-	}
-
-	for i := 0; i < len(args); i++ {
-		field := args[i]
-		if i+1 < len(args) && strings.EqualFold(args[i+1], "as") {
-			if i+2 < len(args) {
-				node.Mappings[field] = args[i+2]
-				i += 2
-			} else {
-				return nil, fmt.Errorf("rename: expected field name after 'as' at position %d", i)
-			}
-		} else {
-			node.Mappings[field] = field
-			i--
+func parseCount(toks []lexer.Token) (int, error) {
+	for _, t := range toks {
+		if t.Kind == lexer.TokenNumber {
+			return strconv.Atoi(t.Value)
 		}
 	}
-
-	return node, nil
+	return 0, fmt.Errorf("requires a number argument")
 }
 
-func (p *Parser) parseTable() (ast.Node, error) {
-	args, err := p.parseArgs()
-	if err != nil {
-		return nil, err
-	}
-
-	node := &ast.TableNode{Fields: args}
-	return node, nil
-}
-
-func (p *Parser) parseEval() (ast.Node, error) {
-	node := &ast.EvalNode{}
-
-	// Collect tokens after "eval" until EOF or PIPE
-	var rawArgs []string
-	for p.current().Type != lexer.EOF && p.current().Type != lexer.PIPE {
-		rawArgs = append(rawArgs, p.current().Value)
-		p.advance()
-	}
-
-	if len(rawArgs) == 0 {
-		return nil, fmt.Errorf("eval requires an expression")
-	}
-
-	// Find the first = to split field and expression
-	found := false
-	for i, tok := range rawArgs {
-		if tok == "=" {
-			// Field is everything before the =
-			var fieldParts []string
-			for j := 0; j < i; j++ {
-				fieldParts = append(fieldParts, rawArgs[j])
+func parseDedup(p *Parser, toks []lexer.Token) (ast.Node, error) {
+	for _, t := range toks {
+		if t.Kind == lexer.TokenName {
+			if _, err := strconv.Atoi(t.Value); err == nil {
+				continue // dedup limit arg
 			}
-			node.Field = strings.Join(fieldParts, " ")
-			node.Field = strings.TrimSpace(node.Field)
-
-			// Expression is everything after the =
-			var exprParts []string
-			for j := i + 1; j < len(rawArgs); j++ {
-				exprParts = append(exprParts, rawArgs[j])
-			}
-			node.Expr = strings.Join(exprParts, " ")
-			node.Expr = strings.TrimSpace(node.Expr)
-			// Strip surrounding quotes
-			node.Expr = strings.Trim(node.Expr, "\"'")
-			found = true
-			break
+			return &ast.DedupNode{Field: t.Value}, nil
 		}
 	}
-
-	if !found {
-		return nil, fmt.Errorf("eval: expected field=value at position %d", p.pos)
-	}
-
-	return node, nil
+	return nil, fmt.Errorf("dedup requires a field name")
 }
 
-func (p *Parser) parseTimechart() (ast.Node, error) {
-	node := &ast.TimechartNode{}
-
-	args, err := p.parseArgs()
-	if err != nil {
-		return nil, err
-	}
-
-	var groupBy []string
-	var span string
-
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if strings.HasPrefix(arg, "span=") {
-			span = strings.TrimPrefix(arg, "span=")
+func parseFields(p *Parser, toks []lexer.Token) (ast.Node, error) {
+	include := true
+	var fields []string
+	for i, t := range toks {
+		if t.Kind == lexer.TokenOp && t.Value == "-" && i == 0 {
+			include = false
 			continue
 		}
-
-		lower := strings.ToLower(arg)
-		if lower == "by" {
-			i++
-			for i < len(args) {
-				groupBy = append(groupBy, args[i])
-				i++
-			}
-			break
+		if t.Kind == lexer.TokenOp && t.Value == "+" && i == 0 {
+			include = true
+			continue
 		}
-
-		if strings.HasPrefix(lower, "count(") || strings.HasPrefix(lower, "values(") ||
-			strings.HasPrefix(lower, "dc(") || strings.HasPrefix(lower, "sum(") ||
-			strings.HasPrefix(lower, "avg(") || strings.HasPrefix(lower, "min(") ||
-			strings.HasPrefix(lower, "max(") {
-			agg, err := p.parseAggregation(arg)
-			if err != nil {
-				return nil, err
+		if t.Kind == lexer.TokenComma {
+			continue
+		}
+		if t.Kind == lexer.TokenName || t.Kind == lexer.TokenString {
+			f := t.Value
+			f = strings.TrimPrefix(f, "-")
+			f = strings.TrimPrefix(f, "+")
+			if f != "" {
+				fields = append(fields, f)
 			}
-			node.Func = agg
 		}
 	}
-
-	node.Span = span
-	node.GroupBy = groupBy
-
-	return node, nil
+	if len(fields) == 0 {
+		return nil, fmt.Errorf("fields requires at least one field")
+	}
+	return &ast.FieldsNode{Include: include, Fields: fields}, nil
 }
 
-func (p *Parser) parseRex() (ast.Node, error) {
+func parseTable(p *Parser, toks []lexer.Token) (ast.Node, error) {
+	var fields []string
+	for _, t := range toks {
+		if t.Kind == lexer.TokenComma {
+			continue
+		}
+		if t.Kind == lexer.TokenName || t.Kind == lexer.TokenString {
+			fields = append(fields, t.Value)
+		} else if t.Kind == lexer.TokenStar {
+			fields = append(fields, "*")
+		}
+	}
+	if len(fields) == 0 {
+		return nil, fmt.Errorf("table requires at least one field")
+	}
+	return &ast.TableNode{Fields: fields}, nil
+}
+
+func parseRename(p *Parser, toks []lexer.Token) (ast.Node, error) {
+	rn := &ast.RenameNode{Mappings: map[string]string{}}
+	for i := 0; i < len(toks); i++ {
+		t := toks[i]
+		if t.Kind == lexer.TokenComma {
+			continue
+		}
+		if t.Kind != lexer.TokenName {
+			continue
+		}
+		from := t.Value
+		// expect optional "as to"
+		if i+2 < len(toks) && toks[i+1].Kind == lexer.TokenName && strings.EqualFold(toks[i+1].Value, "as") {
+			to := toks[i+2].Value
+			rn.Mappings[from] = to
+			rn.MappingsOrdered = append(rn.MappingsOrdered, ast.RenamePair{From: from, To: to})
+			i += 2
+			continue
+		}
+		return nil, fmt.Errorf("rename: expected 'old as new' near %q", from)
+	}
+	if len(rn.Mappings) == 0 {
+		return nil, fmt.Errorf("rename requires at least one mapping")
+	}
+	return rn, nil
+}
+
+func parseRex(p *Parser, toks []lexer.Token) (ast.Node, error) {
 	node := &ast.RexNode{}
-
-	args, err := p.parseArgs()
-	if err != nil {
-		return nil, err
+	for i := 0; i < len(toks); i++ {
+		t := toks[i]
+		if t.Kind == lexer.TokenName && i+2 < len(toks) && toks[i+1].Kind == lexer.TokenOp && toks[i+1].Value == "=" {
+			key := strings.ToLower(t.Value)
+			valTok := toks[i+2]
+			val := valTok.Value
+			switch key {
+			case "field":
+				node.Field = val
+			case "rename", "alias":
+				node.Rename = val
+			case "mode":
+				node.Mode = val
+			}
+			i += 2
+			continue
+		}
+		if t.Kind == lexer.TokenString {
+			node.Pattern = t.Value
+		} else if t.Kind == lexer.TokenName && node.Pattern == "" {
+			// unquoted pattern fallback
+			node.Pattern = t.Value
+		}
 	}
-
-	var pattern string
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if strings.HasPrefix(arg, "field=") {
-			node.Field = strings.TrimPrefix(arg, "field=")
-			continue
-		}
-
-		if strings.HasPrefix(arg, "rename=") {
-			node.Rename = strings.TrimPrefix(arg, "rename=")
-			continue
-		}
-
-		if strings.HasPrefix(arg, "mode=") {
-			node.Mode = strings.TrimPrefix(arg, "mode=")
-			continue
-		}
-
-		pattern = arg
+	if node.Pattern == "" {
+		return nil, fmt.Errorf("rex requires a pattern")
 	}
-
-	node.Pattern = pattern
-
 	return node, nil
 }
 
-func (p *Parser) current() lexer.Token {
-	if p.pos >= len(p.tokens) {
-		return lexer.Token{Type: lexer.EOF}
+func parseBin(p *Parser, toks []lexer.Token) (ast.Node, error) {
+	node := &ast.BinNode{}
+	for i := 0; i < len(toks); i++ {
+		t := toks[i]
+		if t.Kind == lexer.TokenName && i+2 < len(toks) && toks[i+1].Kind == lexer.TokenOp && toks[i+1].Value == "=" && strings.EqualFold(t.Value, "span") {
+			node.Span = toks[i+2].Value
+			i += 2
+			continue
+		}
+		if t.Kind == lexer.TokenName && node.Field == "" {
+			node.Field = t.Value
+		}
 	}
-	return p.tokens[p.pos]
+	if node.Field == "" {
+		return nil, fmt.Errorf("bin requires a field")
+	}
+	return node, nil
 }
 
-func (p *Parser) advance() lexer.Token {
-	tok := p.current()
-	p.pos++
-	return tok
+func parseLookup(p *Parser, toks []lexer.Token) (ast.Node, error) {
+	node := &ast.LookupNode{}
+	// lookup <table> <inputfield> [OUTPUT out..] [APPEND]
+	var words []string
+	for _, t := range toks {
+		if t.Kind == lexer.TokenName {
+			words = append(words, t.Value)
+		} else if t.Kind == lexer.TokenString {
+			words = append(words, t.Value)
+		}
+	}
+	if len(words) < 2 {
+		return nil, fmt.Errorf("lookup requires a lookup name and an input field")
+	}
+	for _, w := range words {
+		switch strings.ToUpper(w) {
+		case "OUTPUT", "OUTPUTNEW", "OUTPUTAPPEND":
+			continue
+		case "APPEND":
+			node.Append = true
+		default:
+			if node.Lookup == "" {
+				node.Lookup = w
+			} else if node.InputField == "" && !node.Append {
+				node.InputField = w
+			} else {
+				node.OutputFields = append(node.OutputFields, w)
+			}
+		}
+	}
+	return node, nil
+}
+
+func parseEventstats(p *Parser, toks []lexer.Token) (ast.Node, error) {
+	node, err := parseAggregationNode(toks)
+	if err != nil {
+		return nil, err
+	}
+	return &ast.EventstatsNode{Aggs: node.aggs, GroupBy: node.groupby}, nil
+}
+
+func parseStreamstats(p *Parser, toks []lexer.Token) (ast.Node, error) {
+	var window int
+	var rest []lexer.Token
+	for i := 0; i < len(toks); i++ {
+		if toks[i].Kind == lexer.TokenName && strings.EqualFold(toks[i].Value, "window") &&
+			i+2 < len(toks) && toks[i+1].Kind == lexer.TokenOp && toks[i+1].Value == "=" {
+			window, _ = strconv.Atoi(toks[i+2].Value)
+			i += 2
+			continue
+		}
+		rest = append(rest, toks[i])
+	}
+	node, err := parseAggregationNode(rest)
+	if err != nil {
+		return nil, err
+	}
+	return &ast.StreamstatsNode{Aggs: node.aggs, GroupBy: node.groupby, Window: window}, nil
 }

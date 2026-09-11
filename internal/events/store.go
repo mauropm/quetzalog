@@ -31,6 +31,11 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db, graph: correlation.NewGraph(db)}
 }
 
+// DB exposes the underlying database handle for read-only query planning used by
+// the SPL engine (preview, distinct-value discovery). Callers must not mutate
+// schema through this handle.
+func (s *Store) DB() *sql.DB { return s.db }
+
 // Create inserts a single event into the database.
 func (s *Store) Create(ctx context.Context, ev *event.Event) error {
 	if ev == nil {

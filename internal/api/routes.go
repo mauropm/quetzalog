@@ -54,6 +54,18 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 	// Search
 	mux.HandleFunc("POST /api/v1/search", handler.Search)
 
+	// SPL Builder (AST is the contract; same pipeline as Search)
+	mux.HandleFunc("POST /api/v1/spl/parse", handler.SplParse)
+	mux.HandleFunc("POST /api/v1/spl/build", handler.SplBuild)
+	mux.HandleFunc("POST /api/v1/spl/validate", handler.SplValidate)
+	mux.HandleFunc("POST /api/v1/spl/preview", handler.SplPreview)
+	mux.HandleFunc("GET /api/v1/spl/indexes", handler.SplIndexes)
+	mux.HandleFunc("GET /api/v1/spl/sourcetypes", handler.SplSourceTypes)
+	mux.HandleFunc("GET /api/v1/spl/sources", handler.SplSources)
+	mux.HandleFunc("GET /api/v1/spl/hosts", handler.SplHosts)
+	mux.HandleFunc("GET /api/v1/spl/fields", handler.SplFields)
+	mux.HandleFunc("GET /api/v1/spl/values", handler.SplValues)
+
 	// Alerts
 	mux.HandleFunc("GET /api/v1/alerts", handler.ListAlerts)
 	mux.HandleFunc("GET /api/v1/alerts/{id}", handler.GetAlert)

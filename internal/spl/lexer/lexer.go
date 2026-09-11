@@ -1,191 +1,303 @@
+// Package lexer turns SPL text into a token stream for the parser. It is a
+// deliberately hand-written scanner (no regexp backtracking) so that pathological
+// inputs cannot cause catastrophic behaviour, and it understands quoted strings,
+// escapes, numbers (incl. negatives/decimals), function names, parentheses and
+// the full operator set used by SPL.
 package lexer
 
-import "unicode/utf8"
-
-type TokenType int
-
-const (
-	UNKNOWN TokenType = iota
-	IDENT
-	STRING
-	NUMBER
-	OP
-	PIPE
-	COMMA
-	STAR
-	MINUS
-	EOF
+import (
+	"fmt"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
-type Token struct {
-	Type  TokenType
-	Value string
+// TokenKind classifies a token.
+type TokenKind int
+
+const (
+	TokenName TokenKind = iota
+	TokenString
+	TokenNumber
+	TokenOp
+	TokenLParen
+	TokenRParen
+	TokenPipe
+	TokenComma
+	TokenStar
+	TokenEOF
+)
+
+func (k TokenKind) String() string {
+	switch k {
+	case TokenName:
+		return "name"
+	case TokenString:
+		return "string"
+	case TokenNumber:
+		return "number"
+	case TokenOp:
+		return "operator"
+	case TokenLParen:
+		return "("
+	case TokenRParen:
+		return ")"
+	case TokenPipe:
+		return "|"
+	case TokenComma:
+		return ","
+	case TokenStar:
+		return "*"
+	case TokenEOF:
+		return "end of query"
+	}
+	return "token"
 }
 
+// Token is a lexed SPL token.
+type Token struct {
+	Kind  TokenKind
+	Value string // raw text (operators/numbers/names), decoded content for strings
+	Raw   string // original text incl. quotes (strings), == Value otherwise
+	Quote rune   // quote char for strings (0 otherwise)
+	Pos   int
+}
+
+func (t Token) IsKeyword(word string) bool {
+	return t.Kind == TokenName && strings.EqualFold(t.Value, word)
+}
+
+// Lexer scans an input string.
 type Lexer struct {
-	input string
+	input []rune
 	pos   int
 }
 
+// NewLexer allocates a lexer over input.
 func NewLexer(input string) *Lexer {
-	return &Lexer{
-		input: input,
-		pos:   0,
-	}
+	return &Lexer{input: []rune(input)}
 }
 
-func (l *Lexer) NextToken() Token {
-	l.skipWhitespace()
-
-	if l.pos >= len(l.input) {
-		return Token{Type: EOF, Value: ""}
+// Tokenize scans the whole input into a token slice (terminated by EOF).
+func Tokenize(input string) ([]Token, error) {
+	l := NewLexer(input)
+	var out []Token
+	for {
+		t := l.Next()
+		out = append(out, t)
+		if t.Kind == TokenEOF {
+			break
+		}
+		if t.Kind == TokenOp && t.Value == "" {
+			return nil, fmt.Errorf("unexpected character %q at position %d", t.Raw, t.Pos)
+		}
 	}
+	return out, nil
+}
 
-	ch := l.read()
+func (l *Lexer) Next() Token {
+	l.skipSpace()
+	if l.pos >= len(l.input) {
+		return Token{Kind: TokenEOF, Pos: l.pos}
+	}
+	start := l.pos
+	ch := l.input[l.pos]
 
 	switch ch {
 	case '|':
-		return Token{Type: PIPE, Value: "|"}
+		l.pos++
+		return Token{Kind: TokenPipe, Value: "|", Raw: "|", Pos: start}
 	case ',':
-		return Token{Type: COMMA, Value: ","}
+		l.pos++
+		return Token{Kind: TokenComma, Value: ",", Raw: ",", Pos: start}
+	case '(':
+		l.pos++
+		return Token{Kind: TokenLParen, Value: "(", Raw: "(", Pos: start}
+	case ')':
+		l.pos++
+		return Token{Kind: TokenRParen, Value: ")", Raw: ")", Pos: start}
 	case '*':
-		return Token{Type: STAR, Value: "*"}
-	case '-':
-		return Token{Type: MINUS, Value: "-"}
-	case '=':
-		return Token{Type: OP, Value: "="}
-	case '!':
-		if l.peek() == '=' {
-			l.read()
-			return Token{Type: OP, Value: "!="}
+		l.pos++
+		return Token{Kind: TokenStar, Value: "*", Raw: "*", Pos: start}
+	case '"', '\'':
+		return l.scanString(ch, start)
+	}
+
+	// Numbers and (possibly negative) numeric literals.
+	if isDigit(ch) {
+		return l.scanNumber(start)
+	}
+	if ch == '-' && l.pos+1 < len(l.input) && (isDigit(l.input[l.pos+1]) || l.input[l.pos+1] == '.') {
+		if l.prevAllowsNegative() {
+			return l.scanNumber(start)
 		}
-		return Token{Type: UNKNOWN, Value: string(ch)}
-	case '>':
-		if l.peek() == '=' {
-			l.read()
-			return Token{Type: OP, Value: ">="}
-		}
-		return Token{Type: OP, Value: ">"}
-	case '<':
-		if l.peek() == '=' {
-			l.read()
-			return Token{Type: OP, Value: "<="}
-		}
-		return Token{Type: OP, Value: "<"}
 	}
 
-	if ch == '\'' || ch == '"' {
-		return l.readString(ch)
+	if isNameStart(ch) {
+		return l.scanName(start)
 	}
 
-	if unicodeIsDigit(ch) {
-		l.unread()
-		return l.readNumber()
-	}
-
-	if unicodeIsLetter(ch) || ch == '_' || ch == '.' {
-		l.unread()
-		return l.readIdentifier()
-	}
-
-	return Token{Type: UNKNOWN, Value: string(ch)}
+	return l.scanOperator(start)
 }
 
-func (l *Lexer) skipWhitespace() {
+func (l *Lexer) skipSpace() {
 	for l.pos < len(l.input) {
-		ch := l.peek()
-		if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+		if unicode.IsSpace(l.input[l.pos]) {
 			l.pos++
-		} else {
-			break
+			continue
 		}
+		break
 	}
 }
 
-func (l *Lexer) read() rune {
-	if l.pos >= len(l.input) {
-		return utf8.RuneError
-	}
-	ch, size := utf8.DecodeRuneInString(l.input[l.pos:])
-	l.pos += size
-	return ch
-}
-
-func (l *Lexer) peek() rune {
-	if l.pos >= len(l.input) {
-		return utf8.RuneError
-	}
-	ch, _ := utf8.DecodeRuneInString(l.input[l.pos:])
-	return ch
-}
-
-func (l *Lexer) unread() {
-	l.pos--
-}
-
-func (l *Lexer) readUntil(char rune) string {
-	start := l.pos
+func (l *Lexer) scanString(quote rune, start int) Token {
+	l.pos++ // opening quote
+	var b strings.Builder
 	for l.pos < len(l.input) {
-		ch, size := utf8.DecodeRuneInString(l.input[l.pos:])
-		l.pos += size
-		if ch == char {
-			break
+		ch := l.input[l.pos]
+		if ch == '\\' && l.pos+1 < len(l.input) {
+			nxt := l.input[l.pos+1]
+			// Only the active quote and a literal backslash are unescaped.
+			// Everything else (regex classes such as \d, \., \s, …) is kept
+			// verbatim so regular expressions survive round-tripping.
+			if nxt == quote || nxt == '\\' {
+				b.WriteRune(nxt)
+				l.pos += 2
+				continue
+			}
+			b.WriteRune('\\')
+			l.pos++
+			continue
 		}
-	}
-	return l.input[start:l.pos]
-}
-
-func (l *Lexer) readString(quote rune) Token {
-	start := l.pos
-	for l.pos < len(l.input) {
-		ch, size := utf8.DecodeRuneInString(l.input[l.pos:])
-		l.pos += size
 		if ch == quote {
-			return Token{
-				Type:  STRING,
-				Value: l.input[start : l.pos-1],
+			l.pos++
+			return Token{Kind: TokenString, Value: b.String(), Raw: string(l.input[start:l.pos]), Quote: quote, Pos: start}
+		}
+		b.WriteRune(ch)
+		l.pos++
+	}
+	// Unterminated string: take to end (parser will treat as literal text).
+	return Token{Kind: TokenString, Value: b.String(), Raw: string(l.input[start:l.pos]), Quote: quote, Pos: start}
+}
+
+func (l *Lexer) scanNumber(start int) Token {
+	for l.pos < len(l.input) {
+		ch := l.input[l.pos]
+		if isDigit(ch) || ch == '.' {
+			l.pos++
+			continue
+		}
+		if (ch == 'e' || ch == 'E') && l.pos+1 < len(l.input) {
+			nn := l.input[l.pos+1]
+			if isDigit(nn) || ((nn == '+' || nn == '-') && l.pos+2 < len(l.input) && isDigit(l.input[l.pos+2])) {
+				l.pos++
+				if nn == '+' || nn == '-' {
+					l.pos++
+				}
+				continue
 			}
 		}
+		break
 	}
-	return Token{Type: STRING, Value: l.input[start:]}
+	return Token{Kind: TokenNumber, Value: string(l.input[start:l.pos]), Raw: string(l.input[start:l.pos]), Pos: start}
 }
 
-func (l *Lexer) readNumber() Token {
-	start := l.pos
+func (l *Lexer) scanName(start int) Token {
 	for l.pos < len(l.input) {
-		ch := l.peek()
-		if unicodeIsDigit(ch) {
-			l.read()
-		} else {
-			break
+		ch := l.input[l.pos]
+		if isNamePart(ch) {
+			l.pos++
+			continue
+		}
+		break
+	}
+	return Token{Kind: TokenName, Value: string(l.input[start:l.pos]), Raw: string(l.input[start:l.pos]), Pos: start}
+}
+
+func (l *Lexer) scanOperator(start int) Token {
+	two := ""
+	if l.pos+1 < len(l.input) {
+		two = string(l.input[l.pos : l.pos+2])
+	}
+	switch two {
+	case "!=":
+		l.pos += 2
+		return Token{Kind: TokenOp, Value: "!=", Raw: "!=", Pos: start}
+	case "<>":
+		l.pos += 2
+		return Token{Kind: TokenOp, Value: "!=", Raw: "<>", Pos: start}
+	case "==":
+		l.pos += 2
+		return Token{Kind: TokenOp, Value: "=", Raw: "==", Pos: start}
+	case ">=":
+		l.pos += 2
+		return Token{Kind: TokenOp, Value: ">=", Raw: ">=", Pos: start}
+	case "<=":
+		l.pos += 2
+		return Token{Kind: TokenOp, Value: "<=", Raw: "<=", Pos: start}
+	}
+	ch := l.input[l.pos]
+	switch ch {
+	case '=', '<', '>':
+		l.pos++
+		return Token{Kind: TokenOp, Value: string(ch), Raw: string(ch), Pos: start}
+	case '+', '-', '/', '%', '&':
+		l.pos++
+		return Token{Kind: TokenOp, Value: string(ch), Raw: string(ch), Pos: start}
+	}
+	// Unknown single character surfaced as an empty op so Tokenize reports it.
+	l.pos++
+	return Token{Kind: TokenOp, Value: "", Raw: string(ch), Pos: start}
+}
+
+// prevAllowsNegative reports whether a '-' at the current position begins a
+// negative number (i.e. it follows an operator/paren/comma/start, not a value).
+func (l *Lexer) prevAllowsNegative() bool {
+	for i := l.pos - 1; i >= 0; i-- {
+		c := l.input[i]
+		if unicode.IsSpace(c) {
+			continue
+		}
+		switch c {
+		case '(', ',', '|', '=', '!', '<', '>', '+', '-', '*', '/', '%', '&':
+			return true
+		}
+		return false
+	}
+	return true // start of input
+}
+
+func isDigit(ch rune) bool   { return ch >= '0' && ch <= '9' }
+func isNameStart(ch rune) bool {
+	return unicode.IsLetter(ch) || ch == '_' || ch == '@' || ch == ':'
+}
+func isNamePart(ch rune) bool {
+	return unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' || ch == '.' ||
+		ch == '@' || ch == ':' || ch == '-'
+}
+
+// StringLiteral renders a Go string as a double-quoted SPL string literal.
+func StringLiteral(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, ch := range s {
+		switch ch {
+		case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			b.WriteRune(ch)
 		}
 	}
-	return Token{
-		Type:  NUMBER,
-		Value: l.input[start:l.pos],
-	}
+	b.WriteByte('"')
+	return b.String()
 }
 
-func (l *Lexer) readIdentifier() Token {
-	start := l.pos
-	for l.pos < len(l.input) {
-		ch := l.peek()
-		if unicodeIsLetter(ch) || unicodeIsDigit(ch) || ch == '_' || ch == '.' || ch == '-' || ch == '/' {
-			l.read()
-		} else {
-			break
-		}
-	}
-	return Token{
-		Type:  IDENT,
-		Value: l.input[start:l.pos],
-	}
-}
-
-func unicodeIsDigit(ch rune) bool {
-	return ch >= '0' && ch <= '9'
-}
-
-func unicodeIsLetter(ch rune) bool {
-	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
-}
+var _ = utf8.RuneError

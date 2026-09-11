@@ -20,6 +20,7 @@ import (
 	"quetzalog/internal/events"
 	"quetzalog/internal/incidents"
 	"quetzalog/internal/query"
+	"quetzalog/internal/spl/ast"
 	"quetzalog/pkg/api"
 	"quetzalog/pkg/event"
 )
@@ -364,9 +365,11 @@ func (h *Handler) ListEvents(w http.ResponseWriter, r *http.Request) {
 
 // SearchRequest holds the body of a search query request.
 type SearchRequest struct {
-	Query  string `json:"query"`
-	Limit  int    `json:"limit"`
-	Offset int    `json:"offset"`
+	Query    string `json:"query"`
+	Limit    int    `json:"limit"`
+	Offset   int    `json:"offset"`
+	Earliest string `json:"earliest"`
+	Latest   string `json:"latest"`
 }
 
 // Search executes a search query using the query engine.
@@ -398,13 +401,20 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 	}
 
 	searchReq := query.SearchRequest{
-		Query:  req.Query,
-		Limit:  req.Limit,
-		Offset: req.Offset,
+		Query:    req.Query,
+		Limit:    req.Limit,
+		Offset:   req.Offset,
+		Earliest: req.Earliest,
+		Latest:   req.Latest,
 	}
 
 	result, err := h.searchSvc.Execute(ctx, searchReq)
 	if err != nil {
+		if errors.Is(err, ast.ErrInvalidQuery) {
+			h.logger.Warn("search rejected", "query", req.Query, "error", err)
+			api.WriteJSON(w, http.StatusBadRequest, api.BadRequest(err.Error()))
+			return
+		}
 		h.logger.Error("search", "query", req.Query, "error", err)
 		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("search failed"))
 		return
