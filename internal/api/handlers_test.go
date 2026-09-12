@@ -22,8 +22,12 @@ import (
 	"quetzalog/internal/database"
 	"quetzalog/internal/detections"
 	"quetzalog/internal/events"
+	"quetzalog/internal/findings"
 	"quetzalog/internal/incidents"
+	"quetzalog/internal/investigations"
 	"quetzalog/internal/query"
+	"quetzalog/internal/response"
+	"quetzalog/internal/risk"
 )
 
 type env struct {
@@ -51,12 +55,23 @@ func newEnv(t *testing.T) *env {
 		t.Fatalf("setenv: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Unsetenv("QUETZALOG_ADMIN_PASSWORD") })
+	findingStore := findings.NewStore(db)
+	investigationStore := investigations.NewStore(db)
+	riskStore := risk.NewEntityRiskStore(db)
 	h, err := api.SetupRouter(cfg,
 		events.NewStore(db),
 		query.NewService(db),
 		alerts.NewStore(db),
 		incidents.NewStore(db),
 		detections.NewStore(db),
+		findingStore,
+		investigationStore,
+		riskStore,
+		response.NewRegistry(db, response.Deps{
+			Findings:       findingStore,
+			Investigations: investigationStore,
+			Risk:           riskStore,
+		}),
 		auth.NewStore(db),
 		logger,
 	)
@@ -504,9 +519,11 @@ func TestAPIAuthTokensEnforcedWhenConfigured(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	cfg := config.DefaultConfig()
 	cfg.Auth.APIToken = "s3cret-token"
+	fs, is, rs, rr := socStores(db)
 	h, err := api.SetupRouter(cfg,
 		events.NewStore(db), query.NewService(db), alerts.NewStore(db),
-		incidents.NewStore(db), detections.NewStore(db), auth.NewStore(db), logger)
+		incidents.NewStore(db), detections.NewStore(db), fs, is, rs, rr,
+		auth.NewStore(db), logger)
 	if err != nil {
 		t.Fatalf("setup router: %v", err)
 	}

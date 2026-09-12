@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"quetzalog/internal/correlation"
 	"quetzalog/pkg/event"
@@ -41,6 +42,7 @@ func (s *Store) Create(ctx context.Context, ev *event.Event) error {
 	if ev == nil {
 		return fmt.Errorf("nil event provided")
 	}
+	normalizeEvent(ev)
 
 	m := event.EventToMap(ev)
 
@@ -69,10 +71,27 @@ func (s *Store) Create(ctx context.Context, ev *event.Event) error {
 	return nil
 }
 
+// normalizeEvent fills timestamps that arrived unset so time-filtered
+// queries (detections, timelines) see events instead of missing them.
+func normalizeEvent(ev *event.Event) {
+	if ev == nil {
+		return
+	}
+	if ev.Timestamp.IsZero() {
+		ev.Timestamp = time.Now().UTC()
+	}
+	if ev.ReceivedAt.IsZero() {
+		ev.ReceivedAt = ev.Timestamp
+	}
+}
+
 // CreateBatch inserts multiple events in a single transaction.
 func (s *Store) CreateBatch(ctx context.Context, events []*event.Event) error {
 	if len(events) == 0 {
 		return nil
+	}
+	for _, ev := range events {
+		normalizeEvent(ev)
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -211,6 +230,67 @@ func (s *Store) Count(ctx context.Context, q Query) (int, error) {
 	}
 
 	return total, nil
+}
+
+// BucketCount is one point of an event timeline.
+type BucketCount struct {
+	Bucket   int64 `json:"bucket"`
+	Total    int   `json:"total"`
+	Critical int   `json:"critical"`
+	High     int   `json:"high"`
+	Medium   int   `json:"medium"`
+	Low      int   `json:"low"`
+}
+
+// Timeline returns event counts bucketed by time over the window. Severities
+// are folded onto the four-level SOC scale so the dashboard can chart the
+// same buckets the analyst queue uses.
+func (s *Store) Timeline(ctx context.Context, start, end time.Time, bucket time.Duration) ([]BucketCount, error) {
+	if bucket < time.Minute {
+		bucket = time.Minute
+	}
+	if bucket > 24*time.Hour {
+		bucket = 24 * time.Hour
+	}
+	sec := int64(bucket.Seconds())
+
+	// Timestamps are stored as UTC; binding non-UTC times breaks the
+	// lexicographic comparison inside the WHERE clause.
+	start, end = start.UTC(), end.UTC()
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT (strftime('%s', timestamp) / ?) * ? AS bucket,
+		        COUNT(*),
+		        SUM(CASE WHEN severity IN ('critical','emergency','alert') THEN 1 ELSE 0 END),
+		        SUM(CASE WHEN severity IN ('high','err','error') THEN 1 ELSE 0 END),
+		        SUM(CASE WHEN severity IN ('medium','warning','warn','notice') THEN 1 ELSE 0 END),
+		        SUM(CASE WHEN severity NOT IN ('critical','emergency','alert','high','err','error','medium','warning','warn','notice') THEN 1 ELSE 0 END)
+		 FROM events
+		 WHERE timestamp >= ? AND timestamp <= ?
+		 GROUP BY bucket
+		 ORDER BY bucket`, sec, sec, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("query event timeline: %w", err)
+	}
+	defer rows.Close()
+
+	var out []BucketCount
+	for rows.Next() {
+		var b BucketCount
+		if err := rows.Scan(&b.Bucket, &b.Total, &b.Critical, &b.High, &b.Medium, &b.Low); err != nil {
+			return nil, fmt.Errorf("scan timeline row: %w", err)
+		}
+		out = append(out, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate timeline: %w", err)
+	}
+	return out, nil
+}
+
+// Graph exposes the correlation graph used by the event pipeline.
+func (s *Store) Graph() *correlation.Graph {
+	return s.graph
 }
 
 // SourceCounts returns the number of events per source among the most recent

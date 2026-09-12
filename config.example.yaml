@@ -44,6 +44,13 @@ splunk:
 logging:
   level: "info"
 
+detections:
+  # When true, enabled detection rules run on the interval and materialize
+  # findings (and risk contributions) automatically. Off by default so a
+  # single SIEM process stays the unit of deployment; no external scheduler.
+  scheduled: false
+  interval: "5m"
+
 auth:
   # When true (default) every management endpoint requires a bearer token:
   #   - auth.api_token: static operator token (or env QUETZALOG_API_TOKEN)

@@ -15,8 +15,12 @@ import (
 	"quetzalog/internal/config"
 	"quetzalog/internal/detections"
 	"quetzalog/internal/events"
+	"quetzalog/internal/findings"
 	"quetzalog/internal/incidents"
+	"quetzalog/internal/investigations"
 	"quetzalog/internal/query"
+	"quetzalog/internal/response"
+	"quetzalog/internal/risk"
 	"quetzalog/pkg/api"
 )
 
@@ -30,13 +34,13 @@ const (
 )
 
 // SetupRouter wires up all HTTP API endpoints and applies middleware.
-func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, authStore *auth.Store, logger *slog.Logger) (http.Handler, error) {
+func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, logger *slog.Logger) (http.Handler, error) {
 	if authStore == nil {
 		authStore = auth.NewStore(nil)
 	} else if err := authStore.EnsureSchema(context.Background()); err != nil {
 		return nil, fmt.Errorf("initialize auth schema: %w", err)
 	}
-	handler := NewHandler(cfg, store, searchSvc, alertStore, incidentStore, detectionStore, authStore, logger)
+	handler := NewHandler(cfg, store, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, riskStore, responseRegistry, authStore, logger)
 
 	mux := http.NewServeMux()
 
@@ -90,6 +94,50 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 	mux.HandleFunc("PUT /api/v1/detections/{id}", handler.UpdateDetection)
 	mux.HandleFunc("DELETE /api/v1/detections/{id}", handler.DeleteDetection)
 	mux.HandleFunc("POST /api/v1/detections/{id}/exec", handler.ExecuteDetection)
+
+	// Analyst Queue (findings)
+	mux.HandleFunc("GET /api/v1/findings", handler.ListFindings)
+	mux.HandleFunc("GET /api/v1/findings/{id}", handler.GetFinding)
+	mux.HandleFunc("PATCH /api/v1/findings/{id}", handler.UpdateFinding)
+	mux.HandleFunc("POST /api/v1/findings/{id}/notes", handler.AddFindingNote)
+	mux.HandleFunc("GET /api/v1/findings/{id}/events", handler.FindingEvents)
+	mux.HandleFunc("GET /api/v1/findings/{id}/risk", handler.FindingRisk)
+
+	// Saved queue views
+	mux.HandleFunc("GET /api/v1/saved-views", handler.ListSavedViews)
+	mux.HandleFunc("POST /api/v1/saved-views", handler.SaveSavedView)
+	mux.HandleFunc("DELETE /api/v1/saved-views/{id}", handler.DeleteSavedView)
+
+	// Investigations
+	mux.HandleFunc("GET /api/v1/investigations", handler.ListInvestigations)
+	mux.HandleFunc("POST /api/v1/investigations", handler.CreateInvestigation)
+	mux.HandleFunc("GET /api/v1/investigations/{id}", handler.GetInvestigation)
+	mux.HandleFunc("PATCH /api/v1/investigations/{id}", handler.UpdateInvestigation)
+	mux.HandleFunc("POST /api/v1/investigations/{id}/status", handler.SetInvestigationStatus)
+	mux.HandleFunc("GET /api/v1/investigations/{id}/notes", handler.ListInvestigationNotes)
+	mux.HandleFunc("POST /api/v1/investigations/{id}/notes", handler.AddInvestigationNote)
+	mux.HandleFunc("POST /api/v1/investigations/{id}/evidence", handler.AddInvestigationEvidence)
+	mux.HandleFunc("POST /api/v1/investigations/{id}/findings", handler.LinkFindingsToInvestigation)
+	mux.HandleFunc("GET /api/v1/investigations/{id}/findings", handler.InvestigationFindings)
+
+	// SOC overview & entity risk
+	mux.HandleFunc("GET /api/v1/soc/overview", handler.SOCOverview)
+	mux.HandleFunc("GET /api/v1/risk/entities", handler.ListRiskEntities)
+	mux.HandleFunc("GET /api/v1/entities/{type}/{value}", handler.GetEntityDetail)
+	mux.HandleFunc("GET /api/v1/intel/{type}/{value}", handler.GetEntityIntel)
+
+	// MITRE ATT&CK
+	mux.HandleFunc("GET /api/v1/mitre/techniques", handler.MITRETechniques)
+	mux.HandleFunc("GET /api/v1/mitre/tactics", handler.MITRETactics)
+	mux.HandleFunc("GET /api/v1/mitre/active", handler.MITREActive)
+
+	// Response actions
+	mux.HandleFunc("GET /api/v1/response-actions", handler.ListResponseActions)
+	mux.HandleFunc("POST /api/v1/response-actions/execute", handler.ExecuteResponseAction)
+	mux.HandleFunc("GET /api/v1/response-actions/history", handler.ResponseActionHistory)
+
+	// Audit
+	mux.HandleFunc("GET /api/v1/audit", handler.AuditLog)
 
 	// ─────────────────────────────────────────────
 	// Authentication & User Management

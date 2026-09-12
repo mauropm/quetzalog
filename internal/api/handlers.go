@@ -18,8 +18,12 @@ import (
 	"quetzalog/internal/config"
 	"quetzalog/internal/detections"
 	"quetzalog/internal/events"
+	"quetzalog/internal/findings"
 	"quetzalog/internal/incidents"
+	"quetzalog/internal/investigations"
 	"quetzalog/internal/query"
+	"quetzalog/internal/response"
+	"quetzalog/internal/risk"
 	"quetzalog/internal/spl/ast"
 	"quetzalog/pkg/api"
 	"quetzalog/pkg/event"
@@ -39,27 +43,35 @@ const statsSourceSample = 5000
 
 // Handler wraps the dependencies for all HTTP API handlers.
 type Handler struct {
-	store          *events.Store
-	alertStore     *alerts.Store
-	incidentStore  *incidents.Store
-	detectionStore *detections.Store
-	authStore      *auth.Store
-	searchSvc      *query.Service
-	config         config.Config
-	logger         *slog.Logger
+	store              *events.Store
+	alertStore         *alerts.Store
+	incidentStore      *incidents.Store
+	detectionStore     *detections.Store
+	findingStore       *findings.Store
+	investigationStore *investigations.Store
+	riskStore          *risk.EntityRiskStore
+	responseRegistry   *response.Registry
+	authStore          *auth.Store
+	searchSvc          *query.Service
+	config             config.Config
+	logger             *slog.Logger
 }
 
 // NewHandler creates a new API handler with the given configuration and dependencies.
-func NewHandler(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, authStore *auth.Store, logger *slog.Logger) *Handler {
+func NewHandler(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, logger *slog.Logger) *Handler {
 	return &Handler{
-		store:          store,
-		alertStore:     alertStore,
-		incidentStore:  incidentStore,
-		detectionStore: detectionStore,
-		authStore:      authStore,
-		searchSvc:      searchSvc,
-		config:         cfg,
-		logger:         logger,
+		store:              store,
+		alertStore:         alertStore,
+		incidentStore:      incidentStore,
+		detectionStore:     detectionStore,
+		findingStore:       findingStore,
+		investigationStore: investigationStore,
+		riskStore:          riskStore,
+		responseRegistry:   responseRegistry,
+		authStore:          authStore,
+		searchSvc:          searchSvc,
+		config:             cfg,
+		logger:             logger,
 	}
 }
 
@@ -910,11 +922,18 @@ func (h *Handler) CreateDetection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if rule.CreatedBy == "" {
+		rule.CreatedBy = h.actorUsername(r)
+	}
+
 	if err := h.detectionStore.Create(ctx, &rule); err != nil {
 		h.logger.Error("create detection", "error", err)
 		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to create detection rule"))
 		return
 	}
+
+	h.logAudit(h.auditActor(r), "detection.create", "detection:"+rule.ID,
+		fmt.Sprintf("Detection rule %q created", rule.Name))
 
 	h.logger.Info("detection created", "id", rule.ID, "name", rule.Name)
 	api.WriteJSON(w, http.StatusCreated, api.Success(&rule))
@@ -936,13 +955,37 @@ func (h *Handler) UpdateDetection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if rule.Name == "" {
+		// Partial update: only the provided fields change, so a UI that
+		// toggles "enabled" cannot wipe the rule's name, query or severity.
+		existing, err := h.detectionStore.GetByID(ctx, id)
+		if err != nil {
+			api.WriteJSON(w, http.StatusNotFound, api.NotFound(fmt.Sprintf("detection %s not found", id)))
+			return
+		}
+		existing.Enabled = rule.Enabled
+		if err := h.detectionStore.Update(ctx, existing); err != nil {
+			h.logger.Error("update detection", "id", id, "error", err)
+			api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to update detection rule"))
+			return
+		}
+		api.WriteJSON(w, http.StatusOK, api.Success(existing))
+		return
+	}
+
 	rule.ID = id
+	if rule.CreatedBy == "" {
+		rule.CreatedBy = h.actorUsername(r)
+	}
 
 	if err := h.detectionStore.Update(ctx, &rule); err != nil {
 		h.logger.Error("update detection", "id", id, "error", err)
 		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to update detection rule"))
 		return
 	}
+
+	h.logAudit(h.auditActor(r), "detection.update", "detection:"+id,
+		fmt.Sprintf("Detection rule %q updated", rule.Name))
 
 	h.logger.Info("detection updated", "id", id)
 	api.WriteJSON(w, http.StatusOK, api.Success(&rule))
@@ -968,7 +1011,8 @@ func (h *Handler) DeleteDetection(w http.ResponseWriter, r *http.Request) {
 	api.WriteJSON(w, http.StatusOK, api.Success(map[string]any{"deleted": true}))
 }
 
-// ExecuteDetection manually executes a detection rule.
+// ExecuteDetection manually executes a detection rule and materializes
+// findings for any threshold-exceeding group.
 func (h *Handler) ExecuteDetection(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -985,13 +1029,17 @@ func (h *Handler) ExecuteDetection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.detectionStore.ExecuteNow(ctx, rule, h.store)
+	result, err := h.detectionStore.RunWithFindings(ctx, rule, h.store, h.findingStore, h.riskStore)
 	if err != nil {
 		h.logger.Error("execute detection", "id", id, "error", err)
 		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to execute detection rule"))
 		return
 	}
 
+	h.logAudit(h.auditActor(r), "detection.execute", "detection:"+id,
+		fmt.Sprintf("Executed %q: %d events, %d new findings", rule.Name, result.Matched, result.Created))
+
+	h.logger.Info("detection executed", "id", id, "matched", result.Matched, "findings_created", result.Created)
 	api.WriteJSON(w, http.StatusOK, api.Success(result))
 }
 

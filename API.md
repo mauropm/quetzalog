@@ -16,6 +16,7 @@ Authentication is handled via API tokens where applicable.
 - [Alerts](#alerts)
 - [Incidents](#incidents)
 - [Detections](#detections)
+- [SOC Platform](#soc-platform)
 - [Splunk HEC Compatibility](#splunk-hec-compatibility)
 - [Splunk Search Compatibility](#splunk-search-compatibility)
 - [OpenTelemetry Compatibility](#opentelemetry-compatibility)
@@ -956,6 +957,103 @@ quetzalog_db_size_bytes 524288000
 go_gc_duration_seconds{quantile="0.5"} 0.00045
 go_gc_duration_seconds{quantile="0.9"} 0.0012
 ```
+
+---
+
+## SOC Platform
+
+The SOC platform turns detection output into triage work: **findings** are
+deduplicated, risk-scored aggregates produced when detection rules run;
+**investigations** are persistent security stories that collect findings,
+events, entities, queries, techniques and notes; **entity risk** is an
+accumulated, transparent score per entity; and **response actions** are
+analyst actions with an audit ledger.
+
+### SOC Overview
+
+`GET /api/v1/soc/overview?range=24h`
+
+Window: `range` is one of `15m`, `1h`, `6h`, `24h`, `7d` (or explicit
+`start`/`end` RFC3339 times). Returns event/finding timelines (severity
+folded onto the 4-level SOC scale), queue posture, detection counts and
+top entities.
+
+```json
+{
+  "status": 200,
+  "data": {
+    "window": {"start": "...", "end": "...", "bucket": 3600},
+    "events": {"total": 207, "eps": 0.0, "timeline": [{"bucket": 1757000000, "total": 10, "critical": 1, "high": 2, "medium": 4, "low": 3}]},
+    "findings": {"posture": {"open": 6, "critical": 2, "high": 2, "medium": 2, "low": 0, "status_new": 6}, "timeline": [{"bucket": 1757000000, "count": 2}]},
+    "detections": {"total": 6, "enabled": 6},
+    "top_entities": {"risky_users": [], "risky_hosts": [], "active_source_ips": [], "targeted_hosts": [], "at_risk_users": [], "at_risk_hosts": []}
+  }
+}
+```
+
+### Findings (analyst queue)
+
+`GET /api/v1/findings` — filters: `severity`, `status`, `owner`,
+`detection_id`, `user`, `host`, `source_ip`, `destination_ip`, `tactic`,
+`technique`, `source`, `tag`, `q` (text), `start`/`end`, `risk_min`,
+`has_risk=true`, `sort_by` (`last_seen`, `risk_score`, `first_seen`,
+`created_at`, `severity`, `title`, `match_count`), `sort_order`, `limit`,
+`offset`. Response: `{findings, total, pagination: {limit, offset, has_more}}`.
+
+| Method & path | Body / notes |
+|---------------|--------------|
+| `GET /findings/{id}` | single finding (with notes) |
+| `PATCH /findings/{id}` | `{title, description, severity, status, owner, risk_score, tags}` — status/owner/risk changes are audited |
+| `POST /findings/{id}/notes` | `{content}` |
+| `GET /findings/{id}/events` | linked + correlated events (`{events, total, window}`) |
+| `GET /findings/{id}/risk` | `{finding_id, risk_score, entities: [{type, value, risk_score, contributions}]}` |
+
+### Saved Views
+
+| Method & path | Body |
+|---------------|------|
+| `GET /saved-views` | current user's views |
+| `POST /saved-views` | `{name, filters: {severity, status, q, user, host, source_ip, sort_by}}` — same name updates in place (stable ID) |
+| `DELETE /saved-views/{id}` | delete one of the current user's views |
+
+### Investigations
+
+| Method & path | Body / notes |
+|---------------|--------------|
+| `GET /investigations` | filters `severity`, `status`, `assignee`, `limit`, `offset` |
+| `POST /investigations` | `{title, description, severity, assignee, finding_ids}` |
+| `GET /investigations/{id}` | with notes |
+| `PATCH /investigations/{id}` | `{title, description, severity, assignee, finding_ids, add_entities: [{type, value}], queries, techniques}` |
+| `POST /investigations/{id}/status` | `{status}` — `new, in_progress, contained, resolved, false_positive, cancelled` |
+| `GET/POST /investigations/{id}/notes` | `{body}` |
+| `POST /investigations/{id}/evidence` | `{event_ids: []}` (max 500) |
+| `POST /investigations/{id}/findings` | `{finding_ids: []}` (max 200) |
+| `GET /investigations/{id}/findings` | `{findings, total}` |
+
+### Entity Risk & Intel
+
+| Method & path | Notes |
+|---------------|-------|
+| `GET /risk/entities?type=user&limit=20` | `type` ∈ `user, host, ip`; highest risk first |
+| `GET /entities/{type}/{value}` | correlation graph record + `risk` + `risk_contributions` + `findings` + `neighbors`; `type` ∈ `user, host, ip, domain, file, process` |
+| `GET /intel/{type}/{value}` | entity detail plus derived `reputation` (`malicious/suspicious/benign/unknown`), `risk_score`, `open_findings` |
+
+### MITRE ATT&CK
+
+| Method & path | Notes |
+|---------------|-------|
+| `GET /mitre/techniques` | static technique catalog `{id, name, tactic_ids, sub_of}` |
+| `GET /mitre/tactics` | static tactic catalog `{id, name, order}` |
+| `GET /mitre/active` | techniques carried by open findings `{tactic, technique, count, tactic_name, technique_name}` |
+
+### Response Actions & Audit
+
+| Method & path | Notes |
+|---------------|-------|
+| `GET /response-actions` | catalog `{name, key, description, sensitive, params}` |
+| `POST /response-actions/execute` | `{action, target, owner, tag, points, title, query, url, event, payload}`; built-in keys: `finding.mark_false_positive`, `finding.assign`, `finding.add_tag`, `finding.increase_risk`, `investigation.create`, `search.run`, `url.open`, `webhook.execute` (SSRF-guarded: http(s) only, private/loopback/link-local denied, no redirects) |
+| `GET /response-actions/history?limit=50` | execution ledger `{id, action, target, details, user, status, created_at}` |
+| `GET /audit?limit=50&user=&action=` | analyst audit trail (403 for the `viewer` role) |
 
 ---
 

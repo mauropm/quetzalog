@@ -25,6 +25,7 @@ import (
 	"quetzalog/internal/detections"
 	"quetzalog/internal/enrichment"
 	"quetzalog/internal/events"
+	"quetzalog/internal/findings"
 	"quetzalog/internal/incidents"
 	"quetzalog/internal/ingestion"
 	"quetzalog/internal/ingestion/file"
@@ -32,7 +33,9 @@ import (
 	ingestjson "quetzalog/internal/ingestion/json"
 	"quetzalog/internal/ingestion/otlp"
 	"quetzalog/internal/ingestion/syslog"
+	"quetzalog/internal/investigations"
 	"quetzalog/internal/query"
+	"quetzalog/internal/response"
 	"quetzalog/internal/risk"
 	"quetzalog/internal/telemetry"
 	"quetzalog/internal/web"
@@ -211,8 +214,16 @@ func cmdServe(cfgFile string, debug bool) int {
 	alertStore := alerts.NewStore(db)
 	incidentStore := incidents.NewStore(db)
 	detectionStore := detections.NewStore(db)
+	findingStore := findings.NewStore(db)
+	investigationStore := investigations.NewStore(db)
+	entityRiskStore := risk.NewEntityRiskStore(db)
 	searchSvc := query.NewService(db)
 	authStore := auth.NewStore(db)
+	responseRegistry := response.NewRegistry(db, response.Deps{
+		Findings:       findingStore,
+		Investigations: investigationStore,
+		Risk:           entityRiskStore,
+	})
 	geoEnricher, _ := enrichment.BuildGeoIPEnricher(enrichment.GeoIPConfig{Enabled: false})
 	_ = enrichment.NewCompositeEnricher([]enrichment.Enricher{
 		enrichment.NewLocalIPEnricher(),
@@ -329,7 +340,7 @@ func cmdServe(cfgFile string, debug bool) int {
 	}
 
 	mux := http.NewServeMux()
-	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, authStore, logger)
+	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, logger)
 	if err != nil {
 		logger.Error("API setup failed", "error", err)
 		if debug {
@@ -357,6 +368,10 @@ func cmdServe(cfgFile string, debug bool) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if cfg.Detections.Scheduled {
+		go runDetectionScheduler(ctx, cfg.Detections.Interval, detectionStore, eventStore, findingStore, entityRiskStore, logger)
+	}
 
 	errChan := make(chan error, 1)
 
@@ -425,6 +440,124 @@ func cmdServe(cfgFile string, debug bool) int {
 }
 
 // hardenDataFiles best-effort restricts the SQLite files to owner access.
+// seedScenarioEvents builds the scripted attack chain: two geo-anomalous
+// failed logins, a successful login from the same foreign IP, encoded
+// PowerShell, SMB lateral movement and a large outbound transfer.
+func seedScenarioEvents(now time.Time) []*event.Event {
+	attackerIP := "185.220.101.47"
+	workstationIP := "10.20.30.40"
+	fileSrvIP := "10.20.30.60"
+
+	mk := func(age time.Duration, fn func(e *event.Event)) *event.Event {
+		e := event.NewEvent()
+		e.Timestamp = now.Add(-age)
+		fn(e)
+		return e
+	}
+
+	return []*event.Event{
+		mk(3*time.Hour, func(e *event.Event) {
+			e.Source, e.Severity = "sshd", "warning"
+			e.EventType, e.Action, e.Outcome = "authentication", "login_failed", "failure"
+			e.User, e.Host = "jsmith", "workstation-42"
+			e.SourceIP, e.DestinationIP = attackerIP, "10.0.0.5"
+			e.Message = "Failed password for jsmith from 185.220.101.47 (geo: RU)"
+			e.Attributes["geo_anomaly"] = "true"
+			e.Attributes["geo_country"] = "RU"
+		}),
+		mk(2*time.Hour, func(e *event.Event) {
+			e.Source, e.Severity = "sshd", "warning"
+			e.EventType, e.Action, e.Outcome = "authentication", "login_failed", "failure"
+			e.User, e.Host = "jsmith", "workstation-42"
+			e.SourceIP, e.DestinationIP = attackerIP, "10.0.0.5"
+			e.Message = "Failed password for jsmith from 185.220.101.47 (geo: RU)"
+			e.Attributes["geo_anomaly"] = "true"
+			e.Attributes["geo_country"] = "RU"
+		}),
+		mk(110*time.Minute, func(e *event.Event) {
+			e.Source, e.Severity = "sshd", "notice"
+			e.EventType, e.Action, e.Outcome = "authentication", "login_success", "success"
+			e.User, e.Host = "jsmith", "workstation-42"
+			e.SourceIP, e.DestinationIP = attackerIP, "10.0.0.5"
+			e.Message = "Accepted publickey for jsmith from 185.220.101.47"
+			e.Attributes["geo_anomaly"] = "true"
+		}),
+		mk(100*time.Minute, func(e *event.Event) {
+			e.Source, e.Severity = "windows", "err"
+			e.EventType, e.Action = "process", "process_creation"
+			e.User, e.Host = "jsmith", "workstation-42"
+			e.SourceIP, e.DestinationIP = workstationIP, workstationIP
+			e.Process = "powershell.exe"
+			e.Message = `powershell.exe -NoProfile -WindowStyle Hidden -EncodedCommand QwBzACA...`
+			e.Attributes["encoded_command"] = "true"
+		}),
+		mk(90*time.Minute, func(e *event.Event) {
+			e.Source, e.Severity = "smb", "warning"
+			e.EventType, e.Action = "network", "smb_session"
+			e.User = "jsmith"
+			e.Host = "file-srv-01"
+			e.SourceIP, e.DestinationIP = workstationIP, fileSrvIP
+			e.Message = "SMB session established to \\\\file-srv-01\\admin$"
+		}),
+		mk(75*time.Minute, func(e *event.Event) {
+			e.Source, e.Severity = "auditd", "err"
+			e.EventType, e.Action = "file_access", "directory_traversal"
+			e.User, e.Host = "jsmith", "file-srv-01"
+			e.SourceIP, e.DestinationIP = fileSrvIP, fileSrvIP
+			e.FilePath = "\\\\file-srv-01\\finance\\q3"
+			e.Message = "Directory traversal on sensitive share by jsmith"
+		}),
+		mk(60*time.Minute, func(e *event.Event) {
+			e.Source, e.Severity = "firewall", "critical"
+			e.EventType, e.Action, e.Outcome = "data_exfil", "outbound_transfer", "failure"
+			e.User, e.Host = "jsmith", "file-srv-01"
+			e.SourceIP, e.DestinationIP = fileSrvIP, attackerIP
+			e.DestinationPort = 443
+			e.Message = "Outbound HTTPS transfer 4.0 GB from file-srv-01 to 185.220.101.47"
+			e.Attributes["exfil_suspect"] = "true"
+			e.Attributes["bytes_transferred"] = "4294967296"
+		}),
+	}
+}
+
+// runDetectionScheduler evaluates enabled detection rules on a fixed interval
+// and materializes findings. It is an in-process ticker: a single SIEM process
+// is the unit of deployment, so no distributed scheduler is required.
+func runDetectionScheduler(ctx context.Context, interval time.Duration, detectionStore *detections.Store, eventStore *events.Store, findingStore *findings.Store, riskStore *risk.EntityRiskStore, logger *slog.Logger) {
+	if interval < time.Minute {
+		interval = time.Minute
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	logger.Info("detection scheduler started", "interval", interval.String())
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			rules, err := detectionStore.List(ctx)
+			if err != nil {
+				logger.Warn("detection scheduler: list rules", "error", err)
+				continue
+			}
+			for _, rule := range rules {
+				if !rule.Enabled {
+					continue
+				}
+				result, err := detectionStore.RunWithFindings(ctx, rule, eventStore, findingStore, riskStore)
+				if err != nil {
+					logger.Warn("detection scheduler: rule failed", "rule", rule.Name, "error", err)
+					continue
+				}
+				if result.Created > 0 {
+					logger.Info("detection scheduler: new findings", "rule", rule.Name, "created", result.Created, "matched", result.Matched)
+				}
+			}
+		}
+	}
+}
+
 func hardenDataFiles(dbPath string) {
 	if dbPath == "" || dbPath == ":memory:" {
 		return
@@ -505,6 +638,9 @@ func cmdDemo(args []string) int {
 	eventStore := events.NewStore(db)
 	alertStore := alerts.NewStore(db)
 	detectionStore := detections.NewStore(db)
+	findingStore := findings.NewStore(db)
+	investigationStore := investigations.NewStore(db)
+	entityRiskStore := risk.NewEntityRiskStore(db)
 	authStore := auth.NewStore(db)
 
 	sources := []string{"sshd", "httpd", "firewall", "auth", "kernel", "nginx", "postgres"}
@@ -569,6 +705,17 @@ func cmdDemo(args []string) int {
 
 	fmt.Println("Generated 200 events")
 
+	// A scripted, deterministic attack chain so the SOC pages (queue,
+	// investigations, risk, MITRE, intel) have a coherent story to show:
+	// credential compromise -> encoded PowerShell -> lateral movement -> exfiltration.
+	fmt.Println("Seeding attack scenario (jsmith / workstation-42 / 185.220.101.47)...")
+	scenario := seedScenarioEvents(now)
+	if err := eventStore.CreateBatch(context.Background(), scenario); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating scenario events: %v\n", err)
+		return 1
+	}
+	fmt.Printf("  Seeded %d scenario events\n", len(scenario))
+
 	count, err := eventStore.Count(context.Background(), events.Query{})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error counting events: %v\n", err)
@@ -590,15 +737,57 @@ func cmdDemo(args []string) int {
 
 	rules := []detections.DetectionRule{
 		{
-			Name:        "Brute Force Detection",
-			Description: "Detects repeated failed authentication attempts",
-			Query:       "event_type=authentication action=login_failed",
+			Name:        "Suspicious Logins (Geo Anomaly)",
+			Description: "Failed logins flagged by geo-velocity heuristics",
+			Query:       "event_type=authentication action=login_failed geo_anomaly=true",
+			Severity:    "high",
+			Enabled:     true,
+			RiskScore:   35,
+			GroupBy:     []string{"user"},
+			MITRETactic: "TA0006",
+			MITRETechnique: "T1110",
+			Tags:        []string{"credential-access", "scenario"},
+			DataSources: []string{"authentication"},
+			Threshold: &detections.Threshold{
+				Count:  2,
+				Window: "4h",
+			},
+		},
+		{
+			Name:        "Encoded PowerShell Execution",
+			Description: "PowerShell launched with an encoded payload (T1059.001)",
+			Query:       "event_type=process encoded_command=true",
+			Severity:    "high",
+			Enabled:     true,
+			RiskScore:   40,
+			GroupBy:     []string{"host"},
+			MITRETactic: "TA0002",
+			MITRETechnique: "T1059.001",
+			Tags:        []string{"execution", "defense-evasion", "scenario"},
+		},
+		{
+			Name:        "Lateral Movement via SMB",
+			Description: "SMB session establishment to file services (T1021.002)",
+			Query:       "event_type=network action=smb_session",
+			Severity:    "medium",
+			Enabled:     true,
+			RiskScore:   25,
+			GroupBy:     []string{"user"},
+			MITRETactic: "TA0008",
+			MITRETechnique: "T1021.002",
+			Tags:        []string{"lateral-movement", "scenario"},
+		},
+		{
+			Name:        "Large Outbound Exfiltration",
+			Description: "Large outbound transfer from a file server (T1041)",
+			Query:       "event_type=data_exfil exfil_suspect=true",
 			Severity:    "critical",
 			Enabled:     true,
-			Threshold: &detections.Threshold{
-				Count:  5,
-				Window: "1h",
-			},
+			RiskScore:   50,
+			GroupBy:     []string{"destination_ip"},
+			MITRETactic: "TA0010",
+			MITRETechnique: "T1041",
+			Tags:        []string{"exfiltration", "scenario"},
 		},
 		{
 			Name:        "Intrusion Attempt",
@@ -606,6 +795,7 @@ func cmdDemo(args []string) int {
 			Query:       "event_type=intrusion_attempt",
 			Severity:    "emergency",
 			Enabled:     true,
+			RiskScore:   45,
 		},
 		{
 			Name:        "Policy Violation",
@@ -613,13 +803,7 @@ func cmdDemo(args []string) int {
 			Query:       "event_type=policy",
 			Severity:    "warning",
 			Enabled:     true,
-		},
-		{
-			Name:        "Critical Service Activity",
-			Description: "Monitors critical services for anomalous activity",
-			Query:       "severity=err OR severity=critical OR severity=emergency",
-			Severity:    "err",
-			Enabled:     true,
+			RiskScore:   10,
 		},
 	}
 
@@ -653,7 +837,7 @@ func cmdDemo(args []string) int {
 
 	totalAlerts := 0
 	for _, rule := range allRules {
-		result, err := detectionStore.ExecuteNow(context.Background(), rule, eventStore)
+		result, err := detectionStore.RunWithFindings(context.Background(), rule, eventStore, findingStore, entityRiskStore)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error executing detection %s: %v\n", rule.Name, err)
 			continue
@@ -674,10 +858,55 @@ func cmdDemo(args []string) int {
 			}
 		}
 
-		fmt.Printf("  %-30s: %d matched, %d total events\n", rule.Name, result.Matched, result.Total)
+		fmt.Printf("  %-30s: %d matched, %d total events, %d new findings\n", rule.Name, result.Matched, result.Total, result.Created)
 	}
 
 	fmt.Printf("\nTotal alerts generated: %d\n", totalAlerts)
+
+	// Tie the scenario findings into one investigation so the workbench page
+	// has a populated story on first run.
+	allFindings, _, err := findingStore.List(context.Background(), findings.Filter{Limit: 50})
+	if err == nil && len(allFindings) > 0 {
+		scenarioIDs := make([]string, 0, len(allFindings))
+		for _, f := range allFindings {
+			for _, tag := range f.Tags {
+				if tag == "scenario" {
+					scenarioIDs = append(scenarioIDs, f.ID)
+					break
+				}
+			}
+		}
+		if len(scenarioIDs) > 0 {
+			in := &investigations.Investigation{
+				Title:       "Compromised account: jsmith",
+				Description: "Demo scenario: geo-anomalous logins, encoded PowerShell, SMB lateral movement and exfiltration.",
+				Severity:    "critical",
+				Status:      "in_progress",
+				Assignee:    "analyst",
+				FindingIDs:  scenarioIDs,
+			}
+			if err := investigationStore.Create(context.Background(), in); err == nil {
+				if _, err := investigationStore.AddNote(context.Background(), &investigations.Note{
+					InvestigationID: in.ID,
+					Author:          "analyst",
+					Body:            "Initial triage: all four detection families hit the same user and workstation chain. Escalating.",
+				}); err == nil {
+					fmt.Printf("Created demo investigation with %d linked findings\n", len(scenarioIDs))
+				}
+			}
+		}
+	}
+
+	if posture, err := findingStore.Posture(context.Background()); err == nil {
+		fmt.Printf("\nQueue posture: %d open (%d critical, %d high, %d medium, %d low)\n",
+			posture["open"], posture["critical"], posture["high"], posture["medium"], posture["low"])
+	}
+	if topUsers, err := entityRiskStore.Top(context.Background(), "user", 3); err == nil && len(topUsers) > 0 {
+		fmt.Println("Top risk users:")
+		for _, u := range topUsers {
+			fmt.Printf("  %-12s %6.0f  (%d open findings)\n", u.Value, u.RiskScore, u.Findings)
+		}
+	}
 
 	fmt.Println("\nAlerts:")
 	alertList, err := alertStore.List(context.Background(), alerts.Filter{Limit: 20})
@@ -703,13 +932,20 @@ func cmdDemo(args []string) int {
 		}
 	}
 
+	if _, findingTotal, err := findingStore.List(context.Background(), findings.Filter{Limit: 1}); err == nil {
+		fmt.Printf("  Findings:           %d\n", findingTotal)
+	}
+	if _, invTotal, err := investigationStore.List(context.Background(), investigations.Filter{}); err == nil {
+		fmt.Printf("  Investigations:     %d\n", invTotal)
+	}
+
 	fmt.Println("\n=== Demo Complete ===")
 	fmt.Printf("  Events ingested:    %d\n", count)
 	fmt.Printf("  Detection rules:    %d\n", len(allRules))
 	fmt.Printf("  Alerts generated:   %d\n", totalAlerts)
 	fmt.Printf("  Time:               %s\n", time.Since(now).Round(time.Millisecond))
 	fmt.Printf("\nData persisted to %s\n", dbPath)
-	fmt.Println("Run 'quetzalog serve' (with the same --config, if any) to browse events, alerts, and the entity graph in the web UI.")
+	fmt.Println("Run 'quetzalog serve' (with the same --config, if any) to browse the SOC overview, analyst queue, investigations, risk, MITRE ATT&CK and entity graph in the web UI.")
 
 	return 0
 }

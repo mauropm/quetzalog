@@ -201,11 +201,15 @@ Incidents group related alerts and events:
 An embedded single-page application served directly from the binary:
 
 - Built with vanilla JavaScript, CSS, and HTML
+- SOC overview — posture stats, interactive SVG event/finding timeline (severity-stacked), top-risk entities
+- Analyst queue — server-side filtered finding triage, saved views, finding side panel (status, owner, risk, tags, notes, linked events, quick response actions)
+- Investigations — persistent security stories with notes, evidence, entities, techniques and in-context search prefill
+- Risk, Threat Intel and Entity pages — accumulated entity risk, derived reputation, neighbor navigation
+- MITRE ATT&CK matrix, response actions + audit trail, SPL Builder
 - Real-time event search and filtering
 - Alert management dashboard
 - Incident investigation workspace
-- Detection rule configuration
-- Statistics and overview pages
+- Detection rule configuration (MITRE tactic/technique, group-by, risk score, schedule)
 
 ### REST API
 
@@ -232,8 +236,56 @@ Configurable severity-based scoring system:
 
 - Each severity level has a configurable point value
 - Events and alerts accumulate risk scores
-- Entity-level risk aggregation (per user, per IP, per host)
+- Entity-level risk aggregation (per user, per IP, per host) via the
+  `internal/risk` entity-risk store: every contribution is recorded
+  (source type, points, description) so a score is always explainable
+- Detection runs contribute full points to user/host/source-IP entities
+  and half points to process entities
 - Configurable via YAML configuration
+
+### Findings (Analyst Queue)
+
+`internal/findings` turns detection runs into triage work:
+
+- **Dedup** — findings are keyed by `detection_id + group_key`; re-runs
+  bump match count/last-seen instead of creating noise
+- **Lifecycle** — `new`, `in_progress`, `investigating`, `contained`,
+  `resolved`, `false_positive`
+- **Triage data** — entities, MITRE tactic/technique, risk score, tags,
+  owner, notes
+- **Queue API** — rich server-side filtering (severity, status, owner,
+  entities, text, risk floor, time window) with pagination; saved views
+  per user
+
+### Investigations
+
+`internal/investigations` persists the security story:
+
+- Collects linked findings, event evidence, typed entities, saved SPL
+  queries and MITRE techniques
+- Authored timeline notes with author + timestamp
+- Lifecycle: `new`, `in_progress`, `contained`, `resolved`,
+  `false_positive`, `cancelled`
+- Findings stay linked; the investigation is the workbench, not a copy
+
+### Response Actions
+
+`internal/response` provides a registered analyst-action framework:
+
+- Built-in actions: mark false positive, assign, tag, increase risk,
+  create investigation, run search, open URL, execute webhook
+- Webhook execution is SSRF-guarded (http/https only, private, loopback
+  and link-local destinations denied, redirects disabled)
+- Every execution is written to the response ledger and the auth audit
+  trail, so all analyst actions are reviewable
+- New integrations register actions without redesigning the app
+
+### MITRE ATT&CK
+
+`internal/mitre` embeds a static, provider-neutral tactic/technique
+catalog used for finding tagging, the active-techniques view and the
+matrix page. Threat-intel integrations can extend or replace it without
+touching the rest of the platform.
 
 ### Enrichment
 

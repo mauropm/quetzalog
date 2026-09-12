@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 
+	"database/sql"
+
 	"quetzalog/internal/alerts"
 	"quetzalog/internal/api"
 	"quetzalog/internal/auth"
@@ -19,9 +21,26 @@ import (
 	"quetzalog/internal/database"
 	"quetzalog/internal/detections"
 	"quetzalog/internal/events"
+	"quetzalog/internal/findings"
 	"quetzalog/internal/incidents"
+	"quetzalog/internal/investigations"
 	"quetzalog/internal/query"
+	"quetzalog/internal/response"
+	"quetzalog/internal/risk"
 )
+
+// socStores builds the analyst-platform store set shared by API tests.
+func socStores(db *sql.DB) (*findings.Store, *investigations.Store, *risk.EntityRiskStore, *response.Registry) {
+	fs := findings.NewStore(db)
+	is := investigations.NewStore(db)
+	rs := risk.NewEntityRiskStore(db)
+	rr := response.NewRegistry(db, response.Deps{
+		Findings:       fs,
+		Investigations: is,
+		Risk:           rs,
+	})
+	return fs, is, rs, rr
+}
 
 // testAdminPassword pins the default-admin bootstrap password through the
 // supported env override (product code must not hardcode it).
@@ -39,12 +58,14 @@ func newSecureEnv(t *testing.T, cfg config.Config) func(method, path, token stri
 		t.Fatalf("migrate: %v", err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
+	fs, is, rs, rr := socStores(db)
 	h, err := api.SetupRouter(cfg,
 		events.NewStore(db),
 		query.NewService(db),
 		alerts.NewStore(db),
 		incidents.NewStore(db),
 		detections.NewStore(db),
+		fs, is, rs, rr,
 		auth.NewStore(db),
 		logger,
 	)
@@ -302,9 +323,11 @@ func TestSEC_LoginRateLimited(t *testing.T) {
 		t.Fatal(err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
+	fs, is, rs, rr := socStores(db)
 	h, err := api.SetupRouter(cfg,
 		events.NewStore(db), query.NewService(db), alerts.NewStore(db),
-		incidents.NewStore(db), detections.NewStore(db), auth.NewStore(db), logger)
+		incidents.NewStore(db), detections.NewStore(db), fs, is, rs, rr,
+		auth.NewStore(db), logger)
 	if err != nil {
 		t.Fatal(err)
 	}

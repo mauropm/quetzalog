@@ -21,6 +21,14 @@ type Config struct {
 	Logging       `yaml:"logging"`
 	FileIngestion `yaml:"file_ingestion"`
 	Auth          `yaml:"auth"`
+	Detections    `yaml:"detections"`
+}
+
+// Detections configures scheduled evaluation of detection rules. When
+// scheduled is true, enabled rules run every Interval and materialize findings.
+type Detections struct {
+	Scheduled bool          `yaml:"scheduled"`
+	Interval  time.Duration `yaml:"interval"`
 }
 
 // Server configures the HTTP server.
@@ -151,6 +159,10 @@ func DefaultConfig() Config {
 		Auth: Auth{
 			Enabled:          true,
 			LocalAuthEnabled: true,
+		},
+		Detections: Detections{
+			Scheduled: false,
+			Interval:  5 * time.Minute,
 		},
 	}
 }

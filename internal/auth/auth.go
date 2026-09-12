@@ -661,3 +661,61 @@ func (s *Store) LogAudit(ctx context.Context, userID, action, resource, details,
 
 	return nil
 }
+
+// AuditEntry is one audit log record joined with the acting user's name.
+type AuditEntry struct {
+	ID        string    `json:"id"`
+	Username  string    `json:"username"`
+	UserID    string    `json:"user_id,omitempty"`
+	Action    string    `json:"action"`
+	Target    string    `json:"target"`
+	Details   string    `json:"details,omitempty"`
+	IP        string    `json:"ip,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ListAudit returns the most recent audit entries, newest first. Username and
+// action filters are optional.
+func (s *Store) ListAudit(ctx context.Context, username, action string, limit int) ([]AuditEntry, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	where := []string{"1=1"}
+	var args []any
+	if username != "" {
+		where = append(where, "u.username = ?")
+		args = append(args, username)
+	}
+	if action != "" {
+		where = append(where, "a.action = ?")
+		args = append(args, action)
+	}
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT a.id, COALESCE(u.username, a.user_id), a.user_id, a.action, a.resource, a.details, a.ip, a.created_at
+		 FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+		 WHERE ` + strings.Join(where, " AND ") + `
+		 ORDER BY a.created_at DESC, a.id DESC
+		 LIMIT ?`,
+		append(args, limit)...)
+	if err != nil {
+		return nil, fmt.Errorf("query audit log: %w", err)
+	}
+	defer rows.Close()
+
+	var out []AuditEntry
+	for rows.Next() {
+		var e AuditEntry
+		var details, ip sql.NullString
+		if err := rows.Scan(&e.ID, &e.Username, &e.UserID, &e.Action, &e.Target, &details, &ip, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan audit row: %w", err)
+		}
+		e.Details = details.String
+		e.IP = ip.String
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate audit log: %w", err)
+	}
+	return out, nil
+}

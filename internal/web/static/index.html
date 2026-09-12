@@ -167,18 +167,69 @@ tr.clickable { cursor: pointer; }
 .rc-page:disabled { opacity: 0.4; cursor: default; }
 .rc-cur { background: var(--accent); color: #fff; border-color: var(--accent); }
 .rc-dots { color: var(--text-secondary); padding: 0 4px; }
+/* ==== SOC platform ==== */
+.filter-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.filter-bar select, .filter-bar input { background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 10px; border-radius: 6px; font-size: 13px; outline: none; }
+.filter-bar select:focus, .filter-bar input:focus { border-color: var(--accent); }
+.filter-bar .spacer { flex: 1; }
+.sev-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.sev-dot.critical { background: var(--critical); }
+.sev-dot.high { background: var(--danger); }
+.sev-dot.medium { background: var(--warning); }
+.sev-dot.low { background: var(--success); }
+.sev-critical { color: var(--critical); font-weight: 600; }
+.sev-high { color: var(--danger); }
+.sev-medium { color: var(--warning); }
+.sev-low { color: var(--text-secondary); }
+.risk-num { font-variant-numeric: tabular-nums; font-weight: 600; }
+.risk-num.high { color: var(--danger); }
+.risk-num.medium { color: var(--warning); }
+.timeline-wrap { position: relative; }
+.timeline-svg { width: 100%; height: 180px; display: block; }
+.timeline-legend { display: flex; gap: 14px; margin-top: 6px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap; }
+.timeline-legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.top-entities-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
+.entity-list-item { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 13px; cursor: pointer; }
+.entity-list-item:last-child { border-bottom: none; }
+.entity-list-item:hover .entity-name { color: var(--accent); }
+.entity-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.panel-overlay { position: fixed; inset: 0; background: rgba(15, 17, 23, 0.7); z-index: 1500; display: none; }
+.panel-overlay.visible { display: block; }
+.side-panel { position: absolute; top: 0; right: 0; height: 100%; width: 720px; max-width: 94vw; background: var(--bg-secondary); border-left: 1px solid var(--border); overflow-y: auto; padding: 20px 24px; }
+.side-panel .panel-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; gap: 12px; }
+.side-panel .panel-head h3 { font-size: 18px; }
+.panel-section { margin-top: 18px; }
+.panel-section h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); margin-bottom: 8px; }
+.tag-chip { display: inline-block; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px; font-size: 11px; color: var(--text-secondary); margin: 0 4px 4px 0; }
+.mitre-cell { text-align: center; }
+.mitre-cell.filled { background: rgba(88, 166, 255, 0.25); }
+.mitre-cell.active { background: var(--danger); }
+.mitre-technique { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.mitre-technique:hover { color: var(--accent); }
+.reputation { font-size: 15px; font-weight: 600; padding: 4px 12px; border-radius: 12px; display: inline-block; }
+.reputation.malicious { background: rgba(248, 81, 73, 0.2); color: var(--danger); }
+.reputation.suspicious { background: rgba(210, 153, 34, 0.2); color: var(--warning); }
+.reputation.benign { background: rgba(63, 185, 80, 0.15); color: var(--success); }
+.reputation.unknown { background: rgba(139, 148, 158, 0.15); color: var(--text-secondary); }
+.action-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 </style>
 </head>
 <body>
 <div class="sidebar">
   <div class="logo"><h1>&#x1F6E1; Quetzalog</h1><span>Security Analytics</span></div>
   <nav id="nav">
-    <a class="nav-item active" data-page="dashboard">&#x1F4CA; Dashboard</a>
+    <a class="nav-item active" data-page="dashboard">&#x1F4CA; SOC Overview</a>
+    <a class="nav-item" data-page="queue">&#x1F4CB; Analyst Queue</a>
+    <a class="nav-item" data-page="investigations">&#x2696;&#xFE0F; Investigations</a>
     <a class="nav-item" data-page="search">&#x1F50D; Search</a>
     <a class="nav-item" data-page="events">&#x1F4E5; Events</a>
     <a class="nav-item" data-page="alerts">&#x1F514; Alerts</a>
     <a class="nav-item" data-page="incidents">&#x1F4CB; Incidents</a>
     <a class="nav-item" data-page="detections">&#x2699;&#xFE0F; Detections</a>
+    <a class="nav-item" data-page="risk">&#x26A0;&#xFE0F; Risk</a>
+    <a class="nav-item" data-page="intel">&#x1F9E0; Threat Intel</a>
+    <a class="nav-item" data-page="mitre">&#x1F9D7; MITRE ATT&amp;CK</a>
+    <a class="nav-item" data-page="response">&#x26A1; Response</a>
     <a class="nav-item" data-page="sources">&#x1F50C; Sources</a>
     <a class="nav-item" data-page="entities">&#x1F310; Entities</a>
   </nav>
@@ -186,12 +237,42 @@ tr.clickable { cursor: pointer; }
 </div>
 <div class="main">
   <div id="page-dashboard" class="page active">
-    <div class="page-header"><h2>Dashboard</h2><p>Real-time SIEM overview</p></div>
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+      <div><h2>SOC Overview</h2><p>Security operations posture — events, findings and top-risk entities</p></div>
+      <div class="filter-bar" style="margin:0">
+        <select id="soc-range" onchange="loadDashboard()">
+          <option value="1h">Last hour</option>
+          <option value="6h">Last 6 hours</option>
+          <option value="24h" selected>Last 24 hours</option>
+          <option value="7d">Last 7 days</option>
+        </select>
+      </div>
+    </div>
     <div class="stats-grid">
-      <div class="stat-card"><div class="label">Events/Sec</div><div class="value green" id="stat-events-sec">-</div></div>
-      <div class="stat-card"><div class="label">Total Events</div><div class="value blue" id="stat-total">-</div></div>
-      <div class="stat-card"><div class="label">Alerts</div><div class="value yellow" id="stat-alerts">-</div></div>
+      <div class="stat-card"><div class="label">Open Findings</div><div class="value red" id="stat-open-findings">-</div></div>
       <div class="stat-card"><div class="label">Critical</div><div class="value red" id="stat-critical">-</div></div>
+      <div class="stat-card"><div class="label">High</div><div class="value yellow" id="stat-high">-</div></div>
+      <div class="stat-card"><div class="label">Medium</div><div class="value" id="stat-medium" style="color:var(--text-primary)">-</div></div>
+      <div class="stat-card"><div class="label">Events/Sec</div><div class="value green" id="stat-events-sec">-</div></div>
+      <div class="stat-card"><div class="label">Events (window)</div><div class="value blue" id="stat-total">-</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header" id="soc-timeline-title">Events &amp; findings timeline</div>
+      <div class="card-body timeline-wrap">
+        <div id="soc-timeline" class="loading">Loading...</div>
+        <div class="timeline-legend" id="soc-timeline-legend"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Top entities</div>
+      <div class="card-body">
+        <div class="top-entities-grid">
+          <div><h4 style="font-size:12px;color:var(--text-secondary);text-transform:uppercase;margin-bottom:8px">Risky users</h4><div id="soc-top-users" class="empty" style="padding:8px 0">-</div></div>
+          <div><h4 style="font-size:12px;color:var(--text-secondary);text-transform:uppercase;margin-bottom:8px">Risky hosts</h4><div id="soc-top-hosts" class="empty" style="padding:8px 0">-</div></div>
+          <div><h4 style="font-size:12px;color:var(--text-secondary);text-transform:uppercase;margin-bottom:8px">Active source IPs</h4><div id="soc-top-srcips" class="empty" style="padding:8px 0">-</div></div>
+          <div><h4 style="font-size:12px;color:var(--text-secondary);text-transform:uppercase;margin-bottom:8px">Targeted hosts</h4><div id="soc-top-hosts-t" class="empty" style="padding:8px 0">-</div></div>
+        </div>
+      </div>
     </div>
     <div class="card">
       <div class="card-header">Recent Events</div>
@@ -248,7 +329,89 @@ tr.clickable { cursor: pointer; }
   </div>
   <div id="page-entities" class="page">
     <div class="page-header"><h2>Entities</h2><p>Correlated security entities</p></div>
-    <div class="card"><div class="card-body"><div class="empty">Entities are automatically extracted from events. Ingest events to see correlated entities.</div></div></div>
+    <div class="card"><div class="card-body"><div class="empty" id="entities-list">Entities are automatically extracted from events. Ingest events to see correlated entities.</div></div></div>
+  </div>
+  <div id="page-queue" class="page">
+    <div class="page-header"><h2>Analyst Queue</h2><p>Findings from detection rules, triage and disposition</p></div>
+    <div class="filter-bar">
+      <select id="qf-severity" onchange="queueFilter()"><option value="">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>
+      <select id="qf-status" onchange="queueFilter()"><option value="">All statuses</option><option value="new">New</option><option value="in_progress">In progress</option><option value="investigating">Investigating</option><option value="contained">Contained</option><option value="resolved">Resolved</option><option value="false_positive">False positive</option></select>
+      <select id="qf-sort" onchange="queueFilter()"><option value="last_seen">Newest</option><option value="risk_score">Risk</option><option value="severity">Severity</option></select>
+      <input type="text" id="qf-q" placeholder="Search title / owner" onkeydown="if(event.key==='Enter')queueFilter()">
+      <input type="text" id="qf-user" placeholder="user" onchange="queueFilter()">
+      <input type="text" id="qf-host" placeholder="host" onchange="queueFilter()">
+      <input type="text" id="qf-srcip" placeholder="source IP" onchange="queueFilter()">
+      <button class="btn" onclick="qfClear()">Clear</button>
+      <span class="spacer"></span>
+      <select id="qf-saved" onchange="qfApplySaved()"><option value="">Saved views...</option></select>
+      <button class="btn" onclick="qfSaveView()">&#x1F4CE; Save view</button>
+      <button class="btn" title="Delete selected view" onclick="qfDeleteView(document.getElementById('qf-saved').value)">&#x1F5D1;</button>
+    </div>
+    <div class="card"><div class="card-body">
+      <div id="queue-table" class="loading">Loading...</div>
+      <div id="queue-pager" style="margin-top:12px"></div>
+    </div></div>
+  </div>
+  <div id="page-investigations" class="page">
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div><h2>Investigations</h2><p>Persistent security stories — findings, events, entities and notes</p></div>
+      <button class="btn btn-primary" onclick="showNewInvestigation()">+ New Investigation</button>
+    </div>
+    <div class="card"><div class="card-body" id="investigations-list"><div class="loading">Loading...</div></div></div>
+  </div>
+  <div id="page-risk" class="page">
+    <div class="page-header"><h2>Entity Risk</h2><p>Accumulated, transparent risk per entity</p></div>
+    <div class="filter-bar">
+      <select id="risk-type" onchange="loadRisk()"><option value="user">Users</option><option value="host">Hosts</option><option value="ip">Source IPs</option></select>
+    </div>
+    <div class="card"><div class="card-body" id="risk-list"><div class="loading">Loading...</div></div></div>
+  </div>
+  <div id="page-intel" class="page">
+    <div class="page-header"><h2>Threat Intel</h2><p>Look up an entity's derived reputation, risk and context</p></div>
+    <div class="card">
+      <div class="card-body">
+        <div class="filter-bar">
+          <select id="intel-type"><option value="ip">IP</option><option value="user">User</option><option value="host">Host</option><option value="domain">Domain</option><option value="file">File</option><option value="process">Process</option></select>
+          <input type="text" id="intel-value" placeholder="e.g. 185.220.101.47 or jsmith" style="min-width:260px" onkeydown="if(event.key==='Enter')lookupIntel()">
+          <button class="btn btn-primary" onclick="lookupIntel()">Look up</button>
+        </div>
+        <div id="intel-result"><div class="empty">Enter an entity to look up</div></div>
+      </div>
+    </div>
+  </div>
+  <div id="page-mitre" class="page">
+    <div class="page-header"><h2>MITRE ATT&amp;CK</h2><p>Techniques in play across open findings</p></div>
+    <div class="card">
+      <div class="card-header">Techniques in play</div>
+      <div class="card-body" id="mitre-active"><div class="loading">Loading...</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Technique coverage</div>
+      <div class="card-body" style="overflow-x:auto"><div id="mitre-matrix"><div class="loading">Loading...</div></div></div>
+    </div>
+  </div>
+  <div id="page-response" class="page">
+    <div class="page-header"><h2>Response Actions</h2><p>Analyst actions and their audit trail</p></div>
+    <div class="card">
+      <div class="card-header">Execute action</div>
+      <div class="card-body">
+        <div class="filter-bar">
+          <select id="resp-action" onchange="respRenderParams()"></select>
+          <input type="text" id="resp-target" placeholder="target (finding id / entity)" style="min-width:220px">
+          <input type="text" id="resp-extra" placeholder="extra param" style="min-width:160px">
+          <button class="btn btn-primary" onclick="respExecute()">Execute</button>
+        </div>
+        <div class="help-note" id="resp-help"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Action history</div>
+      <div class="card-body" id="resp-history"><div class="loading">Loading...</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Audit trail (analyst actions)</div>
+      <div class="card-body" id="audit-list"><div class="loading">Loading...</div></div>
+    </div>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -432,6 +595,85 @@ tr.clickable { cursor: pointer; }
 | where action="success" AND failures > 10</pre>
   </div>
 </div>
+<div class="panel-overlay" id="finding-panel" onclick="if (event.target === this) closeFindingPanel()">
+  <div class="side-panel">
+    <div class="panel-head">
+      <div>
+        <h3 id="fp-title">Finding</h3>
+        <div id="fp-badges" style="margin-top:6px"></div>
+      </div>
+      <button class="btn btn-sm" onclick="closeFindingPanel()">Close</button>
+    </div>
+    <div id="fp-body"><div class="loading">Loading...</div></div>
+  </div>
+</div>
+<div class="panel-overlay" id="investigation-panel" onclick="if (event.target === this) closeInvestigationPanel()">
+  <div class="side-panel">
+    <div class="panel-head">
+      <div>
+        <h3 id="invp-title">Investigation</h3>
+        <div id="invp-badges" style="margin-top:6px"></div>
+      </div>
+      <button class="btn btn-sm" onclick="closeInvestigationPanel()">Close</button>
+    </div>
+    <div id="invp-body"><div class="loading">Loading...</div></div>
+  </div>
+</div>
+<div class="panel-overlay" id="entity-panel" onclick="if (event.target === this) closeEntityPanel()">
+  <div class="side-panel">
+    <div class="panel-head">
+      <div>
+        <h3 id="entp-title">Entity</h3>
+        <div id="entp-badges" style="margin-top:6px"></div>
+      </div>
+      <button class="btn btn-sm" onclick="closeEntityPanel()">Close</button>
+    </div>
+    <div id="entp-body"><div class="loading">Loading...</div></div>
+  </div>
+</div>
+<div class="overlay" id="new-investigation-modal" onclick="if (event.target === this) closeNewInvestigation()">
+  <div class="modal-card" style="width:480px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h2 style="font-size:16px;color:var(--accent)">New Investigation</h2>
+      <button class="btn btn-sm" onclick="closeNewInvestigation()">Close</button>
+    </div>
+    <div class="form-group"><label>Title *</label><input type="text" id="inv-new-title" placeholder="Short summary"></div>
+    <div style="display:flex;gap:10px">
+      <div class="form-group" style="flex:1"><label>Severity</label>
+        <select id="inv-new-severity"><option value="critical">Critical</option><option value="high" selected>High</option><option value="medium">Medium</option><option value="low">Low</option></select>
+      </div>
+      <div class="form-group" style="flex:1"><label>Assignee</label><input type="text" id="inv-new-assignee" placeholder="analyst"></div>
+    </div>
+    <div class="form-group"><label>Description</label><textarea id="inv-new-desc" rows="3" placeholder="What is being investigated..."></textarea></div>
+    <button class="btn btn-primary" style="width:100%" onclick="doCreateInvestigation()">Create</button>
+  </div>
+</div>
+<div class="overlay" id="create-detection-modal" onclick="if (event.target === this) closeCreateDetection()">
+  <div class="modal-card" style="width:560px;max-height:90vh;overflow:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h2 style="font-size:16px;color:var(--accent)">New Detection Rule</h2>
+      <button class="btn btn-sm" onclick="closeCreateDetection()">Close</button>
+    </div>
+    <div class="form-group"><label>Name *</label><input type="text" id="det-name" placeholder="e.g. Geo-anomalous logins"></div>
+    <div class="form-group"><label>Query (SPL-like) *</label><textarea id="det-query" rows="3" placeholder="source_ip != 10.0.0.0/8 action=failed"></textarea></div>
+    <div style="display:flex;gap:10px">
+      <div class="form-group" style="flex:1"><label>Severity</label>
+        <select id="det-severity"><option value="critical">Critical</option><option value="high" selected>High</option><option value="medium">Medium</option><option value="low">Low</option></select>
+      </div>
+      <div class="form-group" style="flex:1"><label>Group by field</label><input type="text" id="det-groupby" placeholder="user, source_ip, host..."></div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <div class="form-group" style="flex:1"><label>MITRE tactic</label><input type="text" id="det-mitre-tactic" placeholder="Credential Access"></div>
+      <div class="form-group" style="flex:1"><label>MITRE technique</label><input type="text" id="det-mitre-technique" placeholder="T1110"></div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <div class="form-group" style="flex:1"><label>Risk score</label><input type="number" id="det-risk" min="0" max="1000" value="50" placeholder="50"></div>
+      <div class="form-group" style="flex:1"><label>Schedule (sec, 0 = off)</label><input type="number" id="det-schedule" min="0" value="0"></div>
+    </div>
+    <div class="form-group"><label>Tags (comma separated)</label><input type="text" id="det-tags" placeholder="auth, geo"></div>
+    <button class="btn btn-primary" style="width:100%" onclick="doCreateDetection()">Create rule</button>
+  </div>
+</div>
 <script>
 const API = '/api/v1';
 const sharedParams = new URLSearchParams(location.search);
@@ -554,6 +796,7 @@ document.addEventListener('keydown', e => {
     const b = document.getElementById('spl-builder-modal');
     if (b && b.classList.contains('visible')) { closeSPLBuilder(); return; }
     closeEventModal(); closeIncidentModal(); closeCreateIncidentModal(); closeAlertModal(); closeSplHelp();
+    closeFindingPanel(); closeInvestigationPanel(); closeEntityPanel(); closeNewInvestigation(); closeCreateDetection();
     return;
   }
   const t = e.target || {};
@@ -713,26 +956,39 @@ function closeSplHelp() {
 function loadPage(page) {
   switch(page) {
     case 'dashboard': loadDashboard(); break;
+    case 'queue': loadQueue(); loadSavedViews(); break;
+    case 'investigations': loadInvestigations(); break;
     case 'events': loadEvents(); break;
     case 'alerts': loadAlerts(); break;
     case 'incidents': loadIncidents(); break;
     case 'detections': loadDetections(); break;
+    case 'risk': loadRisk(); break;
+    case 'intel': loadIntelPage(); break;
+    case 'mitre': loadMITRE(); break;
+    case 'response': loadResponse(); break;
     case 'sources': loadSources(); break;
     case 'entities': loadEntities(); break;
   }
 }
+function sevBadgeClass(sev) { return {critical:'badge-red',err:'badge-red',high:'badge-red',emergency:'badge-red',warning:'badge-yellow',medium:'badge-yellow',info:'badge-blue',low:'badge-blue',debug:'badge-gray'}[sev] || 'badge-gray'; }
+function riskClass(r) { return r >= 100 ? 'high' : r >= 30 ? 'medium' : ''; }
 async function loadDashboard() {
+  const range = (document.getElementById('soc-range') || {}).value || '24h';
   try {
-    const stats = await api('/stats');
-    const total = stats.total || 0;
-    const bySev = stats.by_severity || {};
-    const critical = bySev.critical || 0;
-    const recent = stats.recent_24h || 0;
-    const perSec = (recent / 86400).toFixed(2);
-    document.getElementById('stat-total').textContent = total.toLocaleString();
-    document.getElementById('stat-alerts').textContent = '0';
-    document.getElementById('stat-critical').textContent = critical.toLocaleString();
-    document.getElementById('stat-events-sec').textContent = perSec;
+    const s = await api('/soc/overview?range=' + range);
+    const posture = (s.findings && s.findings.posture) || {};
+    document.getElementById('stat-open-findings').textContent = (posture.open || 0).toLocaleString();
+    document.getElementById('stat-critical').textContent = (posture.critical || 0).toLocaleString();
+    document.getElementById('stat-high').textContent = (posture.high || 0).toLocaleString();
+    document.getElementById('stat-medium').textContent = (posture.medium || 0).toLocaleString();
+    document.getElementById('stat-events-sec').textContent = (s.events && s.events.eps || 0);
+    document.getElementById('stat-total').textContent = (s.events && s.events.total || 0).toLocaleString();
+    renderTimeline('soc-timeline', (s.events && s.events.timeline) || [], (s.findings && s.findings.timeline) || [], s.detections || {});
+    const top = s.top_entities || {};
+    renderEntityList('soc-top-users', 'user', top.risky_users || [], 'risk_score');
+    renderEntityList('soc-top-hosts', 'host', top.risky_hosts || [], 'risk_score');
+    renderEntityList('soc-top-srcips', 'ip', top.active_source_ips || [], 'count');
+    renderEntityList('soc-top-hosts-t', 'host', top.targeted_hosts || [], 'count');
     const q = new URLSearchParams({limit: 10, sort_by: 'timestamp', sort_order: 'desc'});
     const evData = await api('/events?' + q.toString());
     const events = evData && evData.events ? evData.events : [];
@@ -746,8 +1002,81 @@ async function loadDashboard() {
     html += '</tbody></table>';
     el.innerHTML = html;
   } catch(e) {
-    document.getElementById('recent-events').innerHTML = '<div class="empty">Failed to load: ' + e.message + '</div>';
+    document.getElementById('soc-timeline').innerHTML = '<div class="empty">Failed to load: ' + esc(e.message) + '</div>';
   }
+}
+function renderTimeline(elId, evTl, fTl, det) {
+  const el = document.getElementById(elId);
+  const legend = document.getElementById('soc-timeline-legend');
+  if (!evTl.length && !fTl.length) {
+    el.innerHTML = '<div class="empty" style="padding:40px 0">No data in window</div>';
+    legend.innerHTML = '';
+    return;
+  }
+  const W = 1000, H = 180, padL = 44, padB = 24, padT = 10, padR = 10;
+  const secs = bucketSecs(evTl, fTl);
+  const t0 = secs.length ? Math.min(...secs) : 0;
+  const t1 = secs.length ? Math.max(...secs) : 1;
+  const span = Math.max(1, t1 - t0);
+  const evMax = Math.max(1, ...evTl.map(p => p.total));
+  const fMax = Math.max(1, ...fTl.map(p => p.count));
+  const scale = Math.max(evMax, fMax);
+  const x = t => padL + (W - padL - padR) * ((t - t0) / span);
+  const y = v => H - padB - (H - padB - padT) * (v / scale);
+  const bw = evTl.length ? Math.max(3, (W - padL - padR) / evTl.length * 0.72) : 8;
+  let svg = '<svg class="timeline-svg" viewBox="0 0 ' + W + ' ' + H + '">';
+  for (let i = 0; i <= 3; i++) {
+    const gy = padT + (H - padB - padT) * i / 3;
+    svg += '<line x1="' + padL + '" y1="' + gy + '" x2="' + (W - padR) + '" y2="' + gy + '" stroke="var(--border)" stroke-width="1"/>';
+    svg += '<text x="' + (padL - 6) + '" y="' + (gy + 4) + '" fill="var(--text-secondary)" font-size="10" text-anchor="end">' + Math.round(scale * (1 - i / 3)) + '</text>';
+  }
+  const SEV_COLORS = {critical: 'var(--critical)', high: 'var(--danger)', medium: 'var(--warning)', low: 'var(--success)'};
+  for (const p of evTl) {
+    const cx = x(p.bucket);
+    let acc = 0;
+    for (const sev of ['low', 'medium', 'high', 'critical']) {
+      const v = p[sev] || 0;
+      if (!v) continue;
+      const yTop = y(acc + v);
+      const hgt = y(acc) - yTop;
+      svg += '<rect x="' + (cx - bw / 2) + '" y="' + yTop + '" width="' + bw + '" height="' + Math.max(1, hgt) + '" fill="' + SEV_COLORS[sev] + '" opacity="0.75"><title>' + new Date(p.bucket * 1000).toLocaleString() + '\n' + p.total + ' events (' + p.critical + ' critical, ' + p.high + ' high, ' + p.medium + ' medium, ' + p.low + ' low)</title></rect>';
+      acc += v;
+    }
+  }
+  if (fTl.length && fTl.some(p => p.count > 0)) {
+    let pts = [];
+    for (const p of fTl) pts.push(x(p.bucket).toFixed(1) + ',' + y(p.count).toFixed(1));
+    svg += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-dasharray="5 4"><title>Findings created per bucket</title></polyline>';
+    for (const p of fTl) if (p.count > 0) svg += '<circle cx="' + x(p.bucket) + '" cy="' + y(p.count) + '" r="3.5" fill="var(--accent)"><title>' + new Date(p.bucket * 1000).toLocaleString() + ' — ' + p.count + ' findings</title></circle>';
+  }
+  for (let i = 0; i <= 4; i++) {
+    const t = t0 + span * i / 4;
+    svg += '<text x="' + x(t) + '" y="' + (H - 6) + '" fill="var(--text-secondary)" font-size="10" text-anchor="middle">' + new Date(t * 1000).toLocaleString({hour: '2-digit', minute: '2-digit'}) + '</text>';
+  }
+  svg += '</svg>';
+  el.innerHTML = svg;
+  legend.innerHTML =
+    '<span><span class="swatch" style="background:var(--critical)"></span>Critical</span>' +
+    '<span><span class="swatch" style="background:var(--danger)"></span>High</span>' +
+    '<span><span class="swatch" style="background:var(--warning)"></span>Medium</span>' +
+    '<span><span class="swatch" style="background:var(--success)"></span>Low</span>' +
+    '<span><span class="swatch" style="background:var(--accent)"></span>Findings created</span>' +
+    '<span style="margin-left:auto">Detections: ' + (det.enabled || 0) + ' enabled / ' + (det.total || 0) + ' total</span>';
+}
+function bucketSecs(evTl, fTl) {
+  const out = [];
+  for (const p of evTl) out.push(p.bucket);
+  for (const p of fTl) out.push(p.bucket);
+  return out;
+}
+function renderEntityList(elId, type, items, metricKey) {
+  const el = document.getElementById(elId);
+  if (!items.length) { el.innerHTML = '<div class="empty">No data</div>'; return; }
+  el.innerHTML = items.map(it =>
+    '<div class="entity-list-item" onclick="showEntity(\'' + esc(type) + '\', \'' + esc(it.value) + '\')">' +
+    '<span class="entity-name">' + esc(it.value) + '</span>' +
+    '<span class="risk-num ' + riskClass(it[metricKey] || 0) + '">' + (it[metricKey] != null ? it[metricKey] : '') + '</span></div>'
+  ).join('');
 }
 function doSearch() {
   const q = document.getElementById('search-input').value.trim();
@@ -845,9 +1174,6 @@ async function loadDetections() {
 }
 function loadSources() {
   document.getElementById('sources-list').innerHTML = '<div class="card-header">Active Ingesters</div><div style="padding:16px"><p><strong>JSON HTTP:</strong> <span class="badge badge-green">Active</span> Port 8081</p><p style="margin-top:8px"><strong>Syslog TCP:</strong> <span class="badge badge-green">Active</span> Port 1514</p><p style="margin-top:8px"><strong>Syslog UDP:</strong> <span class="badge badge-green">Active</span> Port 514</p><p style="margin-top:8px"><strong>Splunk HEC:</strong> <span class="badge badge-gray">Inactive</span> (configure in YAML)</p><p style="margin-top:8px"><strong>OTLP:</strong> <span class="badge badge-gray">Inactive</span> (configure in YAML)</p></div>';
-}
-function loadEntities() {
-  document.getElementById('entities-list').innerHTML = '<div class="empty">Entities are automatically extracted from events. Ingest events to see correlated entities.</div>';
 }
 async function ackAlert(id) {
   try { await api('/alerts/' + id + '/acknowledge', {method: 'POST'}); toast('Alert acknowledged', 'success'); loadAlerts(); }
@@ -1038,13 +1364,775 @@ function doCreateIncident() {
   }).catch(e => toast('Error: ' + e.message, 'error'));
 }
 function showCreateDetection() {
-  const name = prompt('Rule name:');
-  if (!name) return;
-  const query = prompt('Query (SPL-like):', 'event_type=authentication');
-  const sev = prompt('Severity:', 'warning');
-  api('/detections', {method: 'POST', body: JSON.stringify({name, query, severity: sev||'warning'})}).then(() => {
-    toast('Detection created', 'success'); loadDetections();
+  ['det-name','det-query','det-groupby','det-mitre-tactic','det-mitre-technique','det-tags'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('det-severity').value = 'high';
+  document.getElementById('det-risk').value = '50';
+  document.getElementById('det-schedule').value = '0';
+  document.getElementById('create-detection-modal').classList.add('visible');
+  document.getElementById('det-name').focus();
+}
+function closeCreateDetection() { document.getElementById('create-detection-modal').classList.remove('visible'); }
+function doCreateDetection() {
+  const name = document.getElementById('det-name').value.trim();
+  const query = document.getElementById('det-query').value.trim();
+  if (!name || !query) { toast('Name and query are required', 'error'); return; }
+  const body = {
+    name, query,
+    severity: document.getElementById('det-severity').value,
+    group_by: document.getElementById('det-groupby').value.trim() || null,
+    mitre_tactic: document.getElementById('det-mitre-tactic').value.trim() || null,
+    mitre_technique: document.getElementById('det-mitre-technique').value.trim() || null,
+    risk_score: parseInt(document.getElementById('det-risk').value, 10) || 0,
+    schedule_seconds: parseInt(document.getElementById('det-schedule').value, 10) || 0,
+    tags: document.getElementById('det-tags').value.split(',').map(s => s.trim()).filter(Boolean)
+  };
+  api('/detections', {method: 'POST', body: JSON.stringify(body)}).then(() => {
+    toast('Detection created', 'success'); closeCreateDetection(); loadDetections();
   }).catch(e => toast('Error: ' + e.message, 'error'));
+}
+/* ==== Analyst queue ==== */
+let queuePage = 0;
+const QUEUE_LIMIT = 25;
+function queueQueryParams() {
+  const p = {limit: QUEUE_LIMIT, offset: queuePage * QUEUE_LIMIT, sort_by: document.getElementById('qf-sort').value};
+  const m = {'qf-severity':'severity','qf-status':'status','qf-q':'q','qf-user':'user','qf-host':'host','qf-srcip':'source_ip'};
+  for (const [id, key] of Object.entries(m)) {
+    const v = document.getElementById(id).value.trim();
+    if (v) p[key] = v;
+  }
+  return new URLSearchParams(p);
+}
+function queueFilter() { queuePage = 0; loadQueue(); }
+function qfClear() {
+  ['qf-severity','qf-status','qf-q','qf-user','qf-host','qf-srcip'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('qf-sort').value = 'last_seen';
+  queuePage = 0; loadQueue(); loadSavedViews();
+}
+async function loadQueue() {
+  const el = document.getElementById('queue-table');
+  el.innerHTML = '<div class="loading">Loading...</div>';
+  document.getElementById('queue-pager').innerHTML = '';
+  try {
+    const d = await api('/findings?' + queueQueryParams().toString());
+    const items = d.findings || [];
+    const hasMore = !!(d.pagination && d.pagination.has_more);
+    if (!items.length) { el.innerHTML = '<div class="empty">No findings match the current filter.</div>'; return; }
+    let html = '<table><thead><tr><th>Severity</th><th>Title</th><th>Status</th><th>Owner</th><th>User</th><th>Host</th><th>Matches</th><th>Risk</th><th>Last seen</th></tr></thead><tbody>';
+    for (const f of items) {
+      const stBadge = {new:'badge-yellow',in_progress:'badge-blue',investigating:'badge-blue',contained:'badge-green',resolved:'badge-green',false_positive:'badge-gray'}[f.status] || 'badge-gray';
+      html += '<tr class="clickable" title="Open finding" onclick="showFinding(\'' + esc(f.id) + '\')">' +
+        '<td><span class="sev-dot ' + f.severity + '"></span><span class="sev-' + f.severity + '">' + esc(f.severity) + '</span></td>' +
+        '<td>' + esc(f.title) + '</td>' +
+        '<td><span class="badge ' + stBadge + '">' + esc(f.status) + '</span></td>' +
+        '<td>' + esc(f.owner || '—') + '</td>' +
+        '<td class="entity-name">' + esc(f.user || '') + '</td>' +
+        '<td class="entity-name">' + esc(f.host || '') + '</td>' +
+        '<td>' + f.match_count + '</td>' +
+        '<td class="risk-num ' + riskClass(f.risk_score) + '">' + f.risk_score + '</td>' +
+        '<td>' + (f.last_seen ? new Date(f.last_seen).toLocaleString() : '') + '</td>' +
+        '</tr>';
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+    let pager = '';
+    if (queuePage > 0) pager += '<button class="btn btn-sm" onclick="queuePage--;loadQueue()">← Prev</button>';
+    pager += ' <span class="rc-count">Page ' + (queuePage + 1) + '</span>';
+    if (hasMore) pager += ' <button class="btn btn-sm" onclick="queuePage++;loadQueue()">Next →</button>';
+    document.getElementById('queue-pager').innerHTML = pager;
+  } catch(e) { el.innerHTML = '<div class="empty">Error: ' + esc(e.message) + '</div>'; }
+}
+async function loadSavedViews() {
+  const sel = document.getElementById('qf-saved');
+  const prev = sel.value;
+  try {
+    const views = await api('/saved-views');
+    sel.innerHTML = '<option value="">Saved views...</option>' + views.map(v => '<option value="' + v.id + '">' + esc(v.name) + '</option>').join('');
+    if (prev) sel.value = prev;
+  } catch(e) { /* non-fatal */ }
+}
+async function qfApplySaved() {
+  const id = document.getElementById('qf-saved').value;
+  if (!id) return;
+  try {
+    const views = await api('/saved-views');
+    const v = views.find(x => x.id === id);
+    if (!v) return;
+    const q = v.filters || {};
+    document.getElementById('qf-severity').value = q.severity || '';
+    document.getElementById('qf-status').value = q.status || '';
+    document.getElementById('qf-q').value = q.q || '';
+    document.getElementById('qf-user').value = q.user || '';
+    document.getElementById('qf-host').value = q.host || '';
+    document.getElementById('qf-srcip').value = q.source_ip || '';
+    document.getElementById('qf-sort').value = q.sort_by || 'last_seen';
+    queuePage = 0; loadQueue();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+async function qfSaveView() {
+  const name = prompt('Save current filters as view:');
+  if (!name) return;
+  try {
+    await api('/saved-views', {method: 'POST', body: JSON.stringify({name, filters: {
+      severity: document.getElementById('qf-severity').value || '',
+      status: document.getElementById('qf-status').value || '',
+      q: document.getElementById('qf-q').value.trim() || '',
+      user: document.getElementById('qf-user').value.trim() || '',
+      host: document.getElementById('qf-host').value.trim() || '',
+      source_ip: document.getElementById('qf-srcip').value.trim() || '',
+      sort_by: document.getElementById('qf-sort').value || ''
+    }})});
+    toast('View saved', 'success'); loadSavedViews();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+async function qfDeleteView(id) {
+  if (!id) { toast('Select a saved view first', 'error'); return; }
+  if (!confirm('Delete saved view?')) return;
+  try {
+    await api('/saved-views/' + encodeURIComponent(id), {method: 'DELETE'});
+    document.getElementById('qf-saved').value = '';
+    toast('View deleted', 'success'); loadSavedViews();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+/* ==== Finding side panel ==== */
+let currentFindingId = null;
+const FINDING_STATUSES = ['new','in_progress','investigating','contained','resolved','false_positive'];
+function closeFindingPanel() {
+  document.getElementById('finding-panel').classList.remove('visible');
+  currentFindingId = null;
+}
+function findingQuerySPL(f) {
+  const parts = [];
+  if (f.user) parts.push('user=' + f.user);
+  if (f.host) parts.push('host=' + f.host);
+  if (f.source_ip) parts.push('source_ip=' + f.source_ip);
+  if (f.destination_ip) parts.push('destination_ip=' + f.destination_ip);
+  if (f.process) parts.push('process="* ' + f.process + ' *"');
+  if (!parts.length) return f.title || '';
+  return parts.join(' AND ');
+}
+async function showFinding(id) {
+  currentFindingId = id;
+  document.getElementById('finding-panel').classList.add('visible');
+  document.getElementById('fp-title').textContent = 'Loading finding...';
+  document.getElementById('fp-badges').innerHTML = '';
+  document.getElementById('fp-body').innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const [f, risk] = await Promise.all([
+      api('/findings/' + encodeURIComponent(id)),
+      api('/findings/' + encodeURIComponent(id) + '/risk').catch(() => null)
+    ]);
+    renderFindingPanel(f, (risk && risk.entities) || []);
+  } catch(e) {
+    document.getElementById('fp-body').innerHTML = '<div class="empty">Failed to load: ' + esc(e.message) + '</div>';
+  }
+}
+function renderFindingPanel(f, risk) {
+  document.getElementById('fp-title').textContent = f.title;
+  document.getElementById('fp-badges').innerHTML =
+    '<span class="badge ' + sevBadgeClass(f.severity) + '">' + esc(f.severity) + '</span> ' +
+    '<span class="badge badge-blue">' + esc(f.status) + '</span> ' +
+    '<span class="risk-num ' + riskClass(f.risk_score) + '" style="font-size:13px">Risk ' + f.risk_score + '</span>';
+  const pairs = [
+    ['ID', f.id],
+    ['Detection', f.detection_name || ''],
+    ['User', f.user], ['Host', f.host], ['Source IP', f.source_ip], ['Destination IP', f.destination_ip],
+    ['MITRE', [f.mitre_tactic, f.mitre_technique].filter(Boolean).join(' / ')],
+    ['First seen', f.first_seen && new Date(f.first_seen).toLocaleString()],
+    ['Last seen', f.last_seen && new Date(f.last_seen).toLocaleString()],
+    ['Matches', String(f.match_count)], ['Owner', f.owner]
+  ].filter(p => p[1]);
+  let html = '<table class="kv"><tbody>';
+  for (const [k, v] of pairs) {
+    const extra = k === 'ID' ? ' <button class="icon-btn" title="Copy" onclick="copyText(\'' + esc(f.id) + '\', \'Finding ID copied\')">' + ICON_COPY + '</button>' : '';
+    html += '<tr><td>' + esc(k) + '</td><td>' + esc(v) + extra + '</td></tr>';
+  }
+  if (f.tags && f.tags.length) html += '<tr><td>Tags</td><td>' + f.tags.map(t => '<span class="tag-chip">' + esc(t) + '</span>').join('') + '</td></tr>';
+  html += '</tbody></table>';
+  html += '<div class="panel-section"><h4>Disposition</h4><div class="action-row">' +
+    '<select id="fp-status">' + FINDING_STATUSES.map(s => '<option value="' + s + '"' + (s === f.status ? ' selected' : '') + '>' + s + '</option>').join('') + '</select>' +
+    '<button class="btn btn-sm btn-primary" onclick="fpSetStatus()">Set status</button> ' +
+    '<input type="text" id="fp-owner" placeholder="assign to" value="' + esc(f.owner || '') + '" style="width:120px">' +
+    '<button class="btn btn-sm" onclick="fpAssign()">Assign</button> ' +
+    '<input type="number" id="fp-risk" placeholder="risk" value="' + f.risk_score + '" style="width:80px">' +
+    '<button class="btn btn-sm" onclick="fpSetRisk()">Set risk</button> ' +
+    '<input type="text" id="fp-tags" placeholder="tags" value="' + esc((f.tags || []).join(', ')) + '" style="width:160px">' +
+    '<button class="btn btn-sm" onclick="fpSetTags()">Save tags</button>' +
+    '</div></div>';
+  const spl = findingQuerySPL(f).replace(/'/g, "\\'");
+  html += '<div class="panel-section"><h4>Investigate</h4><div class="action-row">' +
+    '<button class="btn btn-sm" onclick="fpSearchEvents()">Find matching events</button> ' +
+    '<button class="btn btn-sm" title="' + esc(spl) + '" onclick="openSearchWithQuery(\'' + esc(spl) + '\')">Run SPL in Search</button> ' +
+    '<button class="btn btn-sm" onclick="fpAddToInvestigation()">Create investigation</button> ' +
+    '<button class="btn btn-sm" onclick="fpQuickAction(\'finding.mark_false_positive\',\'' + esc(f.id) + '\')">False positive</button> ' +
+    '<button class="btn btn-sm" onclick="fpQuickAction(\'finding.increase_risk\',\'' + esc(f.id) + '\', prompt(\'Risk points to add\', \'10\'))">Add risk</button> ' +
+    '<button class="btn btn-sm" onclick="fpQuickAction(\'finding.assign\',\'' + esc(f.id) + '\', prompt(\'Assign to analyst\'))">Assign</button>' +
+    '</div></div>';
+  const contribRows = [];
+  for (const ent of risk) {
+    if (ent.risk_score != null && ent.risk_score > 0) {
+      contribRows.push('<tr class="clickable" title="Open entity" onclick="showEntity(\'' + esc(ent.type) + '\', \'' + esc(ent.value) + '\')"><td><span class="entity-name">' + esc(ent.type) + ': ' + esc(ent.value) + '</span></td><td class="risk-num ' + riskClass(ent.risk_score) + '">' + ent.risk_score + '</td></tr>');
+    }
+    for (const c of (ent.contributions || [])) {
+      contribRows.push('<tr><td style="padding-left:18px;color:var(--text-secondary);font-size:12px">' + esc(c.source_type || 'observation') + (c.description ? ' · ' + esc(c.description) : '') + '</td><td>' + c.points + '</td></tr>');
+    }
+  }
+  html += '<div class="panel-section"><h4>Risk</h4><div id="fp-risk-list">' +
+    (contribRows.length ? '<table><thead><tr><th>Entity / source</th><th>Points</th></tr></thead><tbody>' +
+      contribRows.join('') + '</tbody></table>' :
+      '<div class="empty">No risk contributions recorded</div>') +
+    '</div></div>';
+  html += '<div class="panel-section"><h4>Notes</h4><div class="comments-scroll" id="fp-notes"></div>' +
+    '<div class="search-box" style="margin-top:10px;margin-bottom:0"><input id="fp-note-input" placeholder="Add a note... (Ctrl+Enter)" onkeydown="if (event.key === \'Enter\' && (event.metaKey || event.ctrlKey)) fpAddNote()">' +
+    '<button class="btn btn-primary btn-sm" onclick="fpAddNote()">Post</button></div></div>';
+  document.getElementById('fp-body').innerHTML = html;
+  loadFindingNotes(f.id);
+}
+async function loadFindingNotes(id) {
+  const el = document.getElementById('fp-notes');
+  if (!el) return;
+  try {
+    const notes = await api('/findings/' + encodeURIComponent(id) + '/notes');
+    if (!notes.length) { el.innerHTML = '<div class="empty">No notes yet</div>'; return; }
+    el.innerHTML = notes.map(n =>
+      '<div class="comment" id="fnote-' + esc(n.id) + '"><div class="meta"><span><strong>' + esc(n.author || 'unknown') + '</strong> · ' + (n.created_at ? new Date(n.created_at).toLocaleString() : '') + '</span></div>' +
+      '<div>' + esc(n.content) + '</div></div>'
+    ).join('');
+    el.scrollTop = el.scrollHeight;
+  } catch(e) { el.innerHTML = '<div class="empty">Failed to load notes</div>'; }
+}
+async function fpAddNote() {
+  const input = document.getElementById('fp-note-input');
+  const text = input.value.trim();
+  if (!text || !currentFindingId) return;
+  try {
+    await api('/findings/' + encodeURIComponent(currentFindingId) + '/notes', {method: 'POST', body: JSON.stringify({content: text})});
+    input.value = '';
+    loadFindingNotes(currentFindingId);
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+async function fpPatch(patch) {
+  try {
+    await api('/findings/' + encodeURIComponent(currentFindingId), {method: 'PATCH', body: JSON.stringify(patch)});
+    toast('Finding updated', 'success');
+    showFinding(currentFindingId);
+    if (currentPage === 'queue') loadQueue();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+function fpSetStatus() { fpPatch({status: document.getElementById('fp-status').value}); }
+function fpAssign() { fpPatch({owner: document.getElementById('fp-owner').value.trim() || null}); }
+function fpSetRisk() { const v = parseInt(document.getElementById('fp-risk').value, 10); if (isNaN(v) || v < 0) { toast('Invalid risk value', 'error'); return; } fpPatch({risk_score: v}); }
+function fpSetTags() { fpPatch({tags: document.getElementById('fp-tags').value.split(',').map(s => s.trim()).filter(Boolean)}); }
+function fpSearchEvents() {
+  const f = document.getElementById('fp-body');
+  api('/findings/' + encodeURIComponent(currentFindingId) + '/events').then(d => {
+    const events = (d && d.events) || [];
+    let html = '<div class="panel-section"><h4>Linked events (' + events.length + ')</h4>';
+    if (!events.length) html += '<div class="empty">No linked events</div>';
+    else html += '<table><thead><tr><th>Time</th><th>Severity</th><th>Source</th><th>Message</th></tr></thead><tbody>' +
+      events.slice(0, 50).map(e =>
+        '<tr class="clickable" onclick="showEventDetails(\'' + e.id + '\')"><td>' + (e.timestamp ? new Date(e.timestamp).toLocaleString() : '') + '</td>' +
+        '<td><span class="badge ' + sevBadgeClass(e.severity) + '">' + esc(e.severity || '') + '</span></td>' +
+        '<td>' + esc(e.source || '') + '</td><td>' + esc((e.message || '').substring(0, 120)) + '</td></tr>'
+      ).join('') + '</tbody></table>';
+    html += '</div>';
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    f.querySelector('#fp-notes') && f.insertBefore(div.firstChild, f.querySelector('.panel-section:last-child'));
+  }).catch(e => toast('Error: ' + e.message, 'error'));
+}
+let pendingFindingForInvestigation = null;
+function fpAddToInvestigation() {
+  pendingFindingForInvestigation = currentFindingId;
+  showNewInvestigation();
+}
+function fpQuickAction(key, target, extra) {
+  if (!target) { toast('No target available for this action', 'error'); return; }
+  if (extra === undefined) {
+    if (!confirm('Execute "' + key + '" against ' + target + '?')) return;
+  } else if (extra === null) {
+    toast('No value provided', 'error'); return;
+  }
+  const param = {'finding.assign': 'owner', 'finding.add_tag': 'tag', 'finding.increase_risk': 'points', 'investigation.create': 'title'}[key];
+  const body = {action: key, target};
+  if (param && extra != null && extra !== '') {
+    if (param === 'points') body[param] = parseFloat(extra) || 0;
+    else body[param] = extra;
+  }
+  api('/response-actions/execute', {method: 'POST', body: JSON.stringify(body)}).then(r => {
+    toast('Action executed: ' + JSON.stringify(r), 'success');
+    showFinding(currentFindingId);
+    if (currentPage === 'queue') loadQueue();
+    if (currentPage === 'response') loadResponse();
+  }).catch(e => toast('Error: ' + e.message, 'error'));
+}
+/* ==== Investigations ==== */
+async function loadInvestigations() {
+  const el = document.getElementById('investigations-list');
+  el.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const d = await api('/investigations?limit=50');
+    const items = d.investigations || [];
+    if (!items.length) { el.innerHTML = '<div class="empty">No investigations yet. Create one or link findings from the queue.</div>'; return; }
+    let html = '<table><thead><tr><th>Updated</th><th>Severity</th><th>Title</th><th>Status</th><th>Assignee</th><th>Findings</th></tr></thead><tbody>';
+    for (const i of items) {
+      const stBadge = {new:'badge-yellow',in_progress:'badge-blue',contained:'badge-green',resolved:'badge-green',false_positive:'badge-gray',cancelled:'badge-gray'}[i.status] || 'badge-blue';
+      html += '<tr class="clickable" title="Open investigation" onclick="showInvestigation(\'' + esc(i.id) + '\')">' +
+        '<td>' + (i.updated_at ? new Date(i.updated_at).toLocaleString() : (i.created_at ? new Date(i.created_at).toLocaleString() : '')) + '</td>' +
+        '<td><span class="badge ' + sevBadgeClass(i.severity) + '">' + esc(i.severity || '') + '</span></td>' +
+        '<td>' + esc(i.title) + '</td>' +
+        '<td><span class="badge ' + stBadge + '">' + esc(i.status) + '</span></td>' +
+        '<td>' + esc(i.assignee || '—') + '</td>' +
+        '<td>' + ((i.finding_ids || []).length) + '</td>' +
+        '</tr>';
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch(e) { el.innerHTML = '<div class="empty">Error: ' + esc(e.message) + '</div>'; }
+}
+function showNewInvestigation() {
+  document.getElementById('inv-new-title').value = pendingFindingForInvestigation ? 'Investigating: ' : '';
+  document.getElementById('inv-new-desc').value = '';
+  document.getElementById('inv-new-assignee').value = '';
+  document.getElementById('inv-new-severity').value = 'high';
+  document.getElementById('new-investigation-modal').classList.add('visible');
+  document.getElementById('inv-new-title').focus();
+}
+function closeNewInvestigation() { document.getElementById('new-investigation-modal').classList.remove('visible'); }
+async function doCreateInvestigation() {
+  const title = document.getElementById('inv-new-title').value.trim();
+  if (!title) { toast('Title is required', 'error'); return; }
+  try {
+    const inv = await api('/investigations', {method: 'POST', body: JSON.stringify({
+      title,
+      severity: document.getElementById('inv-new-severity').value,
+      description: document.getElementById('inv-new-desc').value,
+      assignee: document.getElementById('inv-new-assignee').value.trim() || null,
+      finding_ids: pendingFindingForInvestigation ? [pendingFindingForInvestigation] : []
+    })});
+    toast('Investigation created', 'success');
+    pendingFindingForInvestigation = null;
+    closeNewInvestigation();
+    loadInvestigations();
+    showInvestigation(inv.id);
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+let currentInvestigationId = null;
+function closeInvestigationPanel() {
+  document.getElementById('investigation-panel').classList.remove('visible');
+  currentInvestigationId = null;
+}
+async function showInvestigation(id) {
+  currentInvestigationId = id;
+  document.getElementById('investigation-panel').classList.add('visible');
+  document.getElementById('invp-body').innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const [inv, findings] = await Promise.all([
+      api('/investigations/' + encodeURIComponent(id)),
+      api('/investigations/' + encodeURIComponent(id) + '/findings').catch(() => null)
+    ]);
+    renderInvestigationPanel(inv, (inv.notes || []), (findings && findings.findings) || []);
+  } catch(e) {
+    document.getElementById('invp-body').innerHTML = '<div class="empty">Failed to load: ' + esc(e.message) + '</div>';
+  }
+}
+function invQuerySPL(inv) {
+  const parts = [];
+  if (inv.entities) for (const e of inv.entities) {
+    if (e.type === 'user') parts.push('user=' + e.value);
+    else if (e.type === 'host') parts.push('host=' + e.value);
+    else if (e.type === 'ip') parts.push('source_ip=' + e.value + ' OR destination_ip=' + e.value);
+    else parts.push(e.type + '="' + e.value + '"');
+  }
+  return parts.length ? parts.join(' AND ') : 'search="' + (inv.title || '') + '"';
+}
+function renderInvestigationPanel(inv, notes, findings) {
+  document.getElementById('invp-title').textContent = inv.title;
+  const stBadge = {new:'badge-yellow',in_progress:'badge-blue',contained:'badge-green',resolved:'badge-green',false_positive:'badge-gray',cancelled:'badge-gray'}[inv.status] || 'badge-blue';
+  document.getElementById('invp-badges').innerHTML =
+    '<span class="badge ' + sevBadgeClass(inv.severity) + '">' + esc(inv.severity || '') + '</span> ' +
+    '<span class="badge ' + stBadge + '">' + esc(inv.status) + '</span> ' +
+    '<span style="color:var(--text-secondary);font-size:12px">' + esc(inv.assignee || 'unassigned') + '</span>';
+  const pairs = [
+    ['ID', inv.id],
+    ['Description', inv.description],
+    ['Created', inv.created_at],
+    ['Updated', inv.updated_at]
+  ].filter(p => p[1]);
+  let html = '<table class="kv"><tbody>';
+  for (const [k, v] of pairs) {
+    const extra = k === 'ID' ? ' <button class="icon-btn" title="Copy" onclick="copyText(\'' + esc(inv.id) + '\', \'Investigation ID copied\')">' + ICON_COPY + '</button>' : '';
+    html += '<tr><td>' + esc(k) + '</td><td>' + (k === 'Description' ? '<pre class="attr" style="margin:0">' + esc(v) + '</pre>' : esc(v)) + extra + '</td></tr>';
+  }
+  if (inv.entities && inv.entities.length) {
+    html += '<tr><td>Entities</td><td>' + inv.entities.map(e => '<span class="tag-chip" style="cursor:pointer" onclick="showEntity(\'' + esc(e.type) + '\', \'' + esc(e.value) + '\')">' + esc(e.type) + ': ' + esc(e.value) + '</span>').join('') + '</td></tr>';
+  }
+  if (inv.queries && inv.queries.length) {
+    html += '<tr><td>Queries</td><td>' + inv.queries.map(qq => '<span class="tag-chip" style="cursor:pointer" onclick="openSearchWithQuery(\'' + esc(qq).replace(/'/g, "\\'") + '\')">' + esc(qq.substring(0, 60)) + '</span>').join('') + '</td></tr>';
+  }
+  if (inv.techniques && inv.techniques.length) {
+    html += '<tr><td>Techniques</td><td>' + inv.techniques.map(t => '<span class="tag-chip">' + esc(t) + '</span>').join('') + '</td></tr>';
+  }
+  html += '</tbody></table>';
+  html += '<div class="panel-section"><h4>Status &amp; evidence</h4><div class="action-row">' +
+    '<select id="inv-status">' + ['new','in_progress','contained','resolved','false_positive','cancelled'].map(s => '<option value="' + s + '"' + (s === inv.status ? ' selected' : '') + '>' + s + '</option>').join('') + '</select>' +
+    '<button class="btn btn-sm btn-primary" onclick="invSetStatus()">Set status</button> ' +
+    '<input type="text" id="inv-entity" placeholder="add entity (user=jsmith)" style="width:200px">' +
+    '<button class="btn btn-sm" onclick="invAddEntity()">Add entity</button> ' +
+    '<input type="text" id="inv-ev-type" placeholder="evidence type" value="screenshot" style="width:120px">' +
+    '<input type="text" id="inv-ev-value" placeholder="evidence ref" style="width:180px">' +
+    '<button class="btn btn-sm" onclick="invAddEvidence()">Add evidence</button>' +
+    '</div></div>';
+  html += '<div class="panel-section"><h4>In-context search</h4><div class="action-row"><code style="font-size:12px;background:var(--bg-tertiary);padding:4px 8px;border-radius:5px;flex:1">' + esc(invQuerySPL(inv)) + '</code>' +
+    '<button class="btn btn-sm" onclick="invRunSearch()">Run in Search</button></div></div>';
+  html += '<div class="panel-section"><h4>Linked findings (' + findings.length + ')</h4><div id="inv-findings">' +
+    (findings.length ? '<table><thead><tr><th>Severity</th><th>Title</th><th>Status</th><th>Risk</th></tr></thead><tbody>' +
+      findings.map(f =>
+        '<tr class="clickable" onclick="showFinding(\'' + esc(f.id) + '\')"><td><span class="sev-dot ' + f.severity + '"></span>' + esc(f.severity) + '</td>' +
+        '<td>' + esc(f.title) + '</td><td><span class="badge badge-blue">' + esc(f.status) + '</span></td>' +
+        '<td class="risk-num ' + riskClass(f.risk_score) + '">' + f.risk_score + '</td></tr>'
+      ).join('') + '</tbody></table>' : '<div class="empty">No linked findings</div>') +
+    '</div></div>';
+  html += '<div class="panel-section"><h4>Notes (' + notes.length + ')</h4><div class="comments-scroll" id="inv-notes">' +
+    notes.map(n =>
+      '<div class="comment"><div class="meta"><span><strong>' + esc(n.author || 'unknown') + '</strong> · ' + (n.created_at ? new Date(n.created_at).toLocaleString() : '') + '</span></div>' +
+      '<div>' + esc(n.body) + '</div></div>'
+    ).join('') + '</div>' +
+    '<div class="search-box" style="margin-top:10px;margin-bottom:0"><input id="inv-note-input" placeholder="Add a note... (Ctrl+Enter)" onkeydown="if (event.key === \'Enter\' && (event.metaKey || event.ctrlKey)) invAddNote()">' +
+    '<button class="btn btn-primary btn-sm" onclick="invAddNote()">Post</button></div></div>';
+  document.getElementById('invp-body').innerHTML = html;
+}
+async function invSetStatus() {
+  try {
+    await api('/investigations/' + encodeURIComponent(currentInvestigationId) + '/status', {method: 'POST', body: JSON.stringify({status: document.getElementById('inv-status').value})});
+    toast('Status updated', 'success');
+    showInvestigation(currentInvestigationId);
+    loadInvestigations();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+function invAddEntity() {
+  const v = document.getElementById('inv-entity').value.trim();
+  if (!v) return;
+  const m = v.match(/^(\w+)=(.+)$/);
+  const ent = m ? {type: m[1], value: m[2]} : {type: 'user', value: v};
+  api('/investigations/' + encodeURIComponent(currentInvestigationId), {method: 'PATCH', body: JSON.stringify({add_entities: [ent]})}).then(() => {
+    toast('Entity added', 'success'); showInvestigation(currentInvestigationId);
+  }).catch(e => toast('Error: ' + e.message, 'error'));
+}
+function invAddEvidence() {
+  const t = document.getElementById('inv-ev-type').value.trim();
+  const v = document.getElementById('inv-ev-value').value.trim();
+  if (!t || !v) { toast('Type and value required', 'error'); return; }
+  api('/investigations/' + encodeURIComponent(currentInvestigationId) + '/evidence', {method: 'POST', body: JSON.stringify({type: t, value: v})}).then(() => {
+    toast('Evidence attached', 'success'); showInvestigation(currentInvestigationId);
+  }).catch(e => toast('Error: ' + e.message, 'error'));
+}
+async function invAddNote() {
+  const input = document.getElementById('inv-note-input');
+  const text = input.value.trim();
+  if (!text || !currentInvestigationId) return;
+  try {
+    await api('/investigations/' + encodeURIComponent(currentInvestigationId) + '/notes', {method: 'POST', body: JSON.stringify({body: text})});
+    input.value = '';
+    showInvestigation(currentInvestigationId);
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+function invRunSearch() {
+  const inv = document.getElementById('invp-body');
+  const code = inv.querySelector('code');
+  if (!code) return;
+  openSearchWithQuery(code.textContent);
+}
+function openSearchWithQuery(q) {
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.querySelector('.nav-item[data-page="search"]').classList.add('active');
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-search').classList.add('active');
+  currentPage = 'search';
+  document.getElementById('search-input').value = q;
+  doSearch();
+  closeFindingPanel(); closeInvestigationPanel(); closeEntityPanel();
+}
+/* ==== Risk / entities ==== */
+async function loadRisk() {
+  const type = document.getElementById('risk-type').value;
+  const el = document.getElementById('risk-list');
+  el.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const d = await api('/risk/entities?type=' + type + '&limit=50');
+    const items = d.entities || [];
+    if (!items.length) { el.innerHTML = '<div class="empty">No ' + type + ' entities carry risk yet.</div>'; return; }
+    let html = '<table><thead><tr><th>Entity</th><th>Risk</th><th>Contributing findings</th><th>Updated</th></tr></thead><tbody>';
+    for (const r of items) {
+      html += '<tr class="clickable" title="Open entity" onclick="showEntity(\'' + esc(r.type) + '\', \'' + esc(r.value) + '\')">' +
+        '<td class="entity-name">' + esc(r.value) + '</td>' +
+        '<td class="risk-num ' + riskClass(r.risk_score) + '">' + r.risk_score + '</td>' +
+        '<td>' + (r.findings != null ? r.findings : 0) + '</td>' +
+        '<td>' + (r.updated_at ? new Date(r.updated_at).toLocaleString() : '') + '</td></tr>';
+    }
+    el.innerHTML = html + '</tbody></table>';
+  } catch(e) { el.innerHTML = '<div class="empty">Error: ' + esc(e.message) + '</div>'; }
+}
+let currentEntityKey = null;
+function closeEntityPanel() {
+  document.getElementById('entity-panel').classList.remove('visible');
+  currentEntityKey = null;
+}
+async function showEntity(type, value) {
+  currentEntityKey = type + ':' + value;
+  document.getElementById('entity-panel').classList.add('visible');
+  document.getElementById('entp-title').textContent = type + ': ' + value;
+  document.getElementById('entp-badges').innerHTML = '';
+  document.getElementById('entp-body').innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const [det, intel] = await Promise.all([
+      api('/entities/' + encodeURIComponent(type) + '/' + encodeURIComponent(value)),
+      api('/intel/' + encodeURIComponent(type) + '/' + encodeURIComponent(value)).catch(() => null)
+    ]);
+    const rep = intel ? intel.reputation : 'unknown';
+    renderEntityPanel(type, value, det, rep, det.findings || []);
+  } catch(e) {
+    document.getElementById('entp-body').innerHTML = '<div class="empty">Failed to load: ' + esc(e.message) + '</div>';
+  }
+}
+function renderEntityPanel(type, value, det, rep, findings) {
+  const risk = (det && det.risk) ? det.risk.risk_score : 0;
+  document.getElementById('entp-badges').innerHTML =
+    '<span class="reputation ' + rep + '">' + rep + '</span> ' +
+    '<span class="risk-num ' + riskClass(risk) + '" style="font-size:14px">Risk ' + risk + '</span>';
+  const pairs = [
+    ['First seen', det && det.first_seen && new Date(det.first_seen).toLocaleString()],
+    ['Last seen', det && det.last_seen && new Date(det.last_seen).toLocaleString()],
+    ['Events seen', det && det.event_count],
+    ['Open findings', String((findings && findings.length) || 0)]
+  ].filter(p => p[1] != null && p[1] !== '');
+  let html = '<table class="kv"><tbody>';
+  for (const [k, v] of pairs) html += '<tr><td>' + esc(k) + '</td><td>' + esc(v) + '</td></tr>';
+  if (det && det.risk_contributions && det.risk_contributions.length) {
+    html += '<tr><td>Risk contributions</td><td>' + det.risk_contributions.map(c => '<span class="tag-chip">' + esc(c.source_type || 'observation') + ': +' + c.points + '</span>').join('') + '</td></tr>';
+  }
+  if (det && det.neighbors && det.neighbors.length) {
+    html += '<tr><td>Neighbors</td><td>' + det.neighbors.slice(0, 12).map(n => '<span class="tag-chip" onclick="showEntity(\'' + esc(n.type) + '\', \'' + esc(n.value) + '\')" style="cursor:pointer">' + esc(n.type) + ': ' + esc(n.value) + '</span>').join('') + '</td></tr>';
+  }
+  html += '</tbody></table>';
+  html += '<div class="panel-section"><h4>Investigate</h4><div class="action-row">' +
+    '<button class="btn btn-sm" onclick="entitySearch(\'' + esc(type) + '\', \'' + esc(value) + '\')">Find events</button>' +
+    '</div></div>';
+  html += '<div class="panel-section"><h4>Related findings (' + findings.length + ')</h4>' +
+    (findings.length ? '<table><thead><tr><th>Severity</th><th>Title</th><th>Status</th><th>Risk</th></tr></thead><tbody>' +
+      findings.map(f =>
+        '<tr class="clickable" onclick="showFinding(\'' + esc(f.id) + '\')"><td><span class="sev-dot ' + f.severity + '"></span>' + esc(f.severity) + '</td>' +
+        '<td>' + esc(f.title) + '</td><td><span class="badge badge-blue">' + esc(f.status) + '</span></td>' +
+        '<td class="risk-num ' + riskClass(f.risk_score) + '">' + f.risk_score + '</td></tr>'
+      ).join('') + '</tbody></table>' : '<div class="empty">No related findings</div>') +
+    '</div>';
+  document.getElementById('entp-body').innerHTML = html;
+}
+function entitySearch(type, value) {
+  const field = {user: 'user', host: 'host', ip: 'source_ip', domain: 'destination_ip', file: 'file_path', process: 'process'}[type] || 'host';
+  openSearchWithQuery(field + '="' + value + '"');
+}
+async function loadEntities() {
+  const el = document.getElementById('entities-list');
+  el.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const s = await api('/soc/overview?range=24h');
+    const top = s.top_entities || {};
+    const groups = [
+      ['Risky users', 'user', top.risky_users || [], 'risk_score'],
+      ['Risky hosts', 'host', top.risky_hosts || [], 'risk_score'],
+      ['Active source IPs', 'ip', top.active_source_ips || [], 'count'],
+      ['Targeted hosts', 'host', top.targeted_hosts || [], 'count']
+    ];
+    let html = '<div class="top-entities-grid">';
+    for (const [label, type, items, metric] of groups) {
+      html += '<div><h4 style="font-size:12px;color:var(--text-secondary);text-transform:uppercase;margin-bottom:8px">' + label + '</h4>';
+      html += items.length ? items.map(it =>
+        '<div class="entity-list-item" onclick="showEntity(\'' + esc(type) + '\', \'' + esc(it.value) + '\')">' +
+        '<span class="entity-name">' + esc(it.value) + '</span>' +
+        '<span class="risk-num ' + riskClass(it[metric] || 0) + '">' + (it[metric] != null ? it[metric] : '') + '</span></div>'
+      ).join('') : '<div class="empty">No data</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+    el.innerHTML = html;
+  } catch(e) { el.innerHTML = '<div class="empty">Error: ' + esc(e.message) + '</div>'; }
+}
+/* ==== Threat intel ==== */
+function loadIntelPage() {
+  document.getElementById('intel-result').innerHTML = '<div class="empty">Enter an entity to look up</div>';
+}
+async function lookupIntel() {
+  const type = document.getElementById('intel-type').value;
+  const value = document.getElementById('intel-value').value.trim();
+  const el = document.getElementById('intel-result');
+  if (!value) return;
+  el.innerHTML = '<div class="loading">Looking up...</div>';
+  try {
+    const r = await api('/intel/' + encodeURIComponent(type) + '/' + encodeURIComponent(value));
+    const det = r.entity || {};
+    const risk = r.risk_score || 0;
+    const rep = r.reputation || 'unknown';
+    let html = '<div style="margin-bottom:12px"><span class="reputation ' + rep + '">' + rep + '</span> ' +
+      '<span class="risk-num ' + riskClass(risk) + '" style="font-size:15px">Risk ' + risk + '</span> ' +
+      '<span style="color:var(--text-secondary);font-size:13px">' + (r.open_findings || 0) + ' open findings</span></div>';
+    const pairs = [
+      ['First seen', det.first_seen && new Date(det.first_seen).toLocaleString()],
+      ['Last seen', det.last_seen && new Date(det.last_seen).toLocaleString()],
+      ['Events seen', det.event_count]
+    ].filter(p => p[1] != null && p[1] !== '');
+    if (pairs.length) html += '<table class="kv"><tbody>' + pairs.map(p => '<tr><td>' + esc(p[0]) + '</td><td>' + esc(p[1]) + '</td></tr>').join('') + '</tbody></table>';
+    if (det.risk_contributions && det.risk_contributions.length) {
+      html += '<div class="panel-section"><h4>Why this reputation</h4>' +
+        det.risk_contributions.map(c => '<div class="entity-list-item" style="cursor:default"><span>' + esc(c.source_type || 'observation') + (c.description ? ' · ' + esc(c.description) : '') + '</span><span class="risk-num">+' + c.points + '</span></div>').join('') + '</div>';
+    }
+    const findings = det.findings || [];
+    if (findings.length) {
+      html += '<div class="panel-section"><h4>Related findings</h4><table><thead><tr><th>Severity</th><th>Title</th><th>Status</th></tr></thead><tbody>' +
+        findings.map(f => '<tr class="clickable" onclick="showFinding(\'' + esc(f.id) + '\')"><td><span class="sev-dot ' + f.severity + '"></span>' + esc(f.severity) + '</td><td>' + esc(f.title) + '</td><td>' + esc(f.status) + '</td></tr>').join('') +
+        '</tbody></table></div>';
+    }
+    html += '<div class="panel-section" style="margin-top:14px"><button class="btn btn-sm" onclick="entitySearch(\'' + esc(type) + '\', \'' + esc(value) + '\')">Find events</button></div>';
+    el.innerHTML = html;
+  } catch(e) { el.innerHTML = '<div class="empty">Error: ' + esc(e.message) + '</div>'; }
+}
+/* ==== MITRE ==== */
+async function loadMITRE() {
+  const activeEl = document.getElementById('mitre-active');
+  const matrixEl = document.getElementById('mitre-matrix');
+  activeEl.innerHTML = '<div class="loading">Loading...</div>';
+  matrixEl.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const [active, tactics, techniques] = await Promise.all([
+      api('/mitre/active').catch(() => []),
+      api('/mitre/tactics'),
+      api('/mitre/techniques')
+    ]);
+    if (!active.length) {
+      activeEl.innerHTML = '<div class="empty">No techniques in play across open findings</div>';
+    } else {
+      activeEl.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:8px">' + active.map(a =>
+        '<div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:8px;padding:8px 12px">' +
+        '<div class="mitre-technique">' + esc(a.technique) + ' ' + esc(a.technique_name || '') + '</div>' +
+        '<div style="font-size:11px;color:var(--text-secondary)">' + esc(a.tactic_name || a.tactic || '') + ' · ' + a.count + ' open finding' + (a.count === 1 ? '' : 's') + '</div></div>'
+      ).join('') + '</div>';
+    }
+    const activeSet = active.map(a => a.technique);
+    const topLevel = techniques.filter(t => !t.sub_of);
+    const tacts = tactics.slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+    let html = '<table style="border-collapse:collapse"><thead><tr><th>Technique</th><th>Name</th>';
+    for (const t of tacts) html += '<th style="min-width:40px" title="' + esc(t.name) + '">' + esc(t.name) + '</th>';
+    html += '</tr></thead><tbody>';
+    for (const tech of topLevel) {
+      const isActive = activeSet.includes(tech.id) || activeSet.some(a2 => a2.startsWith(tech.id + '.'));
+      html += '<tr><td class="mitre-technique' + (isActive ? ' sev-high' : '') + '">' + esc(tech.id) + '</td><td>' + esc(tech.name) + '</td>';
+      for (const t of tacts) {
+        const has = tech.tactic_ids.includes(t.id);
+        const on = has && isActive;
+        html += '<td class="mitre-cell' + (has ? ' filled' : '') + (on ? ' active' : '') + '">' + (on ? '●' : (has ? '·' : '')) + '</td>';
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    matrixEl.innerHTML = html;
+  } catch(e) {
+    activeEl.innerHTML = '<div class="empty">Error: ' + esc(e.message) + '</div>';
+    matrixEl.innerHTML = '<div class="empty">Error: ' + esc(e.message) + '</div>';
+  }
+}
+/* ==== Response actions ==== */
+let responseCatalog = [];
+async function loadResponse() {
+  const sel = document.getElementById('resp-action');
+  const hist = document.getElementById('resp-history');
+  const audit = document.getElementById('audit-list');
+  sel.innerHTML = '<div class="loading">Loading...</div>';
+  hist.innerHTML = '<div class="loading">Loading...</div>';
+  audit.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const [catalog, history] = await Promise.all([
+      api('/response-actions'),
+      api('/response-actions/history?limit=50').catch(() => [])
+    ]);
+    responseCatalog = catalog || [];
+    sel.innerHTML = responseCatalog.map(a => '<option value="' + esc(a.key) + '">' + esc(a.name) + (a.sensitive ? ' (sensitive)' : '') + '</option>').join('');
+    respRenderParams();
+    if (!history.length) { hist.innerHTML = '<div class="empty">No response actions executed yet</div>'; }
+    else {
+      hist.innerHTML = '<table><thead><tr><th>When</th><th>Action</th><th>Target</th><th>Actor</th><th>Status</th><th>Details</th></tr></thead><tbody>' +
+        history.map(h =>
+          '<tr><td>' + (h.created_at ? new Date(h.created_at).toLocaleString() : '') + '</td>' +
+          '<td>' + esc(h.action) + '</td><td>' + esc(h.target) + '</td><td>' + esc(h.user) + '</td>' +
+          '<td><span class="badge ' + (h.status === 'ok' ? 'badge-green' : 'badge-red') + '">' + esc(h.status) + '</span></td>' +
+          '<td>' + esc((h.details || '').substring(0, 80)) + '</td></tr>'
+        ).join('') + '</tbody></table>';
+    }
+    loadAudit(audit);
+  } catch(e) { sel.innerHTML = ''; hist.innerHTML = '<div class="empty">Error: ' + esc(e.message) + '</div>'; audit.innerHTML = ''; }
+}
+async function loadAudit(el) {
+  if (!el) return;
+  try {
+    const entries = await api('/audit?limit=30');
+    if (!entries.length) { el.innerHTML = '<div class="empty">No audit entries yet</div>'; return; }
+    el.innerHTML = '<table><thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th><th>Details</th></tr></thead><tbody>' +
+      entries.map(a =>
+        '<tr><td>' + (a.created_at ? new Date(a.created_at).toLocaleString() : '') + '</td>' +
+        '<td>' + esc(a.username) + '</td><td><span class="tag-chip">' + esc(a.action) + '</span></td>' +
+        '<td style="font-size:12px">' + esc(a.target) + '</td>' +
+        '<td style="font-size:12px;color:var(--text-secondary)">' + esc((a.details || '').substring(0, 100)) + '</td></tr>'
+      ).join('') + '</tbody></table>';
+  } catch(e) {
+    el.innerHTML = '<div class="empty">' + (e.message === 'forbidden' || /viewer/i.test(e.message || '') ? 'Audit log is not available to the viewer role' : 'Error: ' + esc(e.message)) + '</div>';
+  }
+}
+function respRenderParams() {
+  const key = document.getElementById('resp-action').value;
+  const a = responseCatalog.find(x => x.key === key);
+  const help = document.getElementById('resp-help');
+  const target = document.getElementById('resp-target');
+  const extra = document.getElementById('resp-extra');
+  if (!a) { help.innerHTML = ''; return; }
+  const p = a.params || [];
+  help.innerHTML = esc(a.description) + (p.length ? ' — params: ' + p.map(x => '<code>' + esc(x) + '</code>').join(' ') : '');
+  target.placeholder = p.length ? p[0] : 'target';
+  extra.placeholder = p.length > 1 ? p[1] : '';
+  extra.style.display = p.length > 1 ? '' : 'none';
+}
+async function respExecute() {
+  const key = document.getElementById('resp-action').value;
+  const target = document.getElementById('resp-target').value.trim();
+  const extra = document.getElementById('resp-extra').value.trim();
+  const a = responseCatalog.find(x => x.key === key);
+  if (!key || !a) { toast('Select an action', 'error'); return; }
+  if (key === 'search.run') {
+    if (!target) { toast('Query required', 'error'); return; }
+    openSearchWithQuery(target);
+    return;
+  }
+  if (key === 'url.open') {
+    if (!target) { toast('URL required', 'error'); return; }
+    window.open(target, '_blank', 'noopener');
+    return;
+  }
+  if (!target) { toast('Target (' + (a.params || [])[0] + ') required', 'error'); return; }
+  if (!confirm('Execute "' + a.name + '" against ' + target + '? This is logged to the audit trail.')) return;
+  const p = a.params || [];
+  const body = {action: key};
+  const first = p[0] || 'finding_id';
+  if (first === 'query') body.query = target;
+  else if (first === 'url') body.url = target;
+  else body.target = target;
+  if (p.length > 1 && extra) {
+    const second = p[1];
+    if (second === 'points') body.points = parseFloat(extra) || 0;
+    else if (second === 'payload') { try { body.payload = JSON.parse(extra); } catch(e) { body.payload = extra; } }
+    else body[second] = extra;
+  }
+  try {
+    const r = await api('/response-actions/execute', {method: 'POST', body: JSON.stringify(body)});
+    toast('Action executed: ' + JSON.stringify(r), 'success');
+    loadResponse();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 if (token) {
   api('/users/me').then(me => {

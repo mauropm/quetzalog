@@ -3,6 +3,7 @@ package detections
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -11,21 +12,32 @@ import (
 	"github.com/google/uuid"
 
 	"quetzalog/internal/events"
+	"quetzalog/internal/findings"
+	"quetzalog/internal/risk"
 	"quetzalog/pkg/event"
 )
 
-// DetectionRule represents a detection rule that evaluates events and generates alerts.
+// DetectionRule represents a detection rule that evaluates events and
+// generates findings. It reuses the platform query language for its
+// definition: `Query` is an SPL-like filter, optionally with a threshold.
 type DetectionRule struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	Query       string     `json:"query"`
-	Severity    string     `json:"severity"`
-	Enabled     bool       `json:"enabled"`
-	Threshold   *Threshold `json:"threshold,omitempty"`
-	GroupBy     []string   `json:"group_by,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID               string     `json:"id"`
+	Name             string     `json:"name"`
+	Description      string     `json:"description"`
+	Query            string     `json:"query"`
+	Severity         string     `json:"severity"`
+	Enabled          bool       `json:"enabled"`
+	Threshold        *Threshold `json:"threshold,omitempty"`
+	GroupBy          []string   `json:"group_by,omitempty"`
+	RiskScore        float64    `json:"risk_score"`
+	Tags             []string   `json:"tags"`
+	MITRETactic      string     `json:"mitre_tactic,omitempty"`
+	MITRETechnique   string     `json:"mitre_technique,omitempty"`
+	ScheduleSeconds  int        `json:"schedule_seconds"`
+	CreatedBy        string     `json:"created_by,omitempty"`
+	DataSources      []string   `json:"data_sources"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 // Threshold defines the counting window for a detection rule.
@@ -39,6 +51,15 @@ type ExecutionResult struct {
 	Matched  int           `json:"matched"`
 	Total    int           `json:"total"`
 	Alerts   []string      `json:"alerts"`
+	Duration time.Duration `json:"duration"`
+}
+
+// FindingRunResult holds the output of a detection run that creates findings.
+type FindingRunResult struct {
+	Matched  int           `json:"matched"`
+	Total    int           `json:"total"`
+	Findings []string      `json:"findings"`
+	Created  int           `json:"created"`
 	Duration time.Duration `json:"duration"`
 }
 
@@ -79,8 +100,9 @@ func (s *Store) Create(ctx context.Context, rule *DetectionRule) error {
 		groupBy = strings.Join(rule.GroupBy, ",")
 	}
 
-	query := `INSERT INTO detection_rules (id, name, description, query, severity, enabled, threshold_count, threshold_window, group_by, created_at, updated_at)
-	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO detection_rules (id, name, description, query, severity, enabled, threshold_count, threshold_window, group_by,
+	          risk_score, tags, mitre_tactic, mitre_technique, schedule_seconds, created_by, data_sources, created_at, updated_at)
+	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	_, err := s.db.ExecContext(ctx, query,
 		rule.ID,
 		rule.Name,
@@ -91,6 +113,13 @@ func (s *Store) Create(ctx context.Context, rule *DetectionRule) error {
 		thresholdCount,
 		thresholdWindow,
 		groupBy,
+		rule.RiskScore,
+		encodeStringList(rule.Tags),
+		rule.MITRETactic,
+		rule.MITRETechnique,
+		rule.ScheduleSeconds,
+		rule.CreatedBy,
+		encodeStringList(rule.DataSources),
 		rule.CreatedAt,
 		rule.UpdatedAt,
 	)
@@ -107,15 +136,34 @@ func (s *Store) GetByID(ctx context.Context, id string) (*DetectionRule, error) 
 		return nil, fmt.Errorf("empty detection rule ID")
 	}
 
-	query := `SELECT id, name, description, query, severity, enabled, threshold_count, threshold_window, group_by, created_at, updated_at
-	          FROM detection_rules WHERE id = ?`
+	row := s.db.QueryRowContext(ctx, ruleSelectSQL+` WHERE id = ?`, id)
+	rule, err := scanDetectionRule(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("detection rule %s not found", id)
+		}
+		return nil, fmt.Errorf("query detection rule %s: %w", id, err)
+	}
 
-	row := s.db.QueryRowContext(ctx, query, id)
+	return rule, nil
+}
 
+const ruleSelectSQL = `SELECT id, name, description, query, severity, enabled, threshold_count, threshold_window, group_by,
+       risk_score, tags, mitre_tactic, mitre_technique, schedule_seconds, created_by, data_sources,
+       created_at, updated_at FROM detection_rules`
+
+// rowScanner is the common sql.Row/sql.Rows Scan interface.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanDetectionRule(row rowScanner) (*DetectionRule, error) {
 	rule := &DetectionRule{}
 	var thresholdCount sql.NullInt64
 	var thresholdWindow sql.NullString
-	var groupBy string
+	var groupBy, tags, tactic, technique, createdBy, dataSources sql.NullString
+	var riskScore sql.NullFloat64
+	var scheduleSeconds sql.NullInt64
 
 	err := row.Scan(
 		&rule.ID,
@@ -127,24 +175,40 @@ func (s *Store) GetByID(ctx context.Context, id string) (*DetectionRule, error) 
 		&thresholdCount,
 		&thresholdWindow,
 		&groupBy,
+		&riskScore,
+		&tags,
+		&tactic,
+		&technique,
+		&scheduleSeconds,
+		&createdBy,
+		&dataSources,
 		&rule.CreatedAt,
 		&rule.UpdatedAt,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("detection rule %s not found", id)
-		}
-		return nil, fmt.Errorf("query detection rule %s: %w", id, err)
+		return nil, err
 	}
-
-	if thresholdCount.Valid {
+	rule.RiskScore = riskScore.Float64
+	rule.Tags = decodeStringList(tags.String)
+	rule.MITRETactic = tactic.String
+	rule.MITRETechnique = technique.String
+	rule.ScheduleSeconds = int(scheduleSeconds.Int64)
+	rule.CreatedBy = createdBy.String
+	rule.DataSources = decodeStringList(dataSources.String)
+	if rule.Tags == nil {
+		rule.Tags = []string{}
+	}
+	if rule.DataSources == nil {
+		rule.DataSources = []string{}
+	}
+	if thresholdCount.Valid && thresholdCount.Int64 > 0 {
 		rule.Threshold = &Threshold{
 			Count:  int(thresholdCount.Int64),
 			Window: thresholdWindow.String,
 		}
 	}
-	if groupBy != "" {
-		rule.GroupBy = strings.Split(groupBy, ",")
+	if groupBy.String != "" {
+		rule.GroupBy = strings.Split(groupBy.String, ",")
 	}
 
 	return rule, nil
@@ -152,10 +216,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (*DetectionRule, error) 
 
 // List returns all detection rules.
 func (s *Store) List(ctx context.Context) ([]*DetectionRule, error) {
-	query := `SELECT id, name, description, query, severity, enabled, threshold_count, threshold_window, group_by, created_at, updated_at
-	          FROM detection_rules ORDER BY name ASC`
-
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := s.db.QueryContext(ctx, ruleSelectSQL+` ORDER BY name ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("list detection rules: %w", err)
 	}
@@ -163,38 +224,10 @@ func (s *Store) List(ctx context.Context) ([]*DetectionRule, error) {
 
 	var rules []*DetectionRule
 	for rows.Next() {
-		rule := &DetectionRule{}
-		var thresholdCount sql.NullInt64
-		var thresholdWindow sql.NullString
-		var groupBy string
-
-		err := rows.Scan(
-			&rule.ID,
-			&rule.Name,
-			&rule.Description,
-			&rule.Query,
-			&rule.Severity,
-			&rule.Enabled,
-			&thresholdCount,
-			&thresholdWindow,
-			&groupBy,
-			&rule.CreatedAt,
-			&rule.UpdatedAt,
-		)
+		rule, err := scanDetectionRule(rows)
 		if err != nil {
 			return nil, fmt.Errorf("scan detection rule row: %w", err)
 		}
-
-		if thresholdCount.Valid {
-			rule.Threshold = &Threshold{
-				Count:  int(thresholdCount.Int64),
-				Window: thresholdWindow.String,
-			}
-		}
-		if groupBy != "" {
-			rule.GroupBy = strings.Split(groupBy, ",")
-		}
-
 		rules = append(rules, rule)
 	}
 	if err := rows.Err(); err != nil {
@@ -286,6 +319,25 @@ func (s *Store) setEnabled(ctx context.Context, id string, enabled bool) error {
 	return nil
 }
 
+func encodeStringList(list []string) string {
+	if len(list) == 0 {
+		return "[]"
+	}
+	b, _ := json.Marshal(list)
+	return string(b)
+}
+
+func decodeStringList(s string) []string {
+	if s == "" || s == "null" {
+		return nil
+	}
+	var out []string
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
 func parseDetectionWindow(value string) (time.Duration, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -354,6 +406,151 @@ func (s *Store) ExecuteNow(ctx context.Context, rule *DetectionRule, evStore *ev
 	}
 
 	return &result, nil
+}
+
+// RunWithFindings executes the rule and materializes one finding per
+// threshold-exceeding group. Findings are deduplicated by detection + group,
+// so repeated runs refresh instead of flooding the queue. Risk contributions
+// are recorded for the entities involved so entity risk stays transparent.
+func (s *Store) RunWithFindings(ctx context.Context, rule *DetectionRule, evStore *events.Store, findingStore *findings.Store, riskStore *risk.EntityRiskStore) (*FindingRunResult, error) {
+	if rule == nil {
+		return nil, fmt.Errorf("nil detection rule")
+	}
+	if evStore == nil {
+		return nil, fmt.Errorf("nil event store")
+	}
+	if findingStore == nil {
+		return nil, fmt.Errorf("nil findings store")
+	}
+
+	start := time.Now()
+
+	evQuery, err := parseDetectionQuery(rule)
+	if err != nil {
+		return nil, fmt.Errorf("parse detection query: %w", err)
+	}
+
+	total, err := evStore.Count(ctx, *evQuery)
+	if err != nil {
+		return nil, fmt.Errorf("count events: %w", err)
+	}
+
+	result := &FindingRunResult{Total: total}
+
+	threshold := rule.Threshold
+	hasThreshold := threshold != nil && threshold.Count > 0
+
+	if hasThreshold && total == 0 {
+		result.Duration = time.Since(start)
+		return result, nil
+	}
+
+	limit := total
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > events.MaxSearchLimit {
+		limit = events.MaxSearchLimit
+	}
+	evQuery.Limit = limit
+	evts, err := evStore.Search(ctx, *evQuery)
+	if err != nil {
+		return nil, fmt.Errorf("search events: %w", err)
+	}
+
+	dataSource := ""
+	if len(rule.DataSources) > 0 {
+		dataSource = rule.DataSources[0]
+	}
+
+	if len(rule.GroupBy) > 0 {
+		groups := make(map[string][]*event.Event)
+		for _, ev := range evts {
+			groups[groupKey(ev, rule.GroupBy)] = append(groups[groupKey(ev, rule.GroupBy)], ev)
+		}
+		for key, groupEvents := range groups {
+			if hasThreshold && len(groupEvents) < threshold.Count {
+				continue
+			}
+			created, isNew, err := s.upsertFinding(ctx, rule, key, groupEvents, findingStore, riskStore, dataSource)
+			if err != nil {
+				return nil, err
+			}
+			result.Matched += len(groupEvents)
+			result.Findings = append(result.Findings, created.ID)
+			if isNew {
+				result.Created++
+			}
+		}
+	} else {
+		if hasThreshold && total < threshold.Count {
+			result.Duration = time.Since(start)
+			return result, nil
+		}
+		sample := evts
+		if len(sample) > 200 {
+			sample = sample[:200]
+		}
+		created, isNew, err := s.upsertFinding(ctx, rule, "global", sample, findingStore, riskStore, dataSource)
+		if err != nil {
+			return nil, err
+		}
+		result.Matched = total
+		result.Findings = append(result.Findings, created.ID)
+		if isNew {
+			result.Created++
+		}
+	}
+
+	result.Duration = time.Since(start)
+	return result, nil
+}
+
+// upsertFinding creates or refreshes one finding for a detection group and
+// records the risk contributions of its entities.
+func (s *Store) upsertFinding(ctx context.Context, rule *DetectionRule, groupKey string, groupEvents []*event.Event, findingStore *findings.Store, riskStore *risk.EntityRiskStore, dataSource string) (*findings.Finding, bool, error) {
+	f, isNew, err := findingStore.CreateOrUpdateFromDetection(ctx, findings.FromDetectionArgs{
+		RuleID:         rule.ID,
+		RuleName:       rule.Name,
+		GroupKey:       groupKey,
+		Title:          rule.Name,
+		Description:    rule.Description,
+		Severity:       rule.Severity,
+		RiskScore:      rule.RiskScore,
+		DataSource:     dataSource,
+		MITRETactic:    rule.MITRETactic,
+		MITRETechnique: rule.MITRETechnique,
+		Tags:           rule.Tags,
+		Matched:        len(groupEvents),
+		Events:         groupEvents,
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("upsert finding: %w", err)
+	}
+
+	if isNew && riskStore != nil && f.RiskScore > 0 {
+		for _, e := range f.Entities {
+			parts := strings.SplitN(e, ":", 2)
+			if len(parts) != 2 || parts[1] == "" {
+				continue
+			}
+			et, ev := parts[0], parts[1]
+			points := f.RiskScore
+			if et == "process" {
+				points = f.RiskScore / 2
+			}
+			_ = riskStore.Record(ctx, risk.Contribution{
+				EntityType:  et,
+				EntityValue: ev,
+				SourceType:  "finding",
+				SourceID:    f.ID,
+				Description: fmt.Sprintf("%s (%s)", f.Title, f.Severity),
+				Points:      points,
+			})
+		}
+	}
+
+	return f, isNew, nil
 }
 
 func countGroupedThresholdEvents(events []*event.Event, rule *DetectionRule) int {
