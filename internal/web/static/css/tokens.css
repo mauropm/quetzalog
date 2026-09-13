@@ -1,0 +1,209 @@
+/* ─────────────────────────────────────────────────────────────
+   Quetzalog design tokens — Small Dragon. Big Insights.
+   Every color/spacing/radius/shadow in the UI references these.
+   ───────────────────────────────────────────────────────────── */
+
+:root {
+  /* Brand */
+  --ql-primary: #10B981;        /* Quetzal green */
+  --ql-primary-hover: #14C98D;
+  --ql-primary-soft: rgba(16, 185, 129, 0.14);
+  --ql-secondary: #06B6D4;      /* Sky teal */
+  --ql-secondary-soft: rgba(6, 182, 212, 0.14);
+  --ql-accent: #3B82F6;         /* Feather blue */
+  --ql-highlight: #F59E0B;      /* Sun orange */
+  --ql-critical: #EF4444;       /* Feather red */
+
+  /* Feather palette (mascot accents, data viz) */
+  --ql-feather-red: #EF4444;
+  --ql-feather-orange: #F97316;
+  --ql-feather-yellow: #F59E0B;
+  --ql-feather-green: #10B981;
+  --ql-feather-teal: #14B8A6;
+  --ql-feather-cyan: #06B6D4;
+  --ql-feather-blue: #3B82F6;
+
+  /* Semantic severity (never encode severity with color alone) */
+  --ql-sev-critical: #EF4444;
+  --ql-sev-high: #F97316;
+  --ql-sev-medium: #F59E0B;
+  --ql-sev-low: #3B82F6;
+  --ql-sev-info: #06B6D4;
+  --ql-sev-success: #10B981;
+
+  /* Elevation */
+  --ql-shadow-1: 0 1px 2px rgba(2, 6, 23, 0.35);
+  --ql-shadow-2: 0 4px 12px rgba(2, 6, 23, 0.45);
+  --ql-shadow-3: 0 12px 32px rgba(2, 6, 23, 0.55);
+
+  /* Radii */
+  --ql-r-xs: 5px;
+  --ql-r-sm: 8px;
+  --ql-r-md: 12px;
+  --ql-r-lg: 14px;
+  --ql-r-pill: 999px;
+
+  /* Spacing scale (4px base) */
+  --ql-s-1: 4px;
+  --ql-s-2: 8px;
+  --ql-s-3: 12px;
+  --ql-s-4: 16px;
+  --ql-s-5: 20px;
+  --ql-s-6: 24px;
+  --ql-s-7: 32px;
+  --ql-s-8: 40px;
+
+  /* Typography */
+  --ql-font: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ql-font-mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+  --ql-t-h1: 34px;
+  --ql-t-h2: 26px;
+  --ql-t-h3: 19px;
+  --ql-t-body: 14px;
+  --ql-t-small: 13px;
+  --ql-t-meta: 12px;
+  --ql-t-tiny: 11px;
+
+  /* Motion */
+  --ql-t-fast: 150ms;
+  --ql-t-med: 220ms;
+  --ql-ease: cubic-bezier(0.25, 0.8, 0.35, 1);
+
+  /* Layout */
+  --ql-sidebar-w: 232px;
+  --ql-sidebar-w-collapsed: 64px;
+  --ql-topbar-h: 56px;
+
+  color-scheme: dark;
+}
+
+/* ── Dark (default) ─────────────────────────────────────────── */
+:root,
+[data-theme="dark"] {
+  --ql-bg: #0B1220;
+  --ql-bg-deep: #070D18;
+  --ql-surface: #111827;
+  --ql-surface-2: #1F2937;
+  --ql-surface-3: #374151;
+  --ql-border: #334155;
+  --ql-border-soft: #24304a;
+  --ql-text: #F8FAFC;
+  --ql-text-2: #CBD5E1;
+  --ql-text-muted: #94A3B8;
+  --ql-text-faint: #64748B;
+
+  --ql-sidebar-bg: #0A101E;
+  --ql-topbar-bg: rgba(11, 18, 32, 0.82);
+  --ql-scrim: rgba(2, 6, 23, 0.6);
+  --ql-row-hover: rgba(51, 65, 85, 0.35);
+  --ql-scrim-strong: rgba(2, 6, 23, 0.75);
+
+  --ql-sev-critical-bg: rgba(239, 68, 68, 0.16);
+  --ql-sev-high-bg: rgba(249, 115, 22, 0.16);
+  --ql-sev-medium-bg: rgba(245, 158, 11, 0.16);
+  --ql-sev-low-bg: rgba(59, 130, 246, 0.16);
+  --ql-sev-info-bg: rgba(6, 182, 212, 0.16);
+  --ql-sev-success-bg: rgba(16, 185, 129, 0.16);
+}
+
+/* ── Light ──────────────────────────────────────────────────── */
+[data-theme="light"] {
+  color-scheme: light;
+  --ql-bg: #F8FAFC;
+  --ql-bg-deep: #EDF1F7;
+  --ql-surface: #FFFFFF;
+  --ql-surface-2: #F1F5F9;
+  --ql-surface-3: #E2E8F0;
+  --ql-border: #E2E8F0;
+  --ql-border-soft: #EDF1F7;
+  --ql-text: #0F172A;
+  --ql-text-2: #475569;
+  --ql-text-muted: #64748B;
+  --ql-text-faint: #94A3B8;
+
+  --ql-sidebar-bg: #0B1220;
+  --ql-topbar-bg: rgba(255, 255, 255, 0.85);
+  --ql-scrim: rgba(15, 23, 42, 0.4);
+  --ql-row-hover: #F1F5F9;
+  --ql-scrim-strong: rgba(15, 23, 42, 0.5);
+
+  --ql-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.08);
+  --ql-shadow-2: 0 4px 12px rgba(15, 23, 42, 0.12);
+  --ql-shadow-3: 0 12px 32px rgba(15, 23, 42, 0.18);
+
+  --ql-sev-critical-bg: rgba(239, 68, 68, 0.12);
+  --ql-sev-high-bg: rgba(249, 115, 22, 0.12);
+  --ql-sev-medium-bg: rgba(245, 158, 11, 0.14);
+  --ql-sev-low-bg: rgba(59, 130, 246, 0.12);
+  --ql-sev-info-bg: rgba(6, 182, 212, 0.12);
+  --ql-sev-success-bg: rgba(16, 185, 129, 0.12);
+}
+
+/* ── Base ───────────────────────────────────────────────────── */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+/* The hidden attribute must always win over any author display rule. */
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--ql-font);
+  font-size: var(--ql-t-body);
+  line-height: 1.5;
+  background: var(--ql-bg);
+  color: var(--ql-text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a { color: var(--ql-accent); text-decoration: none; }
+a:hover { color: #60A5FA; }
+
+code, pre, .mono {
+  font-family: var(--ql-font-mono);
+  font-size: 0.92em;
+}
+
+h1, h2, h3, h4 { font-weight: 650; letter-spacing: -0.01em; }
+
+::selection { background: rgba(16, 185, 129, 0.35); }
+
+:focus-visible {
+  outline: 2px solid var(--ql-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Scrollbars */
+* { scrollbar-width: thin; scrollbar-color: var(--ql-surface-3) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--ql-surface-3); border-radius: 6px; border: 2px solid var(--ql-bg); }
+::-webkit-scrollbar-track { background: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Visually hidden (screen readers only) */
+.ql-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

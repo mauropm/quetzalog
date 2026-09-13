@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -362,6 +363,14 @@ func cmdServe(cfgFile string, debug bool) int {
 		WriteTimeout: cfg.Server.WriteTimeout,
 	}
 
+	// Bind up front so a busy port fails the start instead of leaving
+	// a half-armed process serving only its auxiliary listeners.
+	ln, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		logger.Error("SIEM server bind failed", "addr", server.Addr, "error", err)
+		return 1
+	}
+
 	if debug {
 		fmt.Printf("Starting SIEM server on %s\n", server.Addr)
 	}
@@ -377,7 +386,7 @@ func cmdServe(cfgFile string, debug bool) int {
 
 	go func() {
 		logger.Info("SIEM server starting", "addr", server.Addr)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.Serve(ln); err != nil && err != http.ErrServerClosed {
 			errChan <- err
 		}
 	}()

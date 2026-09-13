@@ -1,20 +1,22 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "nvidia-local/qwen3.8-flash-next",
+  "model": "vllm-local/RadixArk/Qwen3.8-27B-NVFP4",
   "provider": {
-    "nvidia-local": {
+    "vllm-local": {
       "api": "openai",
-      "name": "NVIDIA Local",
+      "name": "vLLM Local",
       "options": {
-        "baseURL": "http://spark-6136:8888/v1"
+        "baseURL": "http://100.123.129.23:8000/v1"
       },
       "models": {
-        "qwen3.8-flash-next": {
-          "id": "qwen3.8-flash-next",
-          "name": "Qwen 3.8 Flash Next (NVFP4)",
+        "RadixArk/Qwen3.8-27B-NVFP4": {
+          "id": "RadixArk/Qwen3.8-27B-NVFP4",
+          "name": "Qwen3.8 27B (NVFP4)",
           "tool_call": true,
+          "reasoning": true,
+          "temperature": true,
           "interleaved": {
-            "field": "reasoning"
+            "field": "reasoning_content"
           },
           "limit": {
             "context": 262144,
@@ -26,25 +28,25 @@
   },
   "agent": {
     "build": {
-      "model": "nvidia-local/qwen3.8-flash-next"
+      "model": "vllm-local/RadixArk/Qwen3.8-27B-NVFP4"
     },
     "plan": {
-      "model": "nvidia-local/qwen3.8-flash-next"
+      "model": "vllm-local/RadixArk/Qwen3.8-27B-NVFP4"
     },
     "general": {
-      "model": "nvidia-local/qwen3.8-flash-next"
+      "model": "vllm-local/RadixArk/Qwen3.8-27B-NVFP4"
     },
     "explore": {
-      "model": "nvidia-local/qwen3.8-flash-next"
+      "model": "vllm-local/RadixArk/Qwen3.8-27B-NVFP4"
     },
     "title": {
-      "model": "nvidia-local/qwen3.8-flash-next"
+      "model": "vllm-local/RadixArk/Qwen3.8-27B-NVFP4"
     },
     "summary": {
-      "model": "nvidia-local/qwen3.8-flash-next"
+      "model": "vllm-local/RadixArk/Qwen3.8-27B-NVFP4"
     },
     "compaction": {
-      "model": "nvidia-local/qwen3.8-flash-next"
+      "model": "vllm-local/RadixArk/Qwen3.8-27B-NVFP4"
     }
   }
 }
