@@ -28,9 +28,9 @@
         page.innerHTML = QL_.pageHeader("Security Overview", "Real-time visibility into your environment",
           '<span class="range-group" id="range-group"></span>') +
           '<div class="metrics-row">' +
-          QL_.metricCard("shieldAlert", "var(--ql-sev-critical)", QL.fmtNum(posture.critical || 0), "Critical Findings", "in queue") +
-          QL_.metricCard("warning", "var(--ql-sev-high)", QL.fmtNum(posture.high || 0), "High Findings", "in queue") +
-          QL_.metricCard("queue", "var(--ql-accent)", QL.fmtNum(posture.open || 0), "Open Findings", "all severities") +
+          QL_.metricCard("shieldAlert", "var(--ql-sev-critical)", QL.fmtNum(posture.critical || 0), "Critical Findings", "in queue · click to view", "#/queue", "critical") +
+          QL_.metricCard("warning", "var(--ql-sev-high)", QL.fmtNum(posture.high || 0), "High Findings", "in queue · click to view", "#/queue", "high") +
+          QL_.metricCard("queue", "var(--ql-accent)", QL.fmtNum(posture.open || 0), "Open Findings", "all severities · click to view", "#/queue") +
           QL_.metricCard("activity", "var(--ql-secondary)", QL.fmtNum(ev.total || 0), "Events · " + S.range, (ev.eps || 0) + " events/sec") +
           "</div>" +
           '<div class="dash-grid">' +
@@ -65,6 +65,11 @@
 
         renderRangeGroup($("#range-group"));
         loadEntities("user", top);
+        $$(".metrics-row a.metric-card").forEach(function (a) {
+          a.addEventListener("click", function () {
+            S.queue = { severity: a.dataset.sev || "", status: "", owner: "", range: "", q: "", offset: 0 };
+          });
+        });
         $$("#entity-tabs .range-pill").forEach(function (b) {
           b.addEventListener("click", function () {
             $$("#entity-tabs .range-pill").forEach(function (x) { x.classList.remove("active"); });
@@ -166,21 +171,24 @@
 
     function hasFilters() { return !!(f.severity || f.status || f.owner || f.range || f.q); }
 
+    function populateOwners(o) {
+      S.ownerCache.forEach(function (u) {
+        o.insertAdjacentHTML("beforeend", '<option value="' + QL.esc(u) + '"' + (u === f.owner ? " selected" : "") + ">" + QL.esc(u) + "</option>");
+      });
+    }
     function fillOwners() {
-      if (!S.ownerCache.length) {
-        api("/findings?limit=100").then(function (d) {
-          var seen = {};
-          (d.findings || []).forEach(function (x) { if (x.owner) seen[x.owner] = 1; });
-          S.ownerCache = Object.keys(seen).sort();
-          fillOwners();
-        }).catch(function () {});
-      } else {
-        var o = $("#q-owner");
-        if (!o) return;
-        S.ownerCache.forEach(function (u) {
-          o.insertAdjacentHTML("beforeend", '<option value="' + QL.esc(u) + '"' + (u === f.owner ? " selected" : "") + ">" + QL.esc(u) + "</option>");
-        });
+      var o = $("#q-owner");
+      if (!o || S.ownersFetched) {
+        if (o && S.ownersFetched) populateOwners(o);
+        return;
       }
+      api("/findings?limit=100").then(function (d) {
+        var seen = {};
+        (d.findings || []).forEach(function (x) { if (x.owner) seen[x.owner] = 1; });
+        S.ownerCache = Object.keys(seen).sort();
+        S.ownersFetched = true;
+        if (o.isConnected) populateOwners(o);
+      }).catch(function () {});
     }
 
     function load() {
@@ -245,17 +253,29 @@
       });
     }
 
-    $("#q-sev").addEventListener("change", function (e) { f.severity = e.target.value; f.offset = 0; load(); });
-    $("#q-status").addEventListener("change", function (e) { f.status = e.target.value; f.offset = 0; load(); });
-    $("#q-owner").addEventListener("change", function (e) { f.owner = e.target.value; f.offset = 0; load(); });
-    $("#q-range").addEventListener("change", function (e) { f.range = e.target.value; f.offset = 0; load(); });
-    $("#q-search").addEventListener("input", QL.debounce(function (e) { f.q = e.target.value.trim(); f.offset = 0; load(); }, 300));
-    var clear = $("#q-clear");
-    if (clear) clear.addEventListener("click", function () {
+    function clearAll() {
       f.severity = f.status = f.owner = f.range = f.q = "";
       f.offset = 0;
       QL_.route();
-    });
+    }
+    function syncClear() {
+      var host = $("#q-sev") ? $("#q-sev").parentElement : null;
+      if (!host) return;
+      var chip = $("#q-clear", host);
+      if (hasFilters() && !chip) {
+        host.insertAdjacentHTML("beforeend", '<button class="filter-chip" id="q-clear">' + QL.icon("x") + " Clear</button>");
+        $("#q-clear", host).addEventListener("click", clearAll);
+      } else if (!hasFilters() && chip) {
+        chip.remove();
+      }
+    }
+    $("#q-sev").addEventListener("change", function (e) { f.severity = e.target.value; f.offset = 0; syncClear(); load(); });
+    $("#q-status").addEventListener("change", function (e) { f.status = e.target.value; f.offset = 0; syncClear(); load(); });
+    $("#q-owner").addEventListener("change", function (e) { f.owner = e.target.value; f.offset = 0; syncClear(); load(); });
+    $("#q-range").addEventListener("change", function (e) { f.range = e.target.value; f.offset = 0; syncClear(); load(); });
+    $("#q-search").addEventListener("input", QL.debounce(function (e) { f.q = e.target.value.trim(); f.offset = 0; syncClear(); load(); }, 300));
+    var clear = $("#q-clear");
+    if (clear) clear.addEventListener("click", clearAll);
     $("#q-new-inv").addEventListener("click", function () {
       QL_.createInvestigationModal([], false);
     });

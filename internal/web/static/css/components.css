@@ -163,6 +163,8 @@
   overflow: hidden;
 }
 .metric-card:hover { border-color: var(--ql-border); transform: translateY(-1px); }
+a.metric-card { cursor: pointer; color: inherit; }
+a.metric-card:hover { border-color: var(--ql-accent); }
 .metric-card .metric-icon {
   position: absolute;
   top: 12px;

@@ -17,6 +17,7 @@
     riskType: "user",
     queue: { severity: "", status: "", owner: "", range: "", q: "", offset: 0 },
     ownerCache: [],
+    ownersFetched: false,
     fieldsCache: null,
     searchPreset: "",
   };
@@ -66,6 +67,11 @@
     refreshNotifs();
   }
 
+  function currentRoute() {
+    var m = (location.hash || "#/overview").match(/^#\/([a-z]+)/);
+    return m ? m[1] : "";
+  }
+
   function renderUserChip() {
     var u = S.user;
     if (!u) return;
@@ -74,7 +80,7 @@
     $("#user-name").textContent = name;
     $("#user-role").textContent = u.role || "";
     $("#sidebar-user").innerHTML =
-      '<a class="nav-item' + (Q.route() === "settings" ? " active" : "") + '" href="#/settings">' +
+       '<a class="nav-item' + (currentRoute() === "settings" ? " active" : "") + '" href="#/settings">' +
       QL.icon("user") + "<span>Settings</span></a>" +
       '<a class="nav-item" href="#" id="logout-btn">' + QL.icon("logout") + "<span>Sign out · " + QL.esc(name) + "</span></a>";
     var lb = $("#logout-btn");
@@ -106,9 +112,13 @@
         S.token = d.data.token;
         S.user = d.data.user;
         localStorage.setItem(TOKEN_KEY, S.token);
+        err.textContent = "";
         showApp();
-        route();
-      }).catch(function () { err.textContent = "Cannot reach the server."; });
+        if (location.hash) route();
+        else location.hash = "#/overview";
+      }).catch(function (e) {
+        err.textContent = e instanceof TypeError ? "Cannot reach the server." : "Sign-in failed. Please try again.";
+      });
     });
   }
 
@@ -117,7 +127,8 @@
     api("/users/me").then(function (u) {
       S.user = u;
       showApp();
-      route();
+      if (location.hash) route();
+      else location.hash = "#/overview";
     }).catch(function () {
       S.token = "";
       localStorage.removeItem(TOKEN_KEY);
@@ -196,11 +207,15 @@
   window.addEventListener("hashchange", route);
 
   /* ═══ Shared widgets ═══════════════════════════════════════ */
-  function metricCard(icon, tint, value, label, sub) {
-    return '<div class="metric-card"><div class="metric-icon" style="background:' + tint + '1f;color:' + tint + '">' +
+  function metricCard(icon, tint, value, label, sub, href, dataSev) {
+    var open = href
+      ? '<a class="metric-card" href="' + href + '"' + (dataSev ? ' data-sev="' + dataSev + '"' : "") + ">"
+      : '<div class="metric-card">';
+    var close = href ? "</a>" : "</div>";
+    return open + '<div class="metric-icon" style="background:' + tint + '1f;color:' + tint + '">' +
       QL.icon(icon) + '</div><div class="metric-value">' + value + '</div>' +
       '<div class="metric-label">' + label + '</div>' +
-      (sub ? '<div class="metric-sub">' + sub + "</div>" : "") + "</div>";
+      (sub ? '<div class="metric-sub">' + sub + "</div>" : "") + close;
   }
 
   function entityRow(type, value, score, findings) {
@@ -231,6 +246,7 @@
   }
 
   function sel(id, aria, opts, current) {
+    id = String(id || "").replace(/^#/, "");
     return '<select class="select" id="' + id + '" aria-label="' + aria + '">' +
       opts.map(function (o) {
         return '<option value="' + QL.esc(o[0]) + '"' + (o[0] === current ? " selected" : "") + ">" + o[1] + "</option>";
