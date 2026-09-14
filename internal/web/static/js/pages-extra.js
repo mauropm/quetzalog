@@ -915,9 +915,9 @@
   window.QLP.notfound = function () {
     var page = $("#page");
     page.innerHTML = '<div class="notfound">' +
-      '<div aria-hidden="true">' + QL.dragon({ size: 120, cls: "dragon-assemble" }) + "</div>" +
+      '<img class="notfound-img" src="/static/images/404.jpg" alt="404 — page not found" width="1536" height="1024" loading="eager" decoding="async">' +
       "<h1>404</h1>" +
-      "<div class='small muted' style='max-width:360px'>Your dragon looked around the logs and couldn't find this page. It may have been moved, resolved, or never existed.</div>" +
+      "<div class='small muted' style='max-width:360px'>This page may have been moved, resolved, or never existed.</div>" +
       '<div style="display:flex;gap:8px;margin-top:10px"><a class="btn" href="#/overview">' + QL.icon("dashboard") + " Overview</a>" +
       '<a class="btn btn-ghost" href="#/search">' + QL.icon("search") + " Search</a></div></div>";
   };

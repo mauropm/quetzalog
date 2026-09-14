@@ -455,7 +455,12 @@ body.sidebar-rail .brand { justify-content: center; padding: 4px 0 14px; }
 .login-foot { margin-top: 18px; font-size: 11.5px; color: var(--ql-text-faint); }
 
 /* ── 404 ────────────────────────────────────────────────────── */
-.notfound { min-height: 70vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; }
+/* On the 404 page the view padding is removed so the block can fill the
+   whole scroll region (100vh minus the sticky topbar) and be centered
+   exactly, vertically and horizontally. */
+.view:has(> .view-inner > .notfound) { padding: 0; }
+.notfound { min-height: calc(100vh - var(--ql-topbar-h)); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; }
+.notfound-img { width: min(640px, 90%); max-width: 100%; height: auto; border-radius: var(--ql-r-md); box-shadow: var(--ql-shadow-2); margin-bottom: 8px; }
 .notfound h1 { font-size: 52px; margin: 0; letter-spacing: -0.04em; }
 
 /* ── Entity relationship graph ──────────────────────────────── */
