@@ -298,6 +298,7 @@
         '<button class="btn" id="f-status">' + QL.icon("clock") + " Change Status</button>" +
         '<button class="btn btn-primary" id="f-investigate">' + QL.icon("investigate") + " Investigate</button>" +
         "</div></div>" +
+        '<div class="card" style="margin-bottom:14px"><div class="card-body" id="f-ai-slot"></div></div>' +
         '<div class="card" style="margin-bottom:14px"><div class="card-body"><div class="kv-grid">' +
         QL.kv("user", "User", f.user) +
         QL.kv("host", "Host", f.host) +
@@ -407,6 +408,61 @@
       $("#f-investigate").addEventListener("click", function () {
         QL_.createInvestigationModal([f.id], true, f.title, f.severity);
       });
+
+      loadAISlot();
+
+      function loadAISlot() {
+        var slot = $("#f-ai-slot");
+        if (!slot) return;
+        api("/ai-analyst/finding/" + encodeURIComponent(id)).then(function (d) {
+          var row = d.analysis || {};
+          var ai = d.ai || null;
+          var reco = ai && ai.recommended_action ? (ai.recommended_action.type || "").replace(/_/g, " ") : "";
+          slot.innerHTML = '<div class="flex-between" style="align-items:center;gap:12px;flex-wrap:wrap">' +
+            '<div style="min-width:0"><div class="flex" style="gap:8px;flex-wrap:wrap;margin-bottom:6px">' +
+            '<span class="small" style="font-weight:700;display:inline-flex;gap:6px;align-items:center;color:var(--ql-accent)">' +
+            QL.icon("spark") + " AI Analyst</span>" +
+            aiStatusBadge(row.status) +
+            (row.confidence > 0 ? aiConfidence(row.confidence) : "") +
+            (reco ? '<span class="badge badge-sev info"><span class="dot"></span>' + QL.esc(reco) + "</span>" : "") +
+            "</div>" +
+            (row.status === "failed" ? '<div class="small muted">' + QL.esc(row.error || "") + "</div>" : "") +
+            "</div>" +
+            '<div class="flex" style="gap:8px">' +
+            '<a class="btn btn-sm" href="#/aianalyst/' + row.id + '">' + QL.icon("eye") + " View analysis</a>" +
+            (row.status !== "analyzing" ? '<button class="btn btn-sm" id="f-ai-rerun">' + QL.icon("refresh") + " Re-analyze</button>" : "") +
+            "</div></div>";
+          var rb = $("#f-ai-rerun");
+          if (rb) rb.addEventListener("click", function () {
+            api("/ai-analyst/analyze", { method: "POST", body: { finding_id: id } }).then(function () {
+              QL.toast("Re-analysis started");
+              loadAISlot();
+            }).catch(function (e) { QL.toast(e.message, "error"); });
+          });
+        }).catch(function () {
+          slot.innerHTML = '<div class="flex-between" style="align-items:center;gap:12px;flex-wrap:wrap">' +
+            '<div class="small muted" style="max-width:640px">' + QL.icon("spark") +
+            " Let the dragon take a look — the model summarizes the evidence and recommends a next step. Nothing happens until a human approves.</div>" +
+            '<button class="btn btn-sm btn-primary" id="f-ai-start">' + QL.icon("spark") + " Analyze with AI</button></div>";
+          var sb = $("#f-ai-start");
+          if (sb) sb.addEventListener("click", function () {
+            sb.disabled = true;
+            api("/ai-analyst/analyze", { method: "POST", body: { finding_id: id } }).then(function () {
+              QL.toast("AI analysis started");
+              var tries = 0;
+              var t = setInterval(function () {
+                tries++;
+                api("/ai-analyst/finding/" + encodeURIComponent(id)).then(function () {
+                  clearInterval(t);
+                  loadAISlot();
+                }).catch(function () {
+                  if (tries > 20) { clearInterval(t); loadAISlot(); }
+                });
+              }, 1500);
+            }).catch(function (e) { QL.toast(e.message, "error"); sb.disabled = false; });
+          });
+        });
+      }
     }).catch(function (e) {
       page.innerHTML = QL.emptyState({ icon: "warning", title: "Finding not found", sub: e.message,
         action: '<a class="btn" href="#/queue">Back to queue</a>' });
@@ -726,6 +782,290 @@
       page.innerHTML = QL.emptyState({ icon: "warning", title: "Investigation not found", sub: e.message,
         action: '<a class="btn" href="#/investigations">Back</a>' });
     });
+  };
+
+  /* ═══ AI Analyst ═══════════════════════════════════════════ */
+  var _aiSeq = 0;
+
+  function aiStatusBadge(status) {
+    return '<span class="badge badge-ai ' + QL.esc(status || "analyzing") + '"><span class="dot"></span>' + QL.esc(status || "analyzing") + "</span>";
+  }
+
+  function aiConfidence(c) {
+    var pct = Math.round(Math.max(0, Math.min(1, Number(c) || 0)) * 100);
+    return '<span class="confidence" title="Model confidence"><span class="c-bar"><i style="width:' + pct + '%"></i></span><span class="c-val">' + pct + "%</span></span>";
+  }
+
+  window.QLP.aianalyst = function (id) {
+    var page = $("#page");
+    if (id) { renderDetail(id); return; }
+    renderList();
+
+    function renderList() {
+      var f = S.aianalyst || (S.aianalyst = { status: "", severity: "" });
+      page.innerHTML = QL_.pageHeader("AI Analyst", "AI-assisted triage — the model recommends, a human decides",
+        '<button class="btn" id="ai-refresh">' + QL.icon("refresh") + " Refresh</button>") +
+        '<div class="card"><div class="card-header"><div class="card-title">' + QL.icon("spark") + " Analyses</div>" +
+        '<span class="flex" style="gap:8px;flex-wrap:wrap">' +
+        QL_.sel("ai-f-status", "Filter by status", [
+          ["", "All statuses"],
+          ["analyzing", "Analyzing"],
+          ["analyzed", "Analyzed"],
+          ["approved", "Approved"],
+          ["dismissed", "Dismissed"],
+          ["failed", "Failed"],
+        ], f.status) +
+        QL_.sel("ai-f-sev", "Filter by AI severity", [
+          ["", "All severities"],
+          ["critical", "Critical"],
+          ["high", "High"],
+          ["medium", "Medium"],
+          ["low", "Low"],
+        ], f.severity) +
+        "</span></div>" +
+        '<div class="card-body" id="ai-list">' + QL.loading("Scanning the queue…") + "</div></div>";
+
+      load();
+
+      function qs() {
+        return "?limit=100&status=" + encodeURIComponent(f.status || "") +
+          "&severity=" + encodeURIComponent(f.severity || "");
+      }
+
+      function load() {
+        api("/ai-analyst" + qs()).then(function (d) {
+          var rows = d.analyses || [];
+          var el = $("#ai-list");
+          if (!el) return;
+          if (!rows.length) {
+            el.innerHTML = QL.emptyState({
+              icon: "spark",
+              title: "No AI analyses yet",
+              sub: "Run one from a finding (AI Analyst button), or enable automatic analysis in Settings → AI Analyst.",
+              action: '<a class="btn" href="#/queue">Open the queue</a>',
+            });
+            return;
+          }
+          el.innerHTML = '<div class="table-wrap"><table class="ql-table"><thead><tr>' +
+            "<th>Status</th><th>Finding</th><th>AI Severity</th><th>Confidence</th>" +
+            "<th>Recommended</th><th>Decision</th><th>Updated</th></tr></thead><tbody>" +
+            rows.map(function (r) {
+              var decision = r.decision
+                ? '<span class="small">' + QL.icon(r.decision === "approve" ? "check" : "x") + " " +
+                  QL.esc(r.decision) + (r.decided_by ? " · " + QL.esc(r.decided_by) : "") + "</span>"
+                : '<span class="faint">—</span>';
+              return '<tr data-id="' + r.id + '" class="clickable">' +
+                "<td>" + aiStatusBadge(r.status) + "</td>" +
+                '<td class="cell-title"><a href="#/finding/' + r.finding_id + '" style="color:inherit;text-decoration:none">' +
+                  QL.esc(r.finding_title || r.finding_id) + '</a>' +
+                  (r.finding_severity ? " " + QL.sevBadge(r.finding_severity) : "") + "</td>" +
+                "<td>" + (r.severity ? QL.sevBadge(r.severity) : '<span class="faint">—</span>') + "</td>" +
+                "<td>" + (r.confidence > 0 ? aiConfidence(r.confidence) : '<span class="faint">—</span>') + "</td>" +
+                '<td class="cell-muted">' + QL.esc(r.recommended_action_type || "—") + "</td>" +
+                "<td>" + decision + "</td>" +
+                '<td class="cell-muted nowrap">' + QL.fmtAgo(r.updated_at) + "</td></tr>";
+            }).join("") + "</tbody></table></div>";
+          $$("#ai-list tr[data-id]").forEach(function (tr) {
+            tr.addEventListener("click", function (e) {
+              if (e.target.closest("a")) return;
+              location.hash = "#/aianalyst/" + tr.dataset.id;
+            });
+          });
+        }).catch(function (e) {
+          var el = $("#ai-list");
+          if (el) el.innerHTML = QL.emptyState({ icon: "warning", title: "Failed to load analyses", sub: e.message });
+        });
+      }
+
+      $("#ai-f-status").addEventListener("change", function () { f.status = this.value; load(); });
+      $("#ai-f-sev").addEventListener("change", function () { f.severity = this.value; load(); });
+      $("#ai-refresh").addEventListener("click", load);
+    }
+
+    function renderDetail(id) {
+      var seq = ++_aiSeq;
+      api("/ai-analyst/" + encodeURIComponent(id)).then(function (d) {
+        if (_aiSeq !== seq) return;
+        var row = d.analysis || {};
+        var ai = d.ai || null;
+        var ctx = d.context || null;
+        var finding = d.finding || null;
+        var decided = row.status === "approved" || row.status === "dismissed";
+
+        page.innerHTML =
+          '<div class="flex" style="margin-bottom:12px"><a class="btn btn-ghost btn-sm" href="#/aianalyst">' + QL.icon("arrow-left") + " Back to AI Analyst</a></div>" +
+          '<div class="page-header"><div style="min-width:0">' +
+          '<div class="flex" style="gap:8px;flex-wrap:wrap;margin-bottom:8px">' +
+          aiStatusBadge(row.status) +
+          (row.confidence > 0 ? aiConfidence(row.confidence) : "") +
+          (finding ? QL.sevBadge(finding.severity, "finding") : "") +
+          "</div>" +
+          "<h1 style='font-size:22px'>" + QL.esc(ai ? ai.title : (row.finding_title || "AI analysis")) + "</h1>" +
+          (ai ? '<div class="page-sub" style="max-width:760px;margin-top:6px">' + QL.esc(ai.summary || "") + "</div>" : "") +
+          "</div><div class='page-actions'>" +
+          (row.status === "analyzing"
+            ? '<span class="small muted flex" style="gap:7px">' + QL.icon("clock") + " Model is working on this finding…</span>"
+            : '<button class="btn" id="ai-reanalyze">' + QL.icon("refresh") + " Re-analyze</button>") +
+          (row.status === "analyzed"
+            ? '<button class="btn" id="ai-dismiss">' + QL.icon("x") + " Dismiss</button>" +
+              '<button class="btn btn-primary" id="ai-approve">' + QL.icon("check") + " Approve</button>"
+            : "") +
+          "</div></div>" +
+
+          '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
+          recommendationHtml(row, ai) +
+          decisionHtml(row) +
+          "</div></div>" +
+
+          (ai
+            ? '<div class="card" style="margin-bottom:14px"><div class="card-header"><div class="card-title">' +
+              QL.icon("spark") + " Analysis</div>" +
+              (ai.requires_human_approval ? '<span class="badge badge-sev info"><span class="dot"></span>human approval required</span>' : "") +
+              "</div><div class='card-body'>" + analysisSections(ai) + "</div></div>"
+            : "") +
+
+          (ctx
+            ? '<div class="card" style="margin-bottom:14px"><div class="card-header"><div class="card-title">' +
+              QL.icon("layers") + " Evidence Context</div></div><div class='card-body'>" +
+              '<div class="kv-grid">' +
+              QL.kv("layers", "Events in context", ctx.events ? ctx.events.length : 0) +
+              QL.kv("entities", "Entities", ctx.entities
+                ? Object.keys(ctx.entities).reduce(function (n, k) { return n + ((ctx.entities[k] || []).length); }, 0)
+                : 0) +
+              QL.kv("link", "Related findings", ctx.related_findings ? ctx.related_findings.length : 0) +
+              QL.kv("shieldAlert", "Detection", finding ? (finding.detection_name || finding.detection_id || "") : "") +
+              "</div></div></div>"
+            : "") +
+
+          '<div class="card"><div class="card-header"><div class="card-title">' + QL.icon("settings") + " Analysis Metadata</div></div>" +
+          '<div class="card-body"><div class="kv-grid">' +
+          QL.kv("cpu", "Provider", row.provider, true) +
+          QL.kv("cpu", "Model", row.model, true) +
+          QL.kv("terminal", "Prompt version", row.prompt_version || "", true) +
+          QL.kv("clock", "Started", row.created_at ? QL.fmtDateTime(row.created_at) : "") +
+          QL.kv("clock", "Updated", row.updated_at ? QL.fmtDateTime(row.updated_at) : "") +
+          (finding ? QL.kv("queue", "Finding", '<a href="#/finding/' + finding.id + '">' + QL.esc(finding.title) + "</a>") : "") +
+          "</div></div></div>";
+
+        if (row.status === "failed") {
+          var errEl = $("#ai-error-box");
+          if (errEl) errEl.innerHTML = QL.emptyState({ icon: "warning", title: "Analysis failed", sub: row.error || "Unknown error",
+            action: '<button class="btn" id="ai-reanalyze-2">' + QL.icon("refresh") + " Re-analyze</button>" });
+          var ra2 = $("#ai-reanalyze-2");
+          if (ra2) ra2.addEventListener("click", reanalyze);
+        }
+
+        var ra = $("#ai-reanalyze");
+        if (ra) ra.addEventListener("click", reanalyze);
+        var ap = $("#ai-approve");
+        if (ap) ap.addEventListener("click", function () {
+          ap.disabled = true;
+          api("/ai-analyst/" + id + "/approve", { method: "POST" }).then(function () {
+            QL.toast("Recommendation approved — noted on the finding");
+            renderDetail(id);
+          }).catch(function (e) { QL.toast(e.message, "error"); ap.disabled = false; });
+        });
+        var dm = $("#ai-dismiss");
+        if (dm) dm.addEventListener("click", function () {
+          var close = QL.modal({
+            title: "Dismiss recommendation",
+            body: '<div class="field"><label for="ai-dismiss-reason">Reason (optional)</label>' +
+              '<input class="input" id="ai-dismiss-reason" placeholder="e.g. false positive — internal maintenance window"></div>',
+            footer: '<button class="btn" data-x>Cancel</button><button class="btn" data-ok>Dismiss</button>',
+          });
+          close.el.addEventListener("click", function (e) {
+            if (e.target.dataset.x) close();
+            if (e.target.dataset.ok) {
+              var reason = $("#ai-dismiss-reason").value.trim();
+              api("/ai-analyst/" + id + "/dismiss", { method: "POST", body: { reason: reason } }).then(function () {
+                close();
+                QL.toast("Recommendation dismissed");
+                renderDetail(id);
+              }).catch(function (er) { close(); QL.toast(er.message, "error"); });
+            }
+          });
+        });
+
+        if (row.status === "analyzing") poll();
+
+        function poll() {
+          setTimeout(function () {
+            if (_aiSeq !== seq) return;
+            api("/ai-analyst/" + encodeURIComponent(id)).then(function (nd) {
+              if (_aiSeq !== seq) return;
+              if (nd.analysis && nd.analysis.status === "analyzing") poll();
+              else renderDetail(id);
+            }).catch(function () { poll(); });
+          }, 3000);
+        }
+
+        function reanalyze() {
+          if (!row.finding_id) return;
+          api("/ai-analyst/analyze", { method: "POST", body: { finding_id: row.finding_id } })
+            .then(function () {
+              QL.toast("Re-analysis started");
+              renderDetail(id);
+            })
+            .catch(function (e) { QL.toast(e.message, "error"); });
+        }
+      }).catch(function (e) {
+        if (_aiSeq !== seq) return;
+        page.innerHTML = QL.emptyState({ icon: "warning", title: "Analysis not found", sub: e.message,
+          action: '<a class="btn" href="#/aianalyst">Back to AI Analyst</a>' });
+      });
+    }
+
+    function recommendationHtml(row, ai) {
+      if (!ai) {
+        if (row.status === "failed") {
+          return '<div id="ai-error-box">' + QL.emptyState({ icon: "warning", title: "Analysis failed", sub: row.error || "Unknown error" }) + "</div>";
+        }
+        return '<div class="small muted">The model has not produced an analysis yet.</div>';
+      }
+      var ra = ai.recommended_action || {};
+      var riskCls = ra.risk === "high" ? " risk-high" : ra.risk === "critical" ? " risk-critical" : "";
+      return '<div class="ai-reco' + riskCls + '">' +
+        '<div class="reco-type">' + QL.icon("zap") + " Recommended next step: " + QL.esc((ra.type || "investigate").replace(/_/g, " ")) + "</div>" +
+        '<div class="reco-desc">' + QL.esc(ra.description || "") + "</div>" +
+        '<div class="reco-note">' + QL.icon("shield") + " Risk level: " + QL.esc(ra.risk || "medium") +
+        ' · ' + QL.icon("user") + " Requires explicit human approval — nothing is executed automatically.</div></div>";
+    }
+
+    function decisionHtml(row) {
+      if (row.status !== "approved" && row.status !== "dismissed") return "";
+      var ok = row.status === "approved";
+      return '<div class="ai-decision ' + row.status + '" style="margin-top:12px">' +
+        QL.icon(ok ? "check" : "x") +
+        "<span><b>" + (ok ? "Approved" : "Dismissed") + "</b> by " + QL.esc(row.decided_by || "unknown") +
+        " · " + QL.fmtDateTime(row.decided_at) +
+        (row.decision_reason ? " — “" + QL.esc(row.decision_reason) + "”" : "") + "</span></div>";
+    }
+
+    function analysisSections(ai) {
+      var parts = "";
+      if (ai.what_is_happening) {
+        parts += '<div class="ai-section"><h3>' + QL.icon("activity") + " What's Happening</h3>" +
+          '<div class="ai-body">' + QL.esc(ai.what_is_happening) + "</div></div>";
+      }
+      if (ai.why_it_matters) {
+        parts += '<div class="ai-section"><h3>' + QL.icon("warning") + " Why It Matters</h3>" +
+          '<div class="ai-body">' + QL.esc(ai.why_it_matters) + "</div></div>";
+      }
+      if (ai.severity) {
+        parts += '<div class="ai-section"><h3>' + QL.icon("gauge") + " AI Assessment</h3>" +
+          '<div class="ai-body flex" style="gap:10px;flex-wrap:wrap">' + QL.sevBadge(ai.severity, "AI severity") +
+          " " + aiConfidence(ai.confidence) + "</div></div>";
+      }
+      if (ai.evidence && ai.evidence.length) {
+        parts += '<div class="ai-section"><h3>' + QL.icon("layers") + " Evidence</h3>" +
+          '<ul class="evidence">' + ai.evidence.map(function (x) { return "<li>" + QL.esc(x) + "</li>"; }).join("") + "</ul></div>";
+      }
+      if (ai.alternative_explanations && ai.alternative_explanations.length) {
+        parts += '<div class="ai-section"><h3>' + QL.icon("help") + " Alternative Explanations</h3>" +
+          '<ul class="alt">' + ai.alternative_explanations.map(function (x) { return "<li>" + QL.esc(x) + "</li>"; }).join("") + "</ul></div>";
+      }
+      return parts || '<div class="small muted">No structured sections in this analysis.</div>';
+    }
   };
 
   var _techniqueCache = null;

@@ -67,6 +67,18 @@
     refreshNotifs();
   }
 
+  // enterApp brings the shell up and guarantees a view is rendered: an empty
+  // or bare hash lands on the overview, any other hash routes immediately.
+  // route() shows its loader synchronously, so the main area is never blank
+  // while a view is in flight.
+  function enterApp() {
+    showApp();
+    if (!location.hash || location.hash === "#" || location.hash === "#/") {
+      location.hash = "#/overview";
+    }
+    route();
+  }
+
   function currentRoute() {
     var m = (location.hash || "#/overview").match(/^#\/([a-z]+)/);
     return m ? m[1] : "";
@@ -91,6 +103,7 @@
     S.token = "";
     S.user = null;
     localStorage.removeItem(TOKEN_KEY);
+    renderedHash = null;
     if (!silent) api("/logout", { method: "POST" }).catch(function () {});
     showLogin();
   }
@@ -113,9 +126,7 @@
         S.user = d.data.user;
         localStorage.setItem(TOKEN_KEY, S.token);
         err.textContent = "";
-        showApp();
-        if (location.hash) route();
-        else location.hash = "#/overview";
+        enterApp();
       }).catch(function (e) {
         err.textContent = e instanceof TypeError ? "Cannot reach the server." : "Sign-in failed. Please try again.";
       });
@@ -126,9 +137,7 @@
     if (!S.token) { showLogin(); return; }
     api("/users/me").then(function (u) {
       S.user = u;
-      showApp();
-      if (location.hash) route();
-      else location.hash = "#/overview";
+      enterApp();
     }).catch(function () {
       S.token = "";
       localStorage.removeItem(TOKEN_KEY);
@@ -166,14 +175,22 @@
     entities: "entities",
     entity: "entity",
     mitre: "mitre",
+    aianalyst: "aianalyst",
     settings: "settings",
   };
 
-  function route() {
+  // renderedHash dedupes the hashchange that follows enterApp's own
+  // location.hash write; route(true) forces a re-render (Retry button).
+  var renderedHash = null;
+
+  function route(force) {
     var page = $("#page");
+    var hash = location.hash || "#/overview";
+    if (hash === "#" || hash === "#/") hash = "#/overview";
+    if (!force && hash === renderedHash) return;
+    renderedHash = hash;
     page.innerHTML = QL.loading("Loading…");
     page.__rerender = null;
-    var hash = location.hash || "#/overview";
     var m = hash.match(/^#\/([a-z]+)(?:\/([^/]+)(?:\/(.+?))?)?$/);
     var name = m && PAGES[m[1]] ? m[1] : "notfound";
     var arg = m ? m[2] : "";
@@ -200,11 +217,11 @@
         action: '<button class="btn" id="retry-btn">' + QL.icon("refresh") + " Retry</button>",
       });
       var rb = $("#retry-btn");
-      if (rb) rb.addEventListener("click", route);
+      if (rb) rb.addEventListener("click", function () { route(true); });
     });
   }
 
-  window.addEventListener("hashchange", route);
+  window.addEventListener("hashchange", function () { route(); });
 
   /* ═══ Shared widgets ═══════════════════════════════════════ */
   function metricCard(icon, tint, value, label, sub, href, dataSev) {

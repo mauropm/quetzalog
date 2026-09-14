@@ -68,6 +68,96 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if back.Server.ReadTimeout != 11*time.Second {
 		t.Errorf("read timeout lost: %v", back.Server.ReadTimeout)
 	}
+	if back.AIAnalyst.Provider != "openai-compatible" || back.AIAnalyst.MinimumSeverity != "medium" {
+		t.Errorf("ai_analyst defaults lost in round trip: %+v", back.AIAnalyst)
+	}
+}
+
+func TestAIAnalystDefaults(t *testing.T) {
+	c := config.DefaultConfig()
+	if c.AIAnalyst.Enabled {
+		t.Error("AI Analyst must default to disabled")
+	}
+	if c.AIAnalyst.Provider != "openai-compatible" {
+		t.Errorf("provider default: %q", c.AIAnalyst.Provider)
+	}
+	if c.AIAnalyst.MinimumSeverity != "medium" {
+		t.Errorf("minimum_severity default: %q", c.AIAnalyst.MinimumSeverity)
+	}
+	if c.AIAnalyst.MaxRequestsPerMinute != 10 || c.AIAnalyst.TimeoutSeconds != 60 ||
+		c.AIAnalyst.MaxContextEvents != 100 || c.AIAnalyst.RetryCount != 1 {
+		t.Errorf("cost controls defaults: %+v", c.AIAnalyst)
+	}
+}
+
+func TestAIAnalystRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	orig := config.DefaultConfig()
+	orig.AIAnalyst.Enabled = true
+	orig.AIAnalyst.Provider = "ollama"
+	orig.AIAnalyst.Endpoint = "http://192.168.1.50:11434/v1"
+	orig.AIAnalyst.APIKey = "secret-key"
+	orig.AIAnalyst.Model = "qwen3.8"
+	orig.AIAnalyst.MinimumSeverity = "high"
+	orig.AIAnalyst.MaxRequestsPerMinute = 30
+	orig.AIAnalyst.TimeoutSeconds = 120
+	orig.AIAnalyst.MaxContextEvents = 50
+	orig.AIAnalyst.RetryCount = 2
+
+	if err := orig.Save(path); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	back, err := config.LoadConfig(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if back.AIAnalyst != orig.AIAnalyst {
+		t.Errorf("ai_analyst lost in round trip:\n got %+v\nwant %+v", back.AIAnalyst, orig.AIAnalyst)
+	}
+}
+
+func TestLoadConfigExpandsEnvVars(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yaml := `
+ai_analyst:
+  enabled: true
+  endpoint: "http://localhost:11434/v1"
+  api_key: "${TEST_AI_ANALYST_KEY}"
+  model: "qwen3.8"
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TEST_AI_ANALYST_KEY", "expanded-secret")
+	c, err := config.LoadConfig(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.AIAnalyst.APIKey != "expanded-secret" {
+		t.Errorf("env var not expanded: %q", c.AIAnalyst.APIKey)
+	}
+}
+
+func TestLoadConfigUnsetEnvExpandsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yaml := `
+ai_analyst:
+  api_key: "${TEST_UNSET_KEY_THAT_DOES_NOT_EXIST_9x}"
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := config.LoadConfig(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.AIAnalyst.APIKey != "" {
+		t.Errorf("unset env var should expand to empty: %q", c.AIAnalyst.APIKey)
+	}
 }
 
 func TestLoadMissingFileErrors(t *testing.T) {

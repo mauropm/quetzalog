@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -66,11 +67,34 @@ type FindingRunResult struct {
 // Store persists and queries detection rules.
 type Store struct {
 	db *sql.DB
+
+	// onNewFinding is an optional hook invoked with every newly created
+	// finding (materialized by RunWithFindings). Used by the AI Analyst for
+	// automatic analysis. It never blocks detection runs: the hook is
+	// expected to return quickly (e.g. by spawning its own goroutine).
+	hookMu       sync.RWMutex
+	onNewFinding func(ctx context.Context, f *findings.Finding)
 }
 
 // NewStore creates a new detection store backed by the given database.
 func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
+}
+
+// SetOnNewFinding registers the callback invoked for every new finding.
+func (s *Store) SetOnNewFinding(fn func(ctx context.Context, f *findings.Finding)) {
+	s.hookMu.Lock()
+	s.onNewFinding = fn
+	s.hookMu.Unlock()
+}
+
+func (s *Store) callOnNewFinding(ctx context.Context, f *findings.Finding) {
+	s.hookMu.RLock()
+	fn := s.onNewFinding
+	s.hookMu.RUnlock()
+	if fn != nil {
+		fn(ctx, f)
+	}
 }
 
 // Create inserts a new detection rule.
@@ -526,6 +550,10 @@ func (s *Store) upsertFinding(ctx context.Context, rule *DetectionRule, groupKey
 	})
 	if err != nil {
 		return nil, false, fmt.Errorf("upsert finding: %w", err)
+	}
+
+	if isNew {
+		s.callOnNewFinding(ctx, f)
 	}
 
 	if isNew && riskStore != nil && f.RiskScore > 0 {

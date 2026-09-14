@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"quetzalog/internal/ai"
 	"quetzalog/internal/alerts"
 	"quetzalog/internal/api"
 	"quetzalog/internal/auth"
@@ -41,6 +42,8 @@ import (
 	"quetzalog/internal/telemetry"
 	"quetzalog/internal/web"
 	"quetzalog/pkg/event"
+
+	"golang.org/x/term"
 )
 
 func main() {
@@ -104,6 +107,8 @@ func run() int {
 		return cmdDetections(subArgs())
 	case "db":
 		return cmdDB(subArgs())
+	case "user":
+		return cmdUser(subArgs())
 	case "config":
 		return cmdConfig(subArgs())
 	default:
@@ -144,6 +149,7 @@ func writeUsage(fs *flag.FlagSet) {
 	fmt.Fprintf(os.Stderr, "  sources     Manage sources\n")
 	fmt.Fprintf(os.Stderr, "  detections  Manage detections\n")
 	fmt.Fprintf(os.Stderr, "  db          Database info\n")
+	fmt.Fprintf(os.Stderr, "  user        Manage user accounts (user set-admin)\n")
 	fmt.Fprintf(os.Stderr, "  config      Config management\n")
 	fmt.Fprintf(os.Stderr, "\nGlobal:\n")
 	fs.PrintDefaults()
@@ -225,6 +231,11 @@ func cmdServe(cfgFile string, debug bool) int {
 		Investigations: investigationStore,
 		Risk:           entityRiskStore,
 	})
+	aiStore := ai.NewStore(db)
+	aiService := ai.NewService(&cfg, cfgFile, aiStore, findingStore, ai.NewContextBuilder(findingStore, eventStore), logger)
+	// New findings materialized by the detection engine are offered to the
+	// AI Analyst (no-op unless enabled; the service runs it asynchronously).
+	detectionStore.SetOnNewFinding(aiService.OnFindingCreated)
 	geoEnricher, _ := enrichment.BuildGeoIPEnricher(enrichment.GeoIPConfig{Enabled: false})
 	_ = enrichment.NewCompositeEnricher([]enrichment.Enricher{
 		enrichment.NewLocalIPEnricher(),
@@ -341,7 +352,7 @@ func cmdServe(cfgFile string, debug bool) int {
 	}
 
 	mux := http.NewServeMux()
-	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, logger)
+	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, logger)
 	if err != nil {
 		logger.Error("API setup failed", "error", err)
 		if debug {
@@ -1538,6 +1549,115 @@ func cmdDB(args []string) int {
 		fmt.Printf("  %-20s %d rows\n", t, count)
 	}
 
+	return 0
+}
+
+// readPasswordOnce prompts on the terminal and reads a line without
+// echoing the characters, so the password never appears on screen or in
+// shell history.
+func readPasswordOnce(prompt string) (string, error) {
+	fd := int(os.Stdin.Fd())
+	if term.IsTerminal(fd) {
+		fmt.Fprint(os.Stderr, prompt)
+		raw, err := term.ReadPassword(fd)
+		fmt.Fprintln(os.Stderr) // move past the (unseen) input
+		if err != nil {
+			return "", fmt.Errorf("read password: %w", err)
+		}
+		return string(raw), nil
+	}
+	return "", fmt.Errorf("password input requires an interactive terminal (stdin is not a TTY)")
+}
+
+// cmdUser manages user accounts. set-admin creates the admin user if it
+// does not exist (the demo seed only creates analyst and viewer) or resets
+// its password if it does. The password is typed at two prompts — it is
+// never taken from the command line, so it stays out of shell history.
+func cmdUser(args []string) int {
+	var configFile string
+	fs := flag.NewFlagSet("user", flag.ExitOnError)
+	fs.StringVar(&configFile, "config", "", "path to config file")
+	positional := parseMixed(fs, args)
+	if len(positional) != 1 || positional[0] != "set-admin" {
+		fmt.Fprintln(os.Stderr, "Usage: quetzalog user set-admin [--config path]")
+		fmt.Fprintln(os.Stderr, "       Creates the admin account if missing, or resets its password.")
+		fmt.Fprintln(os.Stderr, "       The password is typed twice at the prompt, without echoing.")
+		return 1
+	}
+
+	password, err := readPasswordOnce("New password for admin: ")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 1
+	}
+	if password == "" {
+		fmt.Fprintln(os.Stderr, "Error: password must not be empty")
+		return 1
+	}
+	if len(password) < 4 {
+		fmt.Fprintln(os.Stderr, "Error: password must be at least 4 characters")
+		return 1
+	}
+	confirm, err := readPasswordOnce("Confirm password: ")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 1
+	}
+	if password != confirm {
+		fmt.Fprintln(os.Stderr, "Error: passwords do not match — nothing was changed")
+		return 1
+	}
+
+	cfg := config.DefaultConfig()
+	if configFile != "" {
+		loaded, err := config.LoadConfig(configFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			return 1
+		}
+		cfg = loaded
+	}
+	dbPath := cfg.Database.Path
+	if dbPath == "" {
+		dbPath = "./data/siem.db"
+	}
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating data directory: %v\n", err)
+		return 1
+	}
+
+	db, err := database.Open(dbPath, cfg.Database.MaxOpenConns, cfg.Database.MaxIdleConns, cfg.Database.MaxIdleTime)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
+		return 1
+	}
+	defer database.Shutdown(db)
+	if err := database.Migrate(db); err != nil {
+		fmt.Fprintf(os.Stderr, "Error running migrations: %v\n", err)
+		return 1
+	}
+	hardenDataFiles(dbPath)
+
+	authStore := auth.NewStore(db)
+	ctx := context.Background()
+	admin, err := authStore.GetUserByUsername(ctx, "admin")
+	switch {
+	case err == auth.ErrUserNotFound:
+		if err := authStore.CreateUser(ctx, "admin", password, auth.RoleAdmin); err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating admin user: %v\n", err)
+			return 1
+		}
+		fmt.Println("Created admin user 'admin' with the new password. Sign in as admin.")
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "Error looking up admin user: %v\n", err)
+		return 1
+	default:
+		if err := authStore.UpdatePassword(ctx, admin.ID, password); err != nil {
+			fmt.Fprintf(os.Stderr, "Error updating admin password: %v\n", err)
+			return 1
+		}
+		fmt.Println("Reset the password of admin user 'admin'. Sign in as admin.")
+	}
 	return 0
 }
 

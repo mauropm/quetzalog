@@ -14,6 +14,7 @@ import (
 
 	"database/sql"
 
+	"quetzalog/internal/ai"
 	"quetzalog/internal/alerts"
 	"quetzalog/internal/api"
 	"quetzalog/internal/auth"
@@ -42,6 +43,14 @@ func socStores(db *sql.DB) (*findings.Store, *investigations.Store, *risk.Entity
 	return fs, is, rs, rr
 }
 
+// aiStores builds the AI analyst store/service shared by API tests.
+func aiStores(t *testing.T, db *sql.DB, cfg *config.Config, ev *events.Store, fs *findings.Store) (*ai.Store, *ai.Service) {
+	t.Helper()
+	s := ai.NewStore(db)
+	svc := ai.NewService(cfg, "", s, fs, ai.NewContextBuilder(fs, ev), slog.Default())
+	return s, svc
+}
+
 // testAdminPassword pins the default-admin bootstrap password through the
 // supported env override (product code must not hardcode it).
 const testAdminPassword = "audit-admin-Pw-9182"
@@ -59,14 +68,17 @@ func newSecureEnv(t *testing.T, cfg config.Config) func(method, path, token stri
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	fs, is, rs, rr := socStores(db)
+	ev := events.NewStore(db)
+	aiS, aiSvc := aiStores(t, db, &cfg, ev, fs)
 	h, err := api.SetupRouter(cfg,
-		events.NewStore(db),
+		ev,
 		query.NewService(db),
 		alerts.NewStore(db),
 		incidents.NewStore(db),
 		detections.NewStore(db),
 		fs, is, rs, rr,
 		auth.NewStore(db),
+		aiS, aiSvc,
 		logger,
 	)
 	if err != nil {
@@ -324,10 +336,12 @@ func TestSEC_LoginRateLimited(t *testing.T) {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	fs, is, rs, rr := socStores(db)
+	ev := events.NewStore(db)
+	aiS, aiSvc := aiStores(t, db, &cfg, ev, fs)
 	h, err := api.SetupRouter(cfg,
-		events.NewStore(db), query.NewService(db), alerts.NewStore(db),
+		ev, query.NewService(db), alerts.NewStore(db),
 		incidents.NewStore(db), detections.NewStore(db), fs, is, rs, rr,
-		auth.NewStore(db), logger)
+		auth.NewStore(db), aiS, aiSvc, logger)
 	if err != nil {
 		t.Fatal(err)
 	}

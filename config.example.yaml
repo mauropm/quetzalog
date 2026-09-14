@@ -51,6 +51,35 @@ detections:
   scheduled: false
   interval: "5m"
 
+ai_analyst:
+  # AI-assisted investigation. The analyst analyzes findings through an
+  # external model endpoint, explains what is happening and recommends the
+  # next step. It NEVER executes consequential actions: every recommendation
+  # requires explicit human approval in the UI.
+  enabled: false
+  # Provider: "openai-compatible", "ollama" (via its /v1 OpenAI-compatible
+  # API) or "opencode" (opencode serve HTTP API).
+  provider: "openai-compatible"
+  # Model server base URL — may be anywhere on the network.
+  #   Ollama / OpenAI-compatible: "http://192.168.1.50:11434/v1"
+  #   OpenCode:                   "http://127.0.0.1:4096" (opencode serve)
+  endpoint: "http://localhost:11434/v1"
+  # Optional key. Supports ${ENV_VAR} expansion; keys are never logged.
+  #   OpenAI-compatible: Bearer API key
+  #   OpenCode:          OPENCODE_SERVER_PASSWORD value
+  api_key: "${AI_ANALYST_API_KEY}"
+  # OpenCode only: HTTP basic-auth username (default "opencode").
+  username: ""
+  # Arbitrary model identifier passed to the provider, e.g. "qwen3.8",
+  # "gpt-5"; OpenCode uses "provider/model" form.
+  model: "qwen3.8"
+  # Automatic analysis only considers findings at/above this severity.
+  minimum_severity: "medium"
+  max_requests_per_minute: 10
+  timeout_seconds: 60
+  max_context_events: 100
+  retry_count: 1
+
 auth:
   # When true (default) every management endpoint requires a bearer token:
   #   - auth.api_token: static operator token (or env QUETZALOG_API_TOKEN)

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"quetzalog/internal/ai"
 	"quetzalog/internal/alerts"
 	"quetzalog/internal/api"
 	"quetzalog/internal/auth"
@@ -58,8 +59,11 @@ func newEnv(t *testing.T) *env {
 	findingStore := findings.NewStore(db)
 	investigationStore := investigations.NewStore(db)
 	riskStore := risk.NewEntityRiskStore(db)
+	evStore := events.NewStore(db)
+	aiStore := ai.NewStore(db)
+	aiService := ai.NewService(&cfg, "", aiStore, findingStore, ai.NewContextBuilder(findingStore, evStore), logger)
 	h, err := api.SetupRouter(cfg,
-		events.NewStore(db),
+		evStore,
 		query.NewService(db),
 		alerts.NewStore(db),
 		incidents.NewStore(db),
@@ -73,6 +77,8 @@ func newEnv(t *testing.T) *env {
 			Risk:           riskStore,
 		}),
 		auth.NewStore(db),
+		aiStore,
+		aiService,
 		logger,
 	)
 	if err != nil {
@@ -520,10 +526,12 @@ func TestAPIAuthTokensEnforcedWhenConfigured(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Auth.APIToken = "s3cret-token"
 	fs, is, rs, rr := socStores(db)
+	ev := events.NewStore(db)
+	aiS, aiSvc := aiStores(t, db, &cfg, ev, fs)
 	h, err := api.SetupRouter(cfg,
-		events.NewStore(db), query.NewService(db), alerts.NewStore(db),
+		ev, query.NewService(db), alerts.NewStore(db),
 		incidents.NewStore(db), detections.NewStore(db), fs, is, rs, rr,
-		auth.NewStore(db), logger)
+		auth.NewStore(db), aiS, aiSvc, logger)
 	if err != nil {
 		t.Fatalf("setup router: %v", err)
 	}

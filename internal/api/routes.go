@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"quetzalog/internal/ai"
 	"quetzalog/internal/alerts"
 	"quetzalog/internal/auth"
 	"quetzalog/internal/config"
@@ -34,13 +35,13 @@ const (
 )
 
 // SetupRouter wires up all HTTP API endpoints and applies middleware.
-func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, logger *slog.Logger) (http.Handler, error) {
+func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, logger *slog.Logger) (http.Handler, error) {
 	if authStore == nil {
 		authStore = auth.NewStore(nil)
 	} else if err := authStore.EnsureSchema(context.Background()); err != nil {
 		return nil, fmt.Errorf("initialize auth schema: %w", err)
 	}
-	handler := NewHandler(cfg, store, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, riskStore, responseRegistry, authStore, logger)
+	handler := NewHandler(cfg, store, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, riskStore, responseRegistry, authStore, aiStore, aiService, logger)
 
 	mux := http.NewServeMux()
 
@@ -138,6 +139,20 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 
 	// Audit
 	mux.HandleFunc("GET /api/v1/audit", handler.AuditLog)
+
+	// AI Analyst (investigation)
+	mux.HandleFunc("GET /api/v1/ai-analyst", handler.ListAIAnalyst)
+	mux.HandleFunc("GET /api/v1/ai-analyst/{id}", handler.GetAIAnalyst)
+	mux.HandleFunc("GET /api/v1/ai-analyst/finding/{findingID}", handler.GetAIAnalystByFinding)
+	mux.HandleFunc("POST /api/v1/ai-analyst/analyze", handler.AnalyzeAIFinding)
+	mux.HandleFunc("POST /api/v1/ai-analyst/{id}/approve", handler.ApproveAIAnalysis)
+	mux.HandleFunc("POST /api/v1/ai-analyst/{id}/dismiss", handler.DismissAIAnalysis)
+
+	// AI Analyst settings
+	mux.HandleFunc("GET /api/v1/settings/ai-analyst", handler.GetAIConfig)
+	mux.Handle("PUT /api/v1/settings/ai-analyst", adminAuth(handler.PutAIConfig))
+	mux.HandleFunc("POST /api/v1/settings/ai-analyst/test", handler.TestAIConnection)
+	mux.HandleFunc("GET /api/v1/settings/ai-analyst/models", handler.ListAIModels)
 
 	// ─────────────────────────────────────────────
 	// Authentication & User Management

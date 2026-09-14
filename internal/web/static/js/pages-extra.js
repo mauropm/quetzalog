@@ -702,9 +702,11 @@
       '<div class="card-body"><div class="flex-between" style="padding:8px 0">' +
       '<div><b class="small">Interface theme</b><div class="small faint">Dark is the SOC default; light for the office.</div></div>' +
       '<button class="btn" id="theme-toggle" data-theme-toggle></button></div></div></div></div>' +
-      '<div class="card"><div class="card-header"><div class="card-title">' + QL.icon("database") + " Ingestion</div></div>" +
-      '<div class="card-body" id="set-ingest"></div></div>' +
-      '<div class="card"><div class="card-header"><div class="card-title">' + QL.icon("users") + " Users</div></div>" +
+       '<div class="card"><div class="card-header"><div class="card-title">' + QL.icon("database") + " Ingestion</div></div>" +
+       '<div class="card-body" id="set-ingest"></div></div>' +
+       '<div class="card"><div class="card-header"><div class="card-title">' + QL.icon("spark") + " AI Analyst</div></div>" +
+       '<div class="card-body" id="set-ai">' + QL.loading("Loading…") + "</div></div>" +
+       '<div class="card"><div class="card-header"><div class="card-title">' + QL.icon("users") + " Users</div></div>" +
       '<div class="card-body card-flush" id="set-users"></div></div>' +
       "</div>" +
       '<div class="card" style="margin-top:14px"><div class="card-header"><div class="card-title">' + QL.icon("terminal") + " Audit Log</div></div>" +
@@ -735,6 +737,142 @@
 
     loadUsers();
     loadAudit();
+    loadAI();
+
+    function loadAI() {
+      api("/settings/ai-analyst").then(function (c) {
+        var el = $("#set-ai");
+        if (!el) return;
+        el.innerHTML =
+          '<div class="flex-between" style="padding:4px 0 12px;border-bottom:1px solid var(--ql-border-soft)">' +
+          '<div class="small muted">' + QL.icon("spark") + " " +
+          "The AI Analyst turns findings into structured, evidence-based analyses with a recommended next step. " +
+          "It never executes anything — a human approves or dismisses every recommendation.</div>" +
+          '<label class="small flex" style="gap:8px;cursor:pointer;align-items:center">' +
+          '<input type="checkbox" id="ai-enabled"' + (c.enabled ? " checked" : "") + "> Automatic analysis</label></div>" +
+          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;padding:12px 0">' +
+          '<div class="field"><label>Provider</label><select class="select" id="ai-provider">' +
+          ["openai-compatible", "ollama", "opencode"].map(function (p) {
+            return '<option value="' + p + '"' + (c.provider === p ? " selected" : "") + ">" + p + "</option>";
+          }).join("") + "</select></div>" +
+          '<div class="field" style="grid-column:1/-1"><label>Endpoint</label>' +
+          '<input class="input input-mono" id="ai-endpoint" placeholder="http://10.0.0.1:8000 (vLLM), http://192.168.1.50:11434 (Ollama) — with or without /v1" value="' + QL.esc(c.endpoint || "") + '"></div>' +
+          '<div class="field"><label>API key / server password</label>' +
+          '<input class="input input-mono" id="ai-key" type="password" placeholder="' + (c.api_key_set ? "•••••••• (set)" : "none") + '" autocomplete="off">' +
+          '<div class="field-hint">Leave blank to keep the current key. Write $CLEAR to remove it. Never returned by the API.</div></div>' +
+          '<div class="field"><label>Username (OpenCode only)</label>' +
+          '<input class="input" id="ai-username" value="' + QL.esc(c.username || "") + '" placeholder="opencode"></div>' +
+          '<div class="field"><label>Model</label>' +
+          '<div class="flex" style="gap:6px">' +
+          '<input class="input input-mono" id="ai-model" placeholder="qwen3.8 or opencode/qwen3.8" value="' + QL.esc(c.model || "") + '" style="flex:1;min-width:0">' +
+          '<button class="btn btn-sm" id="ai-models" title="Fetch available models">' + QL.icon("download") + "</button></div></div>" +
+          '<div class="field"><label>Minimum severity (auto)</label><select class="select" id="ai-sev">' +
+          ["critical", "high", "medium", "low"].map(function (s) {
+            return '<option value="' + s + '"' + (c.minimum_severity === s ? " selected" : "") + ">" + s + "</option>";
+          }).join("") + "</select>" +
+          '<div class="field-hint">Automatic analysis only; manual “Analyze with AI” bypasses this.</div></div>' +
+          '<div class="field"><label>Max requests / minute</label>' +
+          '<input class="input input-mono" id="ai-rpm" type="number" min="1" value="' + (c.max_requests_per_minute || 10) + '"></div>' +
+          '<div class="field"><label>Timeout (seconds)</label>' +
+          '<input class="input input-mono" id="ai-timeout" type="number" min="5" value="' + (c.timeout_seconds || 60) + '"></div>' +
+          '<div class="field"><label>Max context events</label>' +
+          '<input class="input input-mono" id="ai-events" type="number" min="1" value="' + (c.max_context_events || 100) + '"></div>' +
+          '<div class="field"><label>Retries</label>' +
+          '<input class="input input-mono" id="ai-retry" type="number" min="0" max="5" value="' + (c.retry_count || 1) + '"></div>' +
+          "</div>" +
+          '<div class="flex" style="gap:8px;flex-wrap:wrap;padding-top:4px">' +
+          '<button class="btn btn-primary" id="ai-save">' + QL.icon("save") + " Save</button>" +
+          '<button class="btn" id="ai-test">' + QL.icon("play") + " Test connection</button>" +
+          (c.persisted ? '<span class="small faint" style="align-self:center">Saved to the config file</span>'
+                     : '<span class="small faint" style="align-self:center">In-memory only — start quetzalog with --config to persist</span>') +
+          "</div>" +
+          '<div id="ai-test-result" style="margin-top:10px"></div>';
+
+        function body() {
+          return {
+            enabled: $("#ai-enabled").checked,
+            provider: $("#ai-provider").value,
+            endpoint: $("#ai-endpoint").value.trim(),
+            api_key: $("#ai-key").value,
+            username: $("#ai-username").value.trim(),
+            model: $("#ai-model").value.trim(),
+            minimum_severity: $("#ai-sev").value,
+            max_requests_per_minute: Number($("#ai-rpm").value) || 10,
+            timeout_seconds: Number($("#ai-timeout").value) || 60,
+            max_context_events: Number($("#ai-events").value) || 100,
+            retry_count: Number($("#ai-retry").value) || 0,
+          };
+        }
+
+        $("#ai-save").addEventListener("click", function () {
+          var b = body();
+          if (!b.endpoint) { QL.toast("Endpoint is required", "error"); return; }
+          if (b.enabled && !b.model) { QL.toast("Model is required when automatic analysis is enabled", "error"); return; }
+          api("/settings/ai-analyst", { method: "PUT", body: b }).then(function (u) {
+            QL.toast("AI Analyst configuration saved");
+            loadAI();
+          }).catch(function (e) { QL.toast(e.message, "error"); });
+        });
+
+        // Test / Load-models act on what is in the form, not on the last
+        // saved config — so save the current values first (silently).
+        function saveForm(cb) {
+          var b = body();
+          if (!b.endpoint) {
+            QL.toast("Endpoint is required — enter it in the form above first.", "error");
+            return;
+          }
+          api("/settings/ai-analyst", { method: "PUT", body: b }).then(function (u) {
+            $("#ai-key").placeholder = u.api_key_set ? "•••••••• (set)" : "none";
+            cb();
+          }).catch(function (e) { QL.toast(e.message || "Could not save settings", "error"); });
+        }
+
+        $("#ai-test").addEventListener("click", function () {
+          saveForm(function () {
+            var out = $("#ai-test-result");
+            out.innerHTML = '<div class="small muted flex" style="gap:8px">' + QL.loading("Probing the endpoint…") + "</div>";
+            api("/settings/ai-analyst/test", { method: "POST" }).then(function (r) {
+              out.innerHTML = r.ok
+                ? '<div class="ai-decision approved">' + QL.icon("check") + "<span>Connected to <b>" + QL.esc(r.provider || "") + "</b>" +
+                  (r.model ? " · model <span class='mono'>" + QL.esc(r.model) + "</span>" : "") +
+                  (r.latency ? " · " + QL.esc(r.latency) : "") + " — " + QL.esc(r.detail || "ok") + "</span></div>"
+                : '<div class="ai-decision dismissed">' + QL.icon("x") + "<span>" + QL.esc(r.detail || "Connection failed") + "</span></div>";
+            }).catch(function (e) {
+              out.innerHTML = '<div class="ai-decision dismissed">' + QL.icon("x") + "<span>" + QL.esc(e.message) + "</span></div>";
+            });
+          });
+        });
+
+        $("#ai-models").addEventListener("click", function () {
+          saveForm(function () {
+          api("/settings/ai-analyst/models").then(function (m) {
+            if (!m.supported) {
+              QL.toast("Could not list models" + (m.detail ? ": " + m.detail : "") + " — type the model name manually", "error");
+              return;
+            }
+            var list = m.models || [];
+            if (!list.length) { QL.toast("No models found"); return; }
+            var close = QL.modal({
+              title: "Available models",
+              body: '<div style="display:flex;flex-direction:column;gap:6px;max-height:340px;overflow:auto">' +
+                list.map(function (id) {
+                  return '<button class="btn btn-ghost btn-sm" data-m="' + QL.esc(id) + '" style="text-align:left;font-family:var(--ql-font-mono)">' + QL.esc(id) + "</button>";
+                }).join("") + "</div>",
+              footer: "",
+            });
+            close.el.addEventListener("click", function (e) {
+              var b = e.target.closest("[data-m]");
+              if (b) { $("#ai-model").value = b.dataset.m; close(); }
+            });
+          }).catch(function (e) { QL.toast(e.message, "error"); });
+          });
+        });
+      }).catch(function (e) {
+        var el = $("#set-ai");
+        if (el) el.innerHTML = QL.emptyState({ icon: "spark", title: "AI Analyst unavailable", sub: e.message });
+      });
+    }
 
     function loadUsers() {
       api("/users").then(function (users) {

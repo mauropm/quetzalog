@@ -22,6 +22,45 @@ type Config struct {
 	FileIngestion `yaml:"file_ingestion"`
 	Auth          `yaml:"auth"`
 	Detections    `yaml:"detections"`
+	AIAnalyst     `yaml:"ai_analyst"`
+}
+
+// AIAnalyst configures the AI-assisted investigation capability. The analyst
+// analyzes findings through an external model endpoint and only ever records
+// recommendations — consequential actions require explicit human approval.
+type AIAnalyst struct {
+	// Enabled turns on automatic analysis of new findings.
+	Enabled bool `yaml:"enabled"`
+	// Provider is one of "openai-compatible", "ollama" or "opencode".
+	// Ollama is served through its OpenAI-compatible API (/v1).
+	Provider string `yaml:"provider"`
+	// Endpoint is the model server base URL. OpenAI-compatible examples:
+	// "http://localhost:11434/v1", "http://192.168.1.50:11434/v1",
+	// "https://my-model.example.com/v1". For OpenCode this is the
+	// `opencode serve` base URL (no /v1), e.g. "http://127.0.0.1:4096".
+	Endpoint string `yaml:"endpoint"`
+	// APIKey is the optional bearer key (OpenAI-compatible) or the
+	// OPENCODE_SERVER_PASSWORD (OpenCode). Supports ${ENV_VAR} expansion.
+	APIKey string `yaml:"api_key"`
+	// Username is only used by the OpenCode provider (HTTP basic auth;
+	// defaults to "opencode").
+	Username string `yaml:"username"`
+	// Model is an arbitrary model identifier passed to the provider.
+	// OpenCode models use the "provider/model" form, e.g. "opencode/...".
+	Model string `yaml:"model"`
+	// MinimumSeverity gates automatic analysis (critical/high/medium/low).
+	// Manual analysis requests are not gated. Defaults to "medium".
+	MinimumSeverity string `yaml:"minimum_severity"`
+	// MaxRequestsPerMinute caps model requests (0 = default 10).
+	MaxRequestsPerMinute int `yaml:"max_requests_per_minute"`
+	// TimeoutSeconds bounds a single model request (0 = default 60).
+	TimeoutSeconds int `yaml:"timeout_seconds"`
+	// MaxContextEvents caps the surrounding events included in the
+	// analysis context (0 = default 100).
+	MaxContextEvents int `yaml:"max_context_events"`
+	// RetryCount is the number of retries after a transient provider
+	// failure (timeout / unavailable / rate limited).
+	RetryCount int `yaml:"retry_count"`
 }
 
 // Detections configures scheduled evaluation of detection rules. When
@@ -164,11 +203,26 @@ func DefaultConfig() Config {
 			Scheduled: false,
 			Interval:  5 * time.Minute,
 		},
+		AIAnalyst: AIAnalyst{
+			Enabled:              false,
+			Provider:             "openai-compatible",
+			MinimumSeverity:      "medium",
+			MaxRequestsPerMinute: 10,
+			TimeoutSeconds:       60,
+			MaxContextEvents:     100,
+			RetryCount:           1,
+		},
 	}
 }
 
 // LoadConfig reads and parses a YAML config file from path.
 // If path is empty, returns DefaultConfig without error.
+//
+// ${VAR} and $VAR references are expanded from the environment before
+// parsing, so secrets can live outside the config file, e.g.
+//
+//	ai_analyst:
+//	  api_key: "${AI_ANALYST_API_KEY}"
 func LoadConfig(path string) (Config, error) {
 	cfg := DefaultConfig()
 
@@ -181,7 +235,7 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("read config file %q: %w", path, err)
 	}
 
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := yaml.Unmarshal([]byte(os.ExpandEnv(string(data))), &cfg); err != nil {
 		return Config{}, fmt.Errorf("parse config file %q: %w", path, err)
 	}
 

@@ -2,6 +2,17 @@
    Quetzalog design system — reusable building blocks.
    ───────────────────────────────────────────────────────────── */
 
+/* Base icon sizing. QL.icon() emits an inline SVG with only a
+   viewBox, so every .ic needs an explicit box — unsized icons
+   stretch to their container in flex rows. Context-specific
+   overrides below keep higher specificity and win. */
+.ic {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  vertical-align: -0.25em;
+}
+
 /* ── Buttons ────────────────────────────────────────────────── */
 .btn {
   display: inline-flex;
@@ -563,3 +574,40 @@ table.ql-table { width: 100%; border-collapse: collapse; font-size: var(--ql-t-s
   z-index: 60;
 }
 [data-tip]:hover::after { opacity: 1; transform: translateX(-50%); }
+
+/* ── AI Analyst ─────────────────────────────────────────────── */
+.badge-ai { text-transform: capitalize; }
+.badge-ai.analyzing { color: var(--ql-accent); background: var(--ql-sev-low-bg); }
+.badge-ai.analyzed  { color: var(--ql-sev-info); background: var(--ql-sev-info-bg); }
+.badge-ai.approved  { color: var(--ql-sev-success); background: var(--ql-sev-success-bg); }
+.badge-ai.dismissed { color: var(--ql-text-muted); background: var(--ql-row-hover); }
+.badge-ai.failed    { color: var(--ql-sev-high); background: var(--ql-sev-high-bg); }
+
+.confidence { display: inline-flex; align-items: center; gap: 7px; }
+.confidence .c-bar { width: 72px; height: 5px; border-radius: 4px; background: var(--ql-row-hover); overflow: hidden; }
+.confidence .c-bar i { display: block; height: 100%; border-radius: 4px; background: var(--ql-accent); }
+.confidence .c-val { font-family: var(--ql-font-mono); font-size: 11.5px; font-weight: 600; min-width: 38px; text-align: right; }
+
+.ai-reco { border: 1px solid var(--ql-border); border-left: 3px solid var(--ql-accent); border-radius: var(--ql-r-md); background: var(--ql-surface-2); padding: 14px 16px; }
+.ai-reco.risk-high { border-left-color: var(--ql-sev-high); }
+.ai-reco.risk-critical { border-left-color: var(--ql-sev-critical); }
+.ai-reco .reco-type { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ql-accent); }
+.ai-reco .reco-type .ic { width: 13px; height: 13px; }
+.ai-reco.risk-high .reco-type, .ai-reco.risk-critical .reco-type { color: var(--ql-sev-high); }
+.ai-reco .reco-desc { font-size: 13.5px; margin-top: 8px; line-height: 1.55; }
+.ai-reco .reco-note { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 11.5px; color: var(--ql-text-muted); }
+
+.ai-section { border-top: 1px solid var(--ql-border-soft); padding: 14px 0; }
+.ai-section:first-child { border-top: 0; padding-top: 0; }
+.ai-section h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; color: var(--ql-text-muted); display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.ai-section h3 .ic { width: 13px; height: 13px; }
+.ai-section .ai-body { font-size: 13.5px; line-height: 1.6; color: var(--ql-text); }
+.ai-section ul.evidence { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.ai-section ul.evidence li { position: relative; padding-left: 18px; font-size: 13px; line-height: 1.5; }
+.ai-section ul.evidence li::before { content: ""; position: absolute; left: 4px; top: 7px; width: 6px; height: 6px; border-radius: 2px; background: var(--ql-accent); opacity: 0.75; }
+.ai-section ul.alt li { position: relative; padding-left: 18px; font-size: 13px; line-height: 1.5; color: var(--ql-text-muted); }
+.ai-section ul.alt li::before { content: ""; position: absolute; left: 4px; top: 7px; width: 6px; height: 6px; border-radius: 50%; border: 1.5px solid var(--ql-text-muted); }
+
+.ai-decision { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; border-radius: var(--ql-r-md); font-size: 13px; }
+.ai-decision.approved { background: var(--ql-sev-success-bg); color: var(--ql-sev-success); }
+.ai-decision.dismissed { background: var(--ql-row-hover); color: var(--ql-text-muted); }
