@@ -1,8 +1,12 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
 	"quetzalog/internal/findings"
 	"quetzalog/pkg/api"
@@ -112,6 +116,133 @@ func (h *Handler) DetectionStats(w http.ResponseWriter, r *http.Request) {
 		"detection": rule,
 		"feedback":  stats,
 	}))
+}
+
+// Baselines lists rolling behavioral baselines
+// (GET /api/v1/behavioral/baselines?entity_type=&entity_value=&feature=).
+func (h *Handler) Baselines(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := r.URL.Query()
+	where := []string{"1=1"}
+	args := []any{}
+	if v := q.Get("entity_type"); v != "" {
+		where = append(where, "entity_type = ?")
+		args = append(args, v)
+	}
+	if v := q.Get("entity_value"); v != "" {
+		where = append(where, "entity_value = ?")
+		args = append(args, v)
+	}
+	if v := q.Get("feature"); v != "" {
+		where = append(where, "feature = ?")
+		args = append(args, v)
+	}
+	limit := 100
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	rows, err := h.store.DB().QueryContext(ctx,
+		`SELECT entity_type, entity_value, feature, window_days, mean, stddev, p95, sample_count, last_updated
+		 FROM baselines WHERE `+strings.Join(where, " AND ")+`
+		 ORDER BY last_updated DESC LIMIT ?`, append(args, limit)...)
+	if err != nil {
+		h.logger.Error("list baselines", "error", err)
+		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to list baselines"))
+		return
+	}
+	defer rows.Close()
+	type outRow struct {
+		EntityType  string    `json:"entity_type"`
+		EntityValue string    `json:"entity_value"`
+		Feature     string    `json:"feature"`
+		WindowDays  int       `json:"window_days"`
+		Mean        float64   `json:"mean"`
+		StdDev      float64   `json:"stddev"`
+		P95         float64   `json:"p95"`
+		SampleCount int       `json:"sample_count"`
+		LastUpdated time.Time `json:"last_updated"`
+		Trusted     bool      `json:"trusted"`
+	}
+	out := []outRow{}
+	for rows.Next() {
+		var o outRow
+		if err := rows.Scan(&o.EntityType, &o.EntityValue, &o.Feature, &o.WindowDays, &o.Mean, &o.StdDev, &o.P95, &o.SampleCount, &o.LastUpdated); err != nil {
+			h.logger.Error("scan baseline", "error", err)
+			continue
+		}
+		o.Trusted = o.SampleCount >= 20 && o.WindowDays >= 14
+		out = append(out, o)
+	}
+	_ = rows.Err()
+	api.WriteJSON(w, http.StatusOK, api.Success(out))
+}
+
+// Anomalies lists recent behavioral anomalies
+// (GET /api/v1/behavioral/anomalies?entity_type=&entity_value=&limit=).
+func (h *Handler) Anomalies(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := r.URL.Query()
+	where := []string{"1=1"}
+	args := []any{}
+	if v := q.Get("entity_type"); v != "" {
+		where = append(where, "entity_type = ?")
+		args = append(args, v)
+	}
+	if v := q.Get("entity_value"); v != "" {
+		where = append(where, "entity_value = ?")
+		args = append(args, v)
+	}
+	limit := 50
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	rows, err := h.store.DB().QueryContext(ctx,
+		`SELECT id, entity_type, entity_value, feature, observed, baseline_mean, z, detected_at, detection_id, suppressed_reason
+		 FROM anomalies WHERE `+strings.Join(where, " AND ")+`
+		 ORDER BY detected_at DESC LIMIT ?`, append(args, limit)...)
+	if err != nil {
+		h.logger.Error("list anomalies", "error", err)
+		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to list anomalies"))
+		return
+	}
+	defer rows.Close()
+	type outRow struct {
+		ID               string    `json:"id"`
+		EntityType       string    `json:"entity_type"`
+		EntityValue      string    `json:"entity_value"`
+		Feature          string    `json:"feature"`
+		Observed         float64   `json:"observed"`
+		BaselineMean     float64   `json:"baseline_mean"`
+		Z                float64   `json:"z"`
+		DetectedAt       time.Time `json:"detected_at"`
+		DetectionID      string    `json:"detection_id,omitempty"`
+		SuppressedReason string    `json:"suppressed_reason,omitempty"`
+	}
+	out := []outRow{}
+	for rows.Next() {
+		var o outRow
+		var det sql.NullString
+		var suppressed sql.NullString
+		if err := rows.Scan(&o.ID, &o.EntityType, &o.EntityValue, &o.Feature, &o.Observed, &o.BaselineMean, &o.Z, &o.DetectedAt, &det, &suppressed); err != nil {
+			h.logger.Error("scan anomaly", "error", err)
+			continue
+		}
+		o.DetectionID = det.String
+		o.SuppressedReason = suppressed.String
+		out = append(out, o)
+	}
+	_ = rows.Err()
+	api.WriteJSON(w, http.StatusOK, api.Success(out))
 }
 
 // DetectionStates lists the persisted correlation/sequence state for a rule

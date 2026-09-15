@@ -105,6 +105,10 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 	mux.HandleFunc("GET /api/v1/detections/{id}/stats", handler.DetectionStats)
 	mux.HandleFunc("GET /api/v1/detections/{id}/states", handler.DetectionStates)
 
+	// Behavioral analysis
+	mux.HandleFunc("GET /api/v1/behavioral/baselines", handler.Baselines)
+	mux.HandleFunc("GET /api/v1/behavioral/anomalies", handler.Anomalies)
+
 	// Analyst Queue (findings)
 	mux.HandleFunc("GET /api/v1/findings", handler.ListFindings)
 	mux.HandleFunc("GET /api/v1/findings/{id}", handler.GetFinding)

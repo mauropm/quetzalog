@@ -125,6 +125,42 @@ func TestDetectionV2API(t *testing.T) {
 	}
 }
 
+func TestBehavioralEndpoints(t *testing.T) {
+	e := newEnv(t)
+
+	// Seed one baseline + one anomaly row directly.
+	if _, err := e.db.Exec(`INSERT INTO baselines (entity_type, entity_value, feature, window_days, mean, stddev, p95, sample_count, last_updated)
+		VALUES ('user', 'zoe', 'login_count_per_hour', 30, 3, 1, 6, 40, datetime('now'))`); err != nil {
+		t.Fatalf("seed baseline: %v", err)
+	}
+	if _, err := e.db.Exec(`INSERT INTO anomalies (id, entity_type, entity_value, feature, observed, baseline_mean, z, detected_at)
+		VALUES ('an-1', 'user', 'zoe', 'login_count_per_hour', 12, 3, 9, datetime('now'))`); err != nil {
+		t.Fatalf("seed anomaly: %v", err)
+	}
+
+	w, _ := do(e, "GET", "/api/v1/behavioral/baselines?entity_type=user&entity_value=zoe", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("baselines status %d: %s", w.Code, w.Body.String())
+	}
+	out := decodeBody(t, w)
+	if list, _ := out["data"].([]any); len(list) != 1 {
+		t.Errorf("baselines: %d", len(list))
+	} else if row, _ := list[0].(map[string]any); !row["trusted"].(bool) {
+		t.Errorf("baseline trusted flag: %v", row)
+	}
+
+	w, _ = do(e, "GET", "/api/v1/behavioral/anomalies?entity_value=zoe", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("anomalies status %d: %s", w.Code, w.Body.String())
+	}
+	out = decodeBody(t, w)
+	if list, _ := out["data"].([]any); len(list) != 1 {
+		t.Errorf("anomalies: %d", len(list))
+	} else if row, _ := list[0].(map[string]any); row["z"].(float64) != 9 {
+		t.Errorf("anomaly z: %v", row)
+	}
+}
+
 func insertFinding(t *testing.T, db *sql.DB, id, detectionID string) {
 	t.Helper()
 	now := time.Now().UTC().Format("2006-01-02 15:04:05")

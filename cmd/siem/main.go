@@ -339,6 +339,37 @@ func cmdServe(cfgFile string, debug bool) int {
 			}
 		}
 	}()
+	// Behavioral analysis: rolling baselines (hourly) + anomaly scoring on
+	// the event stream. Default off; when enabled, baselines are computed
+	// hourly and statistical/behavioral rules score against trusted baselines.
+	if cfg.BehavioralAnalysis.Enabled {
+		baselineInterval := cfg.BehavioralAnalysis.UpdateInterval
+		if baselineInterval <= 0 {
+			baselineInterval = time.Hour
+		}
+		updater := detections.NewBaselineUpdater(db, func(msg string, kv ...any) {
+			logger.Info(msg, kv...)
+		})
+		go func() {
+			t := time.NewTicker(baselineInterval)
+			defer t.Stop()
+			// Initial computation on start.
+			if err := updater.UpdateAll(context.Background(), time.Now().UTC()); err != nil {
+				logger.Warn("baseline update", "error", err)
+			}
+			for range t.C {
+				if err := updater.UpdateAll(context.Background(), time.Now().UTC()); err != nil {
+					logger.Warn("baseline update", "error", err)
+				}
+			}
+		}()
+		behavioralEngine := detections.NewBehavioralEngine(db, detectionStore, findingStore, entityRiskStore, func(msg string, kv ...any) {
+			logger.Info(msg, kv...)
+		})
+		behavioralEngine.Start(2)
+		defer behavioralEngine.Stop()
+		eventStore.AddObserver(behavioralEngine.Enqueue)
+	}
 	if cfg.ThreatIntelligence.Enabled {
 		// Indicator enrichment: bounded async queue matching event values
 		// against the indicator store (never blocks ingestion).

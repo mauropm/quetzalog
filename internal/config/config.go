@@ -31,7 +31,16 @@ type Config struct {
 	Risk            `yaml:"risk"`
 	ThreatIntelligence `yaml:"threat_intelligence"`
 	Mitre             `yaml:"mitre"`
+	BehavioralAnalysis `yaml:"behavioral_analysis"`
 	AIAnalyst     `yaml:"ai_analyst"`
+}
+
+// BehavioralAnalysis configures statistical/behavioral detection: rolling
+// baselines (hourly updater) + anomaly scoring on the event stream.
+// Default OFF on upgrades.
+type BehavioralAnalysis struct {
+	Enabled        bool          `yaml:"enabled"`
+	UpdateInterval time.Duration `yaml:"update_interval"`
 }
 
 // Mitre configures ATT&CK event→technique mapping. When enabled, an async
@@ -307,6 +316,10 @@ func DefaultConfig() Config {
 		Mitre: Mitre{
 			Enabled:      false,
 			EventMapping: true,
+		},
+		BehavioralAnalysis: BehavioralAnalysis{
+			Enabled:        false,
+			UpdateInterval: time.Hour,
 		},
 		AIAnalyst: AIAnalyst{
 			Enabled:              false,
