@@ -55,7 +55,7 @@
     $("#app-shell").hidden = true;
     $("#login-screen").hidden = false;
     document.body.classList.remove("logged-in");
-    $("#login-dragon").innerHTML = QL.dragon({ size: 132, cls: "dragon-assemble" });
+    $("#login-dragon").innerHTML = '<img src="/static/images/transparent.png" width="132" height="132" alt="" aria-hidden="true">';
     setTimeout(function () { $("#login-user").focus(); }, 60);
   }
 

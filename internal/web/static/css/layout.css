@@ -33,7 +33,7 @@ body.logged-in #app-shell {
   color: var(--ql-text);
 }
 .brand:hover { color: var(--ql-text); }
-.brand-mark { width: 30px; height: 30px; flex-shrink: 0; display: block; }
+.brand-mark { width: 45px; height: 45px; flex-shrink: 0; display: block; }
 .brand-name {
   font-size: 16.5px;
   font-weight: 700;
@@ -44,7 +44,7 @@ body.logged-in #app-shell {
   -webkit-text-fill-color: transparent;
   line-height: 1.2;
 }
-.brand-tag { font-size: 10px; color: var(--ql-text-faint); font-weight: 600; letter-spacing: 0.04em; }
+.brand-tag { display: block; font-size: 10px; color: var(--ql-text-faint); font-weight: 600; letter-spacing: 0.04em; }
 
 .nav-section { flex: 1; overflow-y: auto; scrollbar-width: thin; }
 .nav-group-label {

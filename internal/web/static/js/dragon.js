@@ -98,12 +98,11 @@
       "</svg>";
   }
 
-  /* Primary lockup: [dragon] Quetzalog */
+  /* Primary lockup: [logo] Quetzalog */
   function logo(opts) {
-    var h = (opts && opts.height) || 30;
     var tagline = opts && opts.tagline !== false;
     return '<a class="brand" href="#/overview" aria-label="Quetzalog — Overview">' +
-      '<span class="brand-mark">' + dragonHead(h * 0.94) + "</span>" +
+      '<span class="brand-mark"><img src="/static/images/upleft2.png" width="45" height="45" alt="" aria-hidden="true"></span>' +
       "<span><span class='brand-name'>Quetzalog</span>" +
       (tagline ? "<span class='brand-tag'>SEE MORE. SOLVE FASTER.</span>" : "") +
       "</span></a>";

@@ -700,7 +700,7 @@
     page.innerHTML = QL_.pageHeader("Settings", "Workspace, security and system configuration", "") +
       '<div class="dash-grid">' +
       '<div class="card"><div class="card-body" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">' +
-      '<div aria-hidden="true">' + QL.dragon({ size: 92 }) + "</div>" +
+      '<div aria-hidden="true"><img src="/static/images/transparent.png" width="92" height="92" alt=""></div>' +
       '<div><div style="font-size:19px;font-weight:700">Quetzalog</div>' +
       '<div class="small muted">SEE MORE. SOLVE FASTER. — Small Dragon. Big Insights.</div>' +
       '<div class="small faint" style="margin-top:6px" id="set-ver"></div></div></div></div>' +
