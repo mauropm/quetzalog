@@ -22,8 +22,10 @@ import (
 	"quetzalog/internal/config"
 	"quetzalog/internal/database"
 	"quetzalog/internal/detections"
+	"quetzalog/internal/entities"
 	"quetzalog/internal/events"
 	"quetzalog/internal/findings"
+	"quetzalog/internal/graph"
 	"quetzalog/internal/incidents"
 	"quetzalog/internal/investigations"
 	"quetzalog/internal/query"
@@ -81,6 +83,8 @@ func newSecureEnv(t *testing.T, cfg config.Config) func(method, path, token stri
 		auth.NewStore(db),
 		aiS, aiSvc,
 		assets.NewStore(db),
+		entities.NewStore(db),
+		graph.NewGraph(db),
 		logger,
 	)
 	if err != nil {
@@ -343,7 +347,7 @@ func TestSEC_LoginRateLimited(t *testing.T) {
 	h, err := api.SetupRouter(cfg,
 		ev, query.NewService(db), alerts.NewStore(db),
 		incidents.NewStore(db), detections.NewStore(db), fs, is, rs, rr,
-		auth.NewStore(db), aiS, aiSvc, assets.NewStore(db), logger)
+		auth.NewStore(db), aiS, aiSvc, assets.NewStore(db), entities.NewStore(db), graph.NewGraph(db), logger)
 	if err != nil {
 		t.Fatal(err)
 	}

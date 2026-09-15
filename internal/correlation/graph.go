@@ -255,6 +255,9 @@ func (g *Graph) GetRelatedEvents(ctx context.Context, entityType EntityType, val
 		limit = 100
 	}
 
+	// Email is not an events column; it lives in the attributes JSON.
+	// json_extract yields NULL for missing/invalid attributes, which is
+	// safe (JSON1 is compiled in via the build flags).
 	query := `SELECT DISTINCT e.id FROM events e
 		WHERE
 			(? = ? AND e.source_ip = ?) OR
@@ -264,7 +267,7 @@ func (g *Graph) GetRelatedEvents(ctx context.Context, entityType EntityType, val
 			(? = ? AND e.trace_id = ?) OR
 			(? = ? AND e.process = ?) OR
 			(? = ? AND e.file_path = ?) OR
-			(? = ? AND e.email IS NOT NULL AND e.email = ?)`
+			(? = ? AND json_extract(e.attributes, '$.email') = ?)`
 
 	rows, err := g.db.QueryContext(ctx, query,
 		entityType, EntityTypeIP, value,

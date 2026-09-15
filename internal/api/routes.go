@@ -16,8 +16,10 @@ import (
 	"quetzalog/internal/auth"
 	"quetzalog/internal/config"
 	"quetzalog/internal/detections"
+	"quetzalog/internal/entities"
 	"quetzalog/internal/events"
 	"quetzalog/internal/findings"
+	"quetzalog/internal/graph"
 	"quetzalog/internal/incidents"
 	"quetzalog/internal/investigations"
 	"quetzalog/internal/query"
@@ -36,13 +38,13 @@ const (
 )
 
 // SetupRouter wires up all HTTP API endpoints and applies middleware.
-func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, assetsStore *assets.Store, logger *slog.Logger) (http.Handler, error) {
+func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, assetsStore *assets.Store, entitiesStore *entities.Store, graphLayer *graph.Graph, logger *slog.Logger) (http.Handler, error) {
 	if authStore == nil {
 		authStore = auth.NewStore(nil)
 	} else if err := authStore.EnsureSchema(context.Background()); err != nil {
 		return nil, fmt.Errorf("initialize auth schema: %w", err)
 	}
-	handler := NewHandler(cfg, store, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, riskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, logger)
+	handler := NewHandler(cfg, store, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, riskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, logger)
 
 	mux := http.NewServeMux()
 
@@ -127,6 +129,13 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 	mux.HandleFunc("POST /api/v1/assets", handler.CreateAsset)
 	mux.HandleFunc("GET /api/v1/assets/{id}", handler.GetAsset)
 	mux.HandleFunc("PATCH /api/v1/assets/{id}", handler.UpdateAsset)
+
+	// Entities v2 (resolution, provenance, state-aware traversal)
+	mux.HandleFunc("GET /api/v1/entities-v2/resolve", handler.ResolveEntitiesV2)
+	mux.HandleFunc("POST /api/v1/entities-v2/aliases", handler.LinkEntityAlias)
+	mux.HandleFunc("DELETE /api/v1/entities-v2/aliases", handler.UnlinkEntityAlias)
+	mux.HandleFunc("GET /api/v1/entities-v2/{type}/{value}", handler.GetEntityV2)
+	mux.HandleFunc("GET /api/v1/entities-v2/{type}/{value}/neighbors", handler.NeighborsV2)
 
 	// SOC overview & entity risk
 	mux.HandleFunc("GET /api/v1/soc/overview", handler.SOCOverview)

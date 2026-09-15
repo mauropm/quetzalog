@@ -26,7 +26,18 @@ type Config struct {
 	Auth          `yaml:"auth"`
 	Detections    `yaml:"detections"`
 	Assets        `yaml:"assets"`
+	Entities      `yaml:"entities"`
 	AIAnalyst     `yaml:"ai_analyst"`
+}
+
+// Entities configures v2 entity extraction/resolution on the write path.
+// When enabled, each event yields typed entity upserts (domain/url/email/
+// hash/file/process/user from attributes), host-ip alias candidates
+// (probable, never auto-confirmed) and observed relationship provenance.
+// Existing assets/graph data is read regardless; this flag gates only the
+// write-path enrichment.
+type Entities struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // Assets configures the asset inventory. When enabled, the first event
@@ -217,6 +228,9 @@ func DefaultConfig() Config {
 			Interval:  5 * time.Minute,
 		},
 		Assets: Assets{
+			Enabled: false,
+		},
+		Entities: Entities{
 			Enabled: false,
 		},
 		AIAnalyst: AIAnalyst{

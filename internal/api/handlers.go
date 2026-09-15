@@ -19,8 +19,10 @@ import (
 	"quetzalog/internal/auth"
 	"quetzalog/internal/config"
 	"quetzalog/internal/detections"
+	"quetzalog/internal/entities"
 	"quetzalog/internal/events"
 	"quetzalog/internal/findings"
+	"quetzalog/internal/graph"
 	"quetzalog/internal/incidents"
 	"quetzalog/internal/investigations"
 	"quetzalog/internal/query"
@@ -58,12 +60,14 @@ type Handler struct {
 	aiStore            *ai.Store
 	aiService          *ai.Service
 	assetsStore        *assets.Store
+	entitiesStore      *entities.Store
+	graphLayer         *graph.Graph
 	config             config.Config
 	logger             *slog.Logger
 }
 
 // NewHandler creates a new API handler with the given configuration and dependencies.
-func NewHandler(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, assetsStore *assets.Store, logger *slog.Logger) *Handler {
+func NewHandler(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, assetsStore *assets.Store, entitiesStore *entities.Store, graphLayer *graph.Graph, logger *slog.Logger) *Handler {
 	return &Handler{
 		store:              store,
 		alertStore:         alertStore,
@@ -78,6 +82,8 @@ func NewHandler(cfg config.Config, store *events.Store, searchSvc *query.Service
 		aiStore:            aiStore,
 		aiService:          aiService,
 		assetsStore:        assetsStore,
+		entitiesStore:      entitiesStore,
+		graphLayer:         graphLayer,
 		config:             cfg,
 		logger:             logger,
 	}

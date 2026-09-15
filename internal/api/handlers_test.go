@@ -23,8 +23,10 @@ import (
 	"quetzalog/internal/config"
 	"quetzalog/internal/database"
 	"quetzalog/internal/detections"
+	"quetzalog/internal/entities"
 	"quetzalog/internal/events"
 	"quetzalog/internal/findings"
+	"quetzalog/internal/graph"
 	"quetzalog/internal/incidents"
 	"quetzalog/internal/investigations"
 	"quetzalog/internal/query"
@@ -81,6 +83,8 @@ func newEnv(t *testing.T) *env {
 		aiStore,
 		aiService,
 		assets.NewStore(db),
+		entities.NewStore(db),
+		graph.NewGraph(db),
 		logger,
 	)
 	if err != nil {
@@ -533,7 +537,7 @@ func TestAPIAuthTokensEnforcedWhenConfigured(t *testing.T) {
 	h, err := api.SetupRouter(cfg,
 		ev, query.NewService(db), alerts.NewStore(db),
 		incidents.NewStore(db), detections.NewStore(db), fs, is, rs, rr,
-		auth.NewStore(db), aiS, aiSvc, assets.NewStore(db), logger)
+		auth.NewStore(db), aiS, aiSvc, assets.NewStore(db), entities.NewStore(db), graph.NewGraph(db), logger)
 	if err != nil {
 		t.Fatalf("setup router: %v", err)
 	}
@@ -559,4 +563,114 @@ func TestAPIAuthTokensEnforcedWhenConfigured(t *testing.T) {
 	if w.Code != 401 {
 		t.Errorf("bad token accepted %d", w.Code)
 	}
+}
+
+func TestEntitiesV2API(t *testing.T) {
+	e := newEnv(t)
+
+	// Seed hot entities + a v2 alias via the write-path resolver directly.
+	es := entities.NewStore(e.db)
+	g := graph.NewGraph(e.db)
+	_, _ = e.db.ExecContext(context.Background(), `INSERT INTO entities (id, type, value, first_seen, last_seen, count)
+		VALUES ('e1', 'ip', '203.0.113.42', '2026-01-01', '2026-01-02', 5)`)
+	_, _ = e.db.ExecContext(context.Background(), `INSERT INTO entities (id, type, value, first_seen, last_seen, count)
+		VALUES ('e2', 'host', 'WEB-42', '2026-01-01', '2026-01-02', 5)`)
+	_, _ = e.db.ExecContext(context.Background(), `INSERT INTO relationships (id, from_type, from_value, to_type, to_value, relation, weight, created_at)
+		VALUES ('r1', 'ip', '203.0.113.42', 'host', 'WEB-42', 'connected_to', 5, '2026-01-02')`)
+	_ = es.UpsertIdentity(context.Background(), entities.Identity{
+		CanonicalType: "host", CanonicalValue: "WEB-42",
+		AliasType: "ip", AliasValue: "203.0.113.42",
+		Status: "probable", Confidence: 0.8,
+	})
+	_ = es.UpsertRelationshipMeta(context.Background(), entities.RelationshipMeta{
+		FromType: "ip", FromValue: "203.0.113.42", ToType: "host", ToValue: "WEB-42",
+		Relation: "connected_to", Status: "observed", SourceType: "event", SourceID: "e1",
+	})
+
+	// Resolve: raw IP yields the value hit plus the host alias.
+	w, _ := do(e, "GET", "/api/v1/entities-v2/resolve?raw=203.0.113.42", nil, nil)
+	if w.Code != 200 {
+		t.Fatalf("resolve %d %s", w.Code, w.Body.String())
+	}
+	out := decodeBody(t, w)
+	cands, _ := out["data"].([]any)
+	if len(cands) != 2 {
+		t.Fatalf("resolve candidates: %v", out["data"])
+	}
+
+	// Resolve without raw -> 400.
+	w, _ = do(e, "GET", "/api/v1/entities-v2/resolve", nil, nil)
+	if w.Code != 400 {
+		t.Errorf("resolve missing raw: %d", w.Code)
+	}
+
+	// Detail: entity + alias + meta-less + relationships.
+	w, _ = do(e, "GET", "/api/v1/entities-v2/host/WEB-42", nil, nil)
+	if w.Code != 200 {
+		t.Fatalf("detail %d %s", w.Code, w.Body.String())
+	}
+	detail := decodeBody(t, w)["data"].(map[string]any)
+	if ent, _ := detail["entity"].(map[string]any); ent["value"] != "WEB-42" {
+		t.Errorf("detail entity: %v", ent)
+	}
+	if aliases, _ := detail["aliases"].([]any); len(aliases) != 1 {
+		t.Errorf("detail aliases: %v", detail["aliases"])
+	}
+	if rels, _ := detail["relationships"].([]any); len(rels) != 1 {
+		t.Errorf("detail relationships: %v", detail["relationships"])
+	}
+
+	// Neighbors: depth 1 shows the IP.
+	w, _ = do(e, "GET", "/api/v1/entities-v2/host/WEB-42/neighbors?depth=1", nil, nil)
+	if w.Code != 200 {
+		t.Fatalf("neighbors %d %s", w.Code, w.Body.String())
+	}
+	nodes := decodeBody(t, w)["data"].([]any)
+	if len(nodes) != 2 {
+		t.Errorf("neighbors: %v", nodes)
+	}
+
+	// Bad state filter value is ignored (falls back to no filter).
+	w, _ = do(e, "GET", "/api/v1/entities-v2/host/WEB-42/neighbors?depth=1&states=bogus", nil, nil)
+	if w.Code != 200 {
+		t.Errorf("neighbors bad states: %d", w.Code)
+	}
+
+	// Analyst link + unlink.
+	w, _ = do(e, "POST", "/api/v1/entities-v2/aliases", map[string]string{
+		"canonical_type": "host", "canonical_value": "WEB-42",
+		"alias_type": "fqdn", "alias_value": "web42.internal",
+	}, nil)
+	if w.Code != 200 {
+		t.Fatalf("link %d %s", w.Code, w.Body.String())
+	}
+	ids, _ := es.IdentitiesFor(context.Background(), "host", "WEB-42")
+	linked := false
+	for _, id := range ids {
+		if id.AliasValue == "web42.internal" && id.Status == "confirmed" {
+			linked = true
+		}
+	}
+	if !linked {
+		t.Errorf("analyst link not stored: %+v", ids)
+	}
+
+	w, _ = do(e, "DELETE", "/api/v1/entities-v2/aliases", map[string]string{
+		"canonical_type": "host", "canonical_value": "WEB-42",
+		"alias_type": "fqdn", "alias_value": "web42.internal",
+	}, nil)
+	if w.Code != 200 {
+		t.Fatalf("unlink %d %s", w.Code, w.Body.String())
+	}
+	if _, err := es.IdentitiesFor(context.Background(), "host", "WEB-42"); err != nil {
+		t.Errorf("identities after unlink: %v", err)
+	}
+
+	// Incomplete alias body -> 400.
+	w, _ = do(e, "POST", "/api/v1/entities-v2/aliases", map[string]string{"alias_type": "fqdn"}, nil)
+	if w.Code != 400 {
+		t.Errorf("incomplete link: %d", w.Code)
+	}
+
+	_ = g
 }

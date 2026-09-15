@@ -16,25 +16,31 @@ import (
 
 // Store persists events to a SQLite database with FTS5 full-text search support.
 type Store struct {
-	db       *sql.DB
-	graph    *correlation.Graph
-	observer func(*event.Event)
+	db        *sql.DB
+	graph     *correlation.Graph
+	observers []func(*event.Event)
 }
 
-// SetObserver registers a post-write observer invoked after each event is
-// persisted and correlated into the graph. The observer runs synchronously
-// in the write path and must be fast; failures are swallowed because a
-// side-car feature must never drop event data.
-func (s *Store) SetObserver(fn func(*event.Event)) {
-	s.observer = fn
+// AddObserver registers a post-write observer invoked after each event is
+// persisted and correlated into the graph. Observers run synchronously in
+// the write path and must be fast; failures are swallowed per observer
+// because a side-car feature must never drop event data.
+func (s *Store) AddObserver(fn func(*event.Event)) {
+	if fn != nil {
+		s.observers = append(s.observers, fn)
+	}
 }
 
 func (s *Store) observe(ev *event.Event) {
-	if s.observer == nil || ev == nil {
+	if ev == nil {
 		return
 	}
-	defer func() { _ = recover() }()
-	s.observer(ev)
+	for _, fn := range s.observers {
+		func() {
+			defer func() { _ = recover() }()
+			fn(ev)
+		}()
+	}
 }
 
 // ErrInvalidQuery indicates the caller supplied a query value that cannot be safely mapped to SQL.

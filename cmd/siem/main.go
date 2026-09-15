@@ -20,6 +20,7 @@ import (
 	"quetzalog/internal/ai"
 	"quetzalog/internal/alerts"
 	"quetzalog/internal/assets"
+	"quetzalog/internal/entities"
 	"quetzalog/internal/api"
 	"quetzalog/internal/auth"
 	"quetzalog/internal/config"
@@ -29,6 +30,7 @@ import (
 	"quetzalog/internal/enrichment"
 	"quetzalog/internal/events"
 	"quetzalog/internal/findings"
+	"quetzalog/internal/graph"
 	"quetzalog/internal/incidents"
 	"quetzalog/internal/ingestion"
 	"quetzalog/internal/ingestion/file"
@@ -239,13 +241,29 @@ func cmdServe(cfgFile string, debug bool) int {
 		// Observed-draft asset creation: the first event naming a host
 		// auto-creates a draft asset (synchronous, bounded, non-fatal —
 		// the events store swallows observer errors).
-		eventStore.SetObserver(func(ev *event.Event) {
+		eventStore.AddObserver(func(ev *event.Event) {
 			if ev == nil || ev.Host == "" {
 				return
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 			_, _, _ = assetsStore.Observe(ctx, "host", "host:"+ev.Host, ev.Host, "", ev.Timestamp)
+		})
+	}
+	entitiesStore := entities.NewStore(db)
+	graphLayer := graph.NewGraph(db)
+	if cfg.Entities.Enabled {
+		// V2 entity extraction/resolution on the write path: typed entity
+		// upserts, host-ip alias candidates, observed relationship
+		// provenance (synchronous, bounded, non-fatal).
+		resolver := entities.NewResolver(eventStore.Graph(), entitiesStore)
+		eventStore.AddObserver(func(ev *event.Event) {
+			if ev == nil {
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			resolver.FromEvent(ctx, ev)
 		})
 	}
 	// New findings materialized by the detection engine are offered to the
@@ -367,7 +385,7 @@ func cmdServe(cfgFile string, debug bool) int {
 	}
 
 	mux := http.NewServeMux()
-	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, logger)
+	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, logger)
 	if err != nil {
 		logger.Error("API setup failed", "error", err)
 		if debug {
