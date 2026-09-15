@@ -942,8 +942,15 @@ func (h *Handler) CreateDetection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if rule.Query == "" {
-		api.WriteJSON(w, http.StatusBadRequest, api.BadRequest("query is required"))
+	// query is required for the engine-driven kinds; state-machine kinds
+	// (sequence/correlation) and scenario/behavioral carry their logic in
+	// Definition instead.
+	kind := strings.ToLower(strings.TrimSpace(rule.Kind))
+	if kind == "" {
+		kind = "threshold"
+	}
+	if (kind == "threshold" || kind == "spl") && strings.TrimSpace(rule.Query) == "" {
+		api.WriteJSON(w, http.StatusBadRequest, api.BadRequest("query is required for "+kind+" rules"))
 		return
 	}
 

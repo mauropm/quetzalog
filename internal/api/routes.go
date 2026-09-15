@@ -101,6 +101,8 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 	mux.HandleFunc("PUT /api/v1/detections/{id}", handler.UpdateDetection)
 	mux.HandleFunc("DELETE /api/v1/detections/{id}", handler.DeleteDetection)
 	mux.HandleFunc("POST /api/v1/detections/{id}/exec", handler.ExecuteDetection)
+	mux.HandleFunc("POST /api/v1/detections/{id}/suppression", handler.SetDetectionSuppression)
+	mux.HandleFunc("GET /api/v1/detections/{id}/stats", handler.DetectionStats)
 
 	// Analyst Queue (findings)
 	mux.HandleFunc("GET /api/v1/findings", handler.ListFindings)
@@ -109,6 +111,8 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 	mux.HandleFunc("POST /api/v1/findings/{id}/notes", handler.AddFindingNote)
 	mux.HandleFunc("GET /api/v1/findings/{id}/events", handler.FindingEvents)
 	mux.HandleFunc("GET /api/v1/findings/{id}/risk", handler.FindingRisk)
+	mux.HandleFunc("POST /api/v1/findings/{id}/feedback", handler.AddFindingFeedback)
+	mux.HandleFunc("GET /api/v1/findings/{id}/feedback", handler.GetFindingFeedback)
 
 	// Saved queue views
 	mux.HandleFunc("GET /api/v1/saved-views", handler.ListSavedViews)

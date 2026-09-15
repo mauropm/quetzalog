@@ -706,7 +706,7 @@ func runDetectionScheduler(ctx context.Context, interval time.Duration, detectio
 				continue
 			}
 			for _, rule := range rules {
-				if !rule.Enabled {
+				if !rule.Enabled || rule.Suppressed {
 					continue
 				}
 				result, err := detectionStore.RunWithFindings(ctx, rule, eventStore, findingStore, riskStore)

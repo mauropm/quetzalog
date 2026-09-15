@@ -39,6 +39,27 @@ type DetectionRule struct {
 	DataSources      []string   `json:"data_sources"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
+
+	// v2 (migration 018): kind-specific semantics + explainability +
+	// analyst control. Legacy rows scan as kind="threshold", version 1.
+	Kind                 string    `json:"kind"`
+	Confidence           float64   `json:"confidence"`
+	MITRETechniques      []string  `json:"mitre_techniques,omitempty"`
+	TacticIDs            []string  `json:"tactic_ids,omitempty"`
+	RequiredSources      []string  `json:"required_sources,omitempty"`
+	FalsePositiveNotes   string    `json:"fp_notes,omitempty"`
+	References           []string  `json:"references,omitempty"`
+	ResponseActions      []string  `json:"response_actions,omitempty"`
+	// Definition holds kind-specific structure (sequence steps,
+	// correlation conditions, scenario refs) as JSON.
+	Definition           json.RawMessage `json:"definition,omitempty"`
+	Version              int       `json:"version"`
+	TestEvents           []string  `json:"test_events,omitempty"`
+	LastRunAt            time.Time `json:"last_run_at,omitempty"`
+	// Explicit analyst suppression — never implicit (spec §55).
+	Suppressed           bool      `json:"suppressed"`
+	SuppressedBy         string    `json:"suppressed_by,omitempty"`
+	SuppressReason       string    `json:"suppress_reason,omitempty"`
 }
 
 // Threshold defines the counting window for a detection rule.
@@ -124,9 +145,20 @@ func (s *Store) Create(ctx context.Context, rule *DetectionRule) error {
 		groupBy = strings.Join(rule.GroupBy, ",")
 	}
 
+	kind := strings.TrimSpace(rule.Kind)
+	if kind == "" {
+		kind = "threshold"
+	}
+	version := rule.Version
+	if version <= 0 {
+		version = 1
+	}
+
 	query := `INSERT INTO detection_rules (id, name, description, query, severity, enabled, threshold_count, threshold_window, group_by,
-	          risk_score, tags, mitre_tactic, mitre_technique, schedule_seconds, created_by, data_sources, created_at, updated_at)
-	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	          risk_score, tags, mitre_tactic, mitre_technique, schedule_seconds, created_by, data_sources, created_at, updated_at,
+	          kind, confidence, mitre_techniques, tactic_ids, required_sources, fp_notes, reference_links, response_actions,
+	          definition, version, test_events, suppressed, suppressed_by, suppress_reason)
+	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	_, err := s.db.ExecContext(ctx, query,
 		rule.ID,
 		rule.Name,
@@ -146,10 +178,26 @@ func (s *Store) Create(ctx context.Context, rule *DetectionRule) error {
 		encodeStringList(rule.DataSources),
 		rule.CreatedAt,
 		rule.UpdatedAt,
+		kind,
+		rule.Confidence,
+		encodeStringList(rule.MITRETechniques),
+		encodeStringList(rule.TacticIDs),
+		encodeStringList(rule.RequiredSources),
+		rule.FalsePositiveNotes,
+		encodeStringList(rule.References),
+		encodeStringList(rule.ResponseActions),
+		definitionString(rule.Definition),
+		version,
+		encodeStringList(rule.TestEvents),
+		rule.Suppressed,
+		rule.SuppressedBy,
+		rule.SuppressReason,
 	)
 	if err != nil {
 		return fmt.Errorf("create detection rule: %w", err)
 	}
+	rule.Kind = kind
+	rule.Version = version
 
 	return nil
 }
@@ -173,8 +221,11 @@ func (s *Store) GetByID(ctx context.Context, id string) (*DetectionRule, error) 
 }
 
 const ruleSelectSQL = `SELECT id, name, description, query, severity, enabled, threshold_count, threshold_window, group_by,
-       risk_score, tags, mitre_tactic, mitre_technique, schedule_seconds, created_by, data_sources,
-       created_at, updated_at FROM detection_rules`
+        risk_score, tags, mitre_tactic, mitre_technique, schedule_seconds, created_by, data_sources,
+        created_at, updated_at,
+        kind, confidence, mitre_techniques, tactic_ids, required_sources, fp_notes, reference_links,
+        response_actions, definition, version, test_events, last_run_at,
+        suppressed, suppressed_by, suppress_reason FROM detection_rules`
 
 // rowScanner is the common sql.Row/sql.Rows Scan interface.
 type rowScanner interface {
@@ -188,6 +239,11 @@ func scanDetectionRule(row rowScanner) (*DetectionRule, error) {
 	var groupBy, tags, tactic, technique, createdBy, dataSources sql.NullString
 	var riskScore sql.NullFloat64
 	var scheduleSeconds sql.NullInt64
+	var kind, conf, mitreTechs, tacticIDs, reqSources, fpNotes, refs, respActs, definition, testEvents sql.NullString
+	var version sql.NullInt64
+	var lastRunAt sql.NullTime
+	var suppressed sql.NullInt64
+	var suppressedBy, suppressReason sql.NullString
 
 	err := row.Scan(
 		&rule.ID,
@@ -208,6 +264,21 @@ func scanDetectionRule(row rowScanner) (*DetectionRule, error) {
 		&dataSources,
 		&rule.CreatedAt,
 		&rule.UpdatedAt,
+		&kind,
+		&conf,
+		&mitreTechs,
+		&tacticIDs,
+		&reqSources,
+		&fpNotes,
+		&refs,
+		&respActs,
+		&definition,
+		&version,
+		&testEvents,
+		&lastRunAt,
+		&suppressed,
+		&suppressedBy,
+		&suppressReason,
 	)
 	if err != nil {
 		return nil, err
@@ -235,6 +306,36 @@ func scanDetectionRule(row rowScanner) (*DetectionRule, error) {
 		rule.GroupBy = strings.Split(groupBy.String, ",")
 	}
 
+	rule.Kind = kind.String
+	if rule.Kind == "" {
+		rule.Kind = "threshold"
+	}
+	if conf.Valid {
+		if c, err := strconv.ParseFloat(conf.String, 64); err == nil {
+			rule.Confidence = c
+		}
+	}
+	rule.MITRETechniques = decodeStringList(mitreTechs.String)
+	rule.TacticIDs = decodeStringList(tacticIDs.String)
+	rule.RequiredSources = decodeStringList(reqSources.String)
+	rule.FalsePositiveNotes = fpNotes.String
+	rule.References = decodeStringList(refs.String)
+	rule.ResponseActions = decodeStringList(respActs.String)
+	rule.Definition = json.RawMessage(definition.String)
+	rule.Version = int(version.Int64)
+	if rule.Version <= 0 {
+		rule.Version = 1
+	}
+	rule.TestEvents = decodeStringList(testEvents.String)
+	if lastRunAt.Valid {
+		rule.LastRunAt = lastRunAt.Time
+	}
+	if suppressed.Valid {
+		rule.Suppressed = suppressed.Int64 != 0
+	}
+	rule.SuppressedBy = suppressedBy.String
+	rule.SuppressReason = suppressReason.String
+
 	return rule, nil
 }
 
@@ -261,7 +362,8 @@ func (s *Store) List(ctx context.Context) ([]*DetectionRule, error) {
 	return rules, nil
 }
 
-// Update updates an existing detection rule.
+// Update updates an existing detection rule, persisting ALL columns
+// (legacy Update() only wrote 8 of them — debt #8).
 func (s *Store) Update(ctx context.Context, rule *DetectionRule) error {
 	if rule == nil {
 		return fmt.Errorf("nil detection rule provided")
@@ -270,6 +372,14 @@ func (s *Store) Update(ctx context.Context, rule *DetectionRule) error {
 		return fmt.Errorf("empty detection rule ID")
 	}
 	rule.UpdatedAt = time.Now()
+
+	kind := strings.TrimSpace(rule.Kind)
+	if kind == "" {
+		kind = "threshold"
+	}
+	if rule.Version <= 0 {
+		rule.Version = 1
+	}
 
 	thresholdWindow := sql.NullString{String: "300s", Valid: true}
 	thresholdCount := sql.NullInt64{Int64: 1, Valid: true}
@@ -284,7 +394,13 @@ func (s *Store) Update(ctx context.Context, rule *DetectionRule) error {
 	}
 
 	query := `UPDATE detection_rules SET name = ?, description = ?, query = ?, severity = ?, enabled = ?,
-	          threshold_count = ?, threshold_window = ?, group_by = ?, updated_at = ? WHERE id = ?`
+	          threshold_count = ?, threshold_window = ?, group_by = ?,
+	          risk_score = ?, tags = ?, mitre_tactic = ?, mitre_technique = ?,
+	          schedule_seconds = ?, created_by = ?, data_sources = ?, updated_at = ?,
+	          kind = ?, confidence = ?, mitre_techniques = ?, tactic_ids = ?, required_sources = ?,
+	          fp_notes = ?, reference_links = ?, response_actions = ?, definition = ?, version = ?,
+	          test_events = ?, suppressed = ?, suppressed_by = ?, suppress_reason = ?
+	          WHERE id = ?`
 	_, err := s.db.ExecContext(ctx, query,
 		rule.Name,
 		rule.Description,
@@ -294,13 +410,81 @@ func (s *Store) Update(ctx context.Context, rule *DetectionRule) error {
 		thresholdCount,
 		thresholdWindow,
 		groupBy,
+		rule.RiskScore,
+		encodeStringList(rule.Tags),
+		rule.MITRETactic,
+		rule.MITRETechnique,
+		rule.ScheduleSeconds,
+		rule.CreatedBy,
+		encodeStringList(rule.DataSources),
 		rule.UpdatedAt,
+		kind,
+		rule.Confidence,
+		encodeStringList(rule.MITRETechniques),
+		encodeStringList(rule.TacticIDs),
+		encodeStringList(rule.RequiredSources),
+		rule.FalsePositiveNotes,
+		encodeStringList(rule.References),
+		encodeStringList(rule.ResponseActions),
+		definitionString(rule.Definition),
+		rule.Version,
+		encodeStringList(rule.TestEvents),
+		rule.Suppressed,
+		rule.SuppressedBy,
+		rule.SuppressReason,
 		rule.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update detection rule: %w", err)
 	}
 
+	return nil
+}
+
+// Suppress explicitly suppresses a rule. Suppression is always analyst
+// action with a reason — never implicit (spec §55). Suppressed rules are
+// skipped by the scheduler and by RunWithFindings.
+func (s *Store) Suppress(ctx context.Context, id, analyst, reason string) error {
+	if id == "" {
+		return fmt.Errorf("empty detection rule ID")
+	}
+	if strings.TrimSpace(reason) == "" {
+		return fmt.Errorf("suppression reason is required")
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE detection_rules SET suppressed = 1, suppressed_by = ?, suppress_reason = ?, updated_at = ? WHERE id = ?`,
+		analyst, reason, time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("suppress detection rule: %w", err)
+	}
+	return nil
+}
+
+// Unsuppress lifts an explicit suppression.
+func (s *Store) Unsuppress(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("empty detection rule ID")
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE detection_rules SET suppressed = 0, suppressed_by = '', suppress_reason = '', updated_at = ? WHERE id = ?`,
+		time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("unsuppress detection rule: %w", err)
+	}
+	return nil
+}
+
+// MarkRun records the time a rule last executed (incremental runs query
+// from last_run_at − overlap forward).
+func (s *Store) MarkRun(ctx context.Context, id string, ts time.Time) error {
+	if id == "" {
+		return fmt.Errorf("empty detection rule ID")
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE detection_rules SET last_run_at = ? WHERE id = ?`, ts.UTC(), id)
+	if err != nil {
+		return fmt.Errorf("mark detection run: %w", err)
+	}
 	return nil
 }
 
@@ -341,6 +525,12 @@ func (s *Store) setEnabled(ctx context.Context, id string, enabled bool) error {
 	}
 
 	return nil
+}
+
+// definitionString renders a Definition payload as TEXT (empty when unset,
+// never NULL — the column is NOT NULL).
+func definitionString(d json.RawMessage) string {
+	return string(d)
 }
 
 func encodeStringList(list []string) string {
@@ -449,6 +639,36 @@ func (s *Store) RunWithFindings(ctx context.Context, rule *DetectionRule, evStor
 
 	start := time.Now()
 
+	// The database is the source of truth for rule state (suppression,
+	// enabled, kind, query). Reload when the rule is persisted so a stale
+	// in-memory copy (e.g. from a batch) cannot bypass suppression.
+	if rule.ID != "" {
+		if fresh, err := s.GetByID(ctx, rule.ID); err == nil {
+			rule = fresh
+		}
+	}
+
+	// Suppressed rules never run — suppression is explicit and total
+	// (spec §55). The scheduler also skips them.
+	if rule.Suppressed {
+		return &FindingRunResult{Duration: 0}, nil
+	}
+
+	// Kind dispatch: SPL rules run through the full pipeline; everything
+	// else uses the legacy threshold engine (kind "threshold" default).
+	if strings.EqualFold(rule.Kind, "spl") {
+		db := evStore.DB()
+		rangeStart, rangeEnd := runTimeRange(rule)
+		res, err := s.runSPLRule(ctx, rule, db, findingStore, riskStore, rangeStart, rangeEnd)
+		if err != nil {
+			return nil, err
+		}
+		if rule.ID != "" {
+			_ = s.MarkRun(ctx, rule.ID, time.Now())
+		}
+		return res, nil
+	}
+
 	evQuery, err := parseDetectionQuery(rule)
 	if err != nil {
 		return nil, fmt.Errorf("parse detection query: %w", err)
@@ -466,6 +686,9 @@ func (s *Store) RunWithFindings(ctx context.Context, rule *DetectionRule, evStor
 
 	if hasThreshold && total == 0 {
 		result.Duration = time.Since(start)
+		if rule.ID != "" {
+			_ = s.MarkRun(ctx, rule.ID, time.Now())
+		}
 		return result, nil
 	}
 
@@ -509,6 +732,9 @@ func (s *Store) RunWithFindings(ctx context.Context, rule *DetectionRule, evStor
 	} else {
 		if hasThreshold && total < threshold.Count {
 			result.Duration = time.Since(start)
+			if rule.ID != "" {
+				_ = s.MarkRun(ctx, rule.ID, time.Now())
+			}
 			return result, nil
 		}
 		sample := evts
@@ -527,7 +753,32 @@ func (s *Store) RunWithFindings(ctx context.Context, rule *DetectionRule, evStor
 	}
 
 	result.Duration = time.Since(start)
+	if rule.ID != "" {
+		_ = s.MarkRun(ctx, rule.ID, time.Now())
+	}
 	return result, nil
+}
+
+// runTimeRange computes the incremental run range for kind=spl rules:
+// [last_run_at − (window + 2m skew), now], falling back to [now−window, now]
+// when the rule has never run (spec §1.2: incremental, no full-history scans).
+func runTimeRange(rule *DetectionRule) (time.Time, time.Time) {
+	window := 24 * time.Hour
+	if rule.Threshold != nil && rule.Threshold.Window != "" {
+		if w, err := parseDetectionWindow(rule.Threshold.Window); err == nil && w > 0 {
+			window = w
+		}
+	}
+	now := time.Now().UTC()
+	if rule.LastRunAt.IsZero() {
+		return now.Add(-window), now
+	}
+	overlap := window + 2*time.Minute
+	start := rule.LastRunAt.Add(-overlap)
+	if start.After(now.Add(-window)) {
+		start = now.Add(-window)
+	}
+	return start, now
 }
 
 // upsertFinding creates or refreshes one finding for a detection group and
@@ -643,7 +894,9 @@ func parseDetectionQuery(rule *DetectionRule) (*events.Query, error) {
 	// Parse the base query for fields like source=..., event_type=...
 	q = parseBaseQuery(baseQuery)
 
-	// If there's a threshold window, apply time constraints
+	// If there's a threshold window, apply time constraints. Incremental
+	// runs extend the start back to last_run_at − (window + 2m skew) so a
+	// slower-than-schedule run does not drop events from the overlap zone.
 	if rule.Threshold != nil && rule.Threshold.Window != "" {
 		window, err := parseDetectionWindow(rule.Threshold.Window)
 		if err != nil {
@@ -652,6 +905,11 @@ func parseDetectionQuery(rule *DetectionRule) (*events.Query, error) {
 		now := time.Now().UTC()
 		q.End = now
 		q.Start = now.Add(-window)
+		if !rule.LastRunAt.IsZero() {
+			if incStart := rule.LastRunAt.Add(-(window + 2*time.Minute)); incStart.Before(q.Start) {
+				q.Start = incStart
+			}
+		}
 	}
 
 	return &q, nil

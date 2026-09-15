@@ -219,6 +219,12 @@ func (s *Store) CreateOrUpdateFromDetection(ctx context.Context, args FromDetect
 		addEntity("process", ev.Process)
 	}
 
+	for _, e := range args.Entities {
+		if e != "" {
+			ents[e] = true
+		}
+	}
+
 	entityList := make([]string, 0, len(ents))
 	for k := range ents {
 		entityList = append(entityList, k)
@@ -313,6 +319,10 @@ type FromDetectionArgs struct {
 	Tags           []string
 	Matched        int
 	Events         []*event.Event
+	// Entities are pre-computed entity refs (e.g. "user:alice") merged into
+	// the finding alongside entities derived from Events. Used by detection
+	// kinds whose evidence is query rows rather than raw events.
+	Entities       []string
 }
 
 // ByDedupKey finds the finding for a detection group, or nil.
