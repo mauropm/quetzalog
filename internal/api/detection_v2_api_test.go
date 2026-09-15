@@ -181,6 +181,54 @@ func TestCatalogEndpoints(t *testing.T) {
 	}
 }
 
+func TestAttackGraphEndpoints(t *testing.T) {
+	e := newEnv(t)
+
+	// Seed an asset + relationships: external ip → internal host.
+	if _, err := e.db.Exec(`INSERT INTO relationships (id, from_type, from_value, to_type, to_value, relation)
+		VALUES ('r1', 'ip', '1.2.3.4', 'host', 'web-1', 'connects_to')`); err != nil {
+		t.Fatalf("seed relationship: %v", err)
+	}
+	if _, err := e.db.Exec(`INSERT INTO relationship_meta
+		(from_type, from_value, to_type, to_value, relation, status, source_type, source_id, first_seen, last_seen, evidence)
+		VALUES ('ip', '1.2.3.4', 'host', 'web-1', 'connects_to', 'observed', 'event', 'ev-1', datetime('now'), datetime('now'), '[]')`); err != nil {
+		t.Fatalf("seed meta: %v", err)
+	}
+
+	w, _ := do(e, "GET", "/api/v1/attack-graph?depth=2", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("attack-graph status %d: %s", w.Code, w.Body.String())
+	}
+	out := decodeBody(t, w)
+	data, _ := out["data"].(map[string]any)
+	if data == nil || data["generated_at"] == nil {
+		t.Errorf("snapshot missing generated_at: %v", out)
+	}
+	if nodes, _ := data["nodes"].([]any); len(nodes) == 0 {
+		t.Errorf("snapshot has no nodes")
+	}
+
+	w, _ = do(e, "GET", "/api/v1/attack-graph/paths", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("paths status %d: %s", w.Code, w.Body.String())
+	}
+
+	w, _ = do(e, "GET", "/api/v1/attack-graph/paths/nope", nil, nil)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("missing path status %d, want 404", w.Code)
+	}
+
+	w, _ = do(e, "GET", "/api/v1/attack-graph/nodes/host/web-1/what-next", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("what-next status %d: %s", w.Code, w.Body.String())
+	}
+	out = decodeBody(t, w)
+	data, _ = out["data"].(map[string]any)
+	if data == nil || data["node"] != "host:web-1" {
+		t.Errorf("what-next node: %v", data)
+	}
+}
+
 func TestScenarioEndpoints(t *testing.T) {
 	e := newEnv(t)
 

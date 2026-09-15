@@ -21,6 +21,7 @@ import (
 	"quetzalog/internal/alerts"
 	"quetzalog/internal/api"
 	"quetzalog/internal/assets"
+	"quetzalog/internal/attackgraph"
 	"quetzalog/internal/auth"
 	"quetzalog/internal/config"
 	"quetzalog/internal/correlation"
@@ -397,6 +398,20 @@ func cmdServe(cfgFile string, debug bool) int {
 			}
 		}()
 	}
+	// Attack graph: hourly recompute of compromise state + materialized
+	// attack paths (attack-graph.md §2).
+	go func() {
+		ag := attackgraph.NewBuilder(db, assetsStore, coverageStore, logger)
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for range t.C {
+			if n, err := ag.Recompute(context.Background()); err != nil {
+				logger.Warn("attack graph recompute", "error", err)
+			} else if n > 0 {
+				logger.Info("attack graph recompute", "paths", n)
+			}
+		}
+	}()
 	if cfg.ThreatIntelligence.Enabled {
 		// Indicator enrichment: bounded async queue matching event values
 		// against the indicator store (never blocks ingestion).

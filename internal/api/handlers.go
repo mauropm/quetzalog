@@ -16,6 +16,7 @@ import (
 	"quetzalog/internal/ai"
 	"quetzalog/internal/alerts"
 	"quetzalog/internal/assets"
+	"quetzalog/internal/attackgraph"
 	"quetzalog/internal/auth"
 	"quetzalog/internal/config"
 	"quetzalog/internal/coverage"
@@ -71,6 +72,7 @@ type Handler struct {
 	mitreMapper        *mitre.Mapper
 	correlationEngine  *detections.CorrelationEngine
 	scenarioEvaluator  *detections.ScenarioEvaluator
+	attackGraph        *attackgraph.Builder
 	config             config.Config
 	logger             *slog.Logger
 }
@@ -99,6 +101,7 @@ func NewHandler(cfg config.Config, store *events.Store, searchSvc *query.Service
 		mitreMapper:        mitreMapper,
 		correlationEngine:  correlationEngine,
 		scenarioEvaluator:  scenarioEvaluator,
+		attackGraph:        attackgraph.NewBuilder(store.DB(), assetsStore, nil, logger),
 		config:             cfg,
 		logger:             logger,
 	}
