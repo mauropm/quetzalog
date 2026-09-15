@@ -97,6 +97,15 @@ func TestSyslogUDP_RFC3164(t *testing.T) {
 	if ev.Severity != "notice" && ev.Severity != "info" {
 		t.Errorf("severity mapping: got %q (want notice/info)", ev.Severity)
 	}
+	if string(ev.Raw) != msg {
+		t.Errorf("raw payload not preserved: got %q", string(ev.Raw))
+	}
+	if ev.RawFormat != "syslog" {
+		t.Errorf("raw_format: got %q", ev.RawFormat)
+	}
+	if ev.Attributes["parser"] != "syslog3164" {
+		t.Errorf("parser provenance: got %v", ev.Attributes["parser"])
+	}
 }
 
 func TestSyslogTCP_RFC5424(t *testing.T) {

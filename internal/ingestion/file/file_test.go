@@ -120,6 +120,18 @@ func TestTail_JSONFile(t *testing.T) {
 	if ev.Attributes == nil || ev.Attributes["custom_field"] != "xx" {
 		t.Errorf("json extra attributes dropped: %#v", ev.Attributes)
 	}
+	if !strings.Contains(string(ev.Raw), "disk almost full") {
+		t.Errorf("raw line not preserved: %q", string(ev.Raw))
+	}
+	if ev.RawFormat != "ndjson" {
+		t.Errorf("raw_format: got %q", ev.RawFormat)
+	}
+	if ev.Attributes["parser"] != "file-json" {
+		t.Errorf("parser provenance: got %v", ev.Attributes["parser"])
+	}
+	if ev.Attributes["collector"] != "j" {
+		t.Errorf("collector provenance: got %v", ev.Attributes["collector"])
+	}
 }
 
 func TestTail_SyslogLineMessageNotEmpty(t *testing.T) {
@@ -146,6 +158,12 @@ func TestTail_SyslogLineMessageNotEmpty(t *testing.T) {
 			rfc3164++
 			if ev.Host != "server01" {
 				t.Errorf("rfc3164 host: %q", ev.Host)
+			}
+			if ev.Attributes["parser"] != "file-syslog" {
+				t.Errorf("file-syslog parser provenance: got %v", ev.Attributes["parser"])
+			}
+			if string(ev.Raw) == "" {
+				t.Error("raw line not preserved for file syslog")
 			}
 		}
 		if strings.Contains(ev.Message, "403") {

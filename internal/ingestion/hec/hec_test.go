@@ -109,6 +109,15 @@ func TestHECSingleEvent(t *testing.T) {
 	if list[0].Timestamp.Year() != 2025 {
 		t.Errorf("unix time mapping produced %v", list[0].Timestamp)
 	}
+	if string(list[0].Raw) != body {
+		t.Errorf("raw payload not preserved: got %q", string(list[0].Raw))
+	}
+	if list[0].RawFormat != "json" {
+		t.Errorf("raw_format: got %q", list[0].RawFormat)
+	}
+	if list[0].Attributes["parser"] != "hec" {
+		t.Errorf("parser provenance: got %v", list[0].Attributes["parser"])
+	}
 }
 
 func TestHECBatch(t *testing.T) {

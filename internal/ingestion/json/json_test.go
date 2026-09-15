@@ -77,6 +77,21 @@ func TestJSONSingleIngest(t *testing.T) {
 	n, _ := store.Count(context.Background(), events.Query{})
 	if n != 1 {
 		t.Errorf("event not persisted: %d", n)
+		return
+	}
+	list, err := store.Search(context.Background(), events.Query{Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev := list[0]
+	if !strings.Contains(string(ev.Raw), "single event") {
+		t.Errorf("raw payload not preserved: %q", string(ev.Raw))
+	}
+	if ev.RawFormat != "json" {
+		t.Errorf("raw_format: got %q", ev.RawFormat)
+	}
+	if ev.Attributes["parser"] != "json" {
+		t.Errorf("parser provenance: got %v", ev.Attributes["parser"])
 	}
 }
 

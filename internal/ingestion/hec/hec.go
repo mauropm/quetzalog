@@ -1,6 +1,7 @@
 package hec
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -190,7 +191,7 @@ func (h *Handler) handleHECSingle(body []byte, r *http.Request, token string) (H
 		}
 	}
 
-	ev := hhecToEvent(hecEvent)
+	ev := hhecToEvent(hecEvent, bytes.Clone(body))
 	ev.ReceivedAt = time.Now()
 
 	ctx := r.Context()
@@ -218,7 +219,11 @@ func (h *Handler) handleHECBatch(body []byte, r *http.Request, token string) (HE
 	var errorMessages []string
 
 	for i, hecEvent := range batch.Events {
-		ev := hhecToEvent(hecEvent)
+		raw := body
+		if data, err := json.Marshal(hecEvent); err == nil {
+			raw = data
+		}
+		ev := hhecToEvent(hecEvent, raw)
 		ev.ReceivedAt = time.Now()
 
 		ctx := r.Context()
@@ -258,6 +263,7 @@ func (h *Handler) handleRaw(w http.ResponseWriter, r *http.Request, token string
 	ev.SourceType = "hec_raw"
 	ev.Source = "hec_raw_ingest"
 	ev.ReceivedAt = time.Now()
+	event.Provenance(ev, nil, "", "plain", "1", "hec")
 
 	ctx := r.Context()
 	if err := h.pipeline.Ingest(ctx, ev); err != nil {
@@ -271,8 +277,9 @@ func (h *Handler) handleRaw(w http.ResponseWriter, r *http.Request, token string
 	return nil
 }
 
-// hhecToEvent converts a HECEvent to an event.Event.
-func hhecToEvent(hec HECEvent) *event.Event {
+// hhecToEvent converts a HECEvent to an event.Event. raw is the per-event
+// JSON payload (the request body for single events).
+func hhecToEvent(hec HECEvent, raw []byte) *event.Event {
 	ev := event.NewEvent()
 
 	// Parse time if provided
@@ -323,6 +330,10 @@ func hhecToEvent(hec HECEvent) *event.Event {
 	if hec.Index != "" {
 		ev.Service = hec.Index
 	}
+
+	// Provenance is stamped after payload copy so a payload that happens to
+	// carry "parser" keys cannot override the system-level fact.
+	event.Provenance(ev, raw, "json", "hec", "1", "hec")
 
 	return ev
 }

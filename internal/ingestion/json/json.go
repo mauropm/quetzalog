@@ -88,7 +88,7 @@ func (h *IngestHandler) handleSingle(body []byte, w http.ResponseWriter, r *http
 		return errorResponse(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 	}
 
-	ev := h.parseEvent(req)
+	ev := h.parseEvent(req, bytes.Clone(body))
 	ev.ReceivedAt = time.Now()
 
 	ctx := r.Context()
@@ -119,7 +119,13 @@ func (h *IngestHandler) handleBatch(body []byte, w http.ResponseWriter, r *http.
 	var errs []Error
 
 	for i, ev := range req.Events {
-		event := h.parseEvent(ev)
+		raw := body
+		if data, err := json.Marshal(ev); err == nil {
+			// Batches carry the whole request; keep the per-event JSON
+			// object as this event's raw payload.
+			raw = data
+		}
+		event := h.parseEvent(ev, raw)
 		event.ReceivedAt = time.Now()
 
 		if err := h.pipeline.Ingest(ctx, event); err != nil {
@@ -134,8 +140,9 @@ func (h *IngestHandler) handleBatch(body []byte, w http.ResponseWriter, r *http.
 	return writeJSON(w, http.StatusAccepted, resp)
 }
 
-// parseEvent converts a RequestBody into an event.Event.
-func (h *IngestHandler) parseEvent(body RequestBody) *event.Event {
+// parseEvent converts a RequestBody into an event.Event. raw is the
+// per-event JSON payload (the request body for single events).
+func (h *IngestHandler) parseEvent(body RequestBody, raw []byte) *event.Event {
 	ev := event.NewEvent()
 
 	if body.Timestamp != "" {
@@ -158,6 +165,8 @@ func (h *IngestHandler) parseEvent(body RequestBody) *event.Event {
 	if len(body.Attributes) > 0 {
 		ev.Attributes = body.Attributes
 	}
+
+	event.Provenance(ev, raw, "json", "json", "1", "json")
 
 	return ev
 }

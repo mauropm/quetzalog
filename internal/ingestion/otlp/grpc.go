@@ -12,6 +12,7 @@ import (
 	pb "go.opentelemetry.io/proto/otlp/logs/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"quetzalog/internal/ingestion"
 	"quetzalog/pkg/event"
@@ -183,6 +184,13 @@ func (s *GRPCServer) logToEvent(rl *pb.ResourceLogs, sl *pb.ScopeLogs, logRecord
 		if s, ok := cat.(string); ok {
 			ev.Category = s
 		}
+	}
+
+	// Preserve the record itself as raw evidence (canonical JSON).
+	if data, err := protojson.Marshal(logRecord); err == nil {
+		event.Provenance(ev, data, "json", "otlp-grpc", "1", "otlp-grpc")
+	} else {
+		event.Provenance(ev, []byte(logRecord.String()), "protobuf-text", "otlp-grpc", "1", "otlp-grpc")
 	}
 
 	return ev

@@ -181,17 +181,20 @@ func (r *Receiver) processMessage(msg string) *event.Event {
 	// Try RFC5424 first
 	if m := rfc5424Regex.FindStringSubmatch(msg); m != nil {
 		r.fillFromSyslog(ev, m, 2)
+		event.Provenance(ev, []byte(msg), "syslog", "syslog5424", "1", "syslog")
 		return ev
 	}
 
 	// Fall back to RFC3164
 	if m := rfc3164Regex.FindStringSubmatch(msg); m != nil {
 		r.fillFromSyslog(ev, m, 1)
+		event.Provenance(ev, []byte(msg), "syslog", "syslog3164", "1", "syslog")
 		return ev
 	}
 
 	// Unparseable syslog: use raw message
 	ev.Message = msg
+	event.Provenance(ev, []byte(msg), "syslog", "generic", "1", "syslog")
 	return ev
 }
 

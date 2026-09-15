@@ -213,6 +213,8 @@ func (i *Ingestor) processLine(line string, source Source) *event.Event {
 	ev.ReceivedAt = time.Now()
 	ev.SourceType = fmt.Sprintf("file:%s", source.Format)
 
+	event.Provenance(ev, []byte(line), fileProvenance(source.Format), "file-"+source.Format, "1", source.Name)
+
 	switch source.Format {
 	case "json":
 		return i.parseJSONLine(line, ev)
@@ -371,6 +373,18 @@ func (i *Ingestor) parseRegexLine(line string, source Source, ev *event.Event) *
 func (i *Ingestor) parsePlainLine(line string, ev *event.Event) *event.Event {
 	ev.Message = line
 	return ev
+}
+
+// fileProvenance maps a file source format to its raw-format label.
+func fileProvenance(format string) string {
+	switch format {
+	case "json":
+		return "ndjson"
+	case "syslog":
+		return "syslog"
+	default:
+		return "text"
+	}
 }
 
 // syslogParserResult holds the parsed result of a syslog message.

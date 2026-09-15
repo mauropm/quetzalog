@@ -256,6 +256,13 @@ func (h *Handler) logRecordToEvent(lr OTLPLogRecord, resourceAttrs map[string]an
 		}
 	}
 
+	// Preserve the record itself as raw evidence.
+	if data, err := json.Marshal(lr); err == nil {
+		event.Provenance(ev, data, "json", "otlp-json", "1", "otlp")
+	} else {
+		event.Provenance(ev, nil, "", "otlp-json", "1", "otlp")
+	}
+
 	return ev
 }
 
