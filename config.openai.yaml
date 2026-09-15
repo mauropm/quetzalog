@@ -1,0 +1,45 @@
+# Quetzalog configuration — generic OpenAI-compatible LLM on localhost.
+#
+# Start the server with this file:
+#   ./quetzalog serve --config config.openai.yaml
+#
+# Works with any OpenAI-compatible server on this machine: vLLM, Ollama
+# (its /v1 API), llama.cpp server, LM Studio, ... Adjust `endpoint` to
+# your server's port and `model` to an id the server actually serves
+# (use the "Fetch models" button in Settings → AI Analyst to list them).
+
+ai_analyst:
+  enabled: true
+
+  provider: "openai-compatible"
+
+  # Local model server root. A bare root (no /v1) is auto-detected: if
+  # the root's /models 404s, the app retries under /v1 and pins it.
+  #   vLLM / llama.cpp / LM Studio:  http://127.0.0.1:8000
+  #   Ollama:                        http://127.0.0.1:11434
+  endpoint: "http://127.0.0.1:8000"
+
+  # Leave empty for unauthenticated local servers. For servers that
+  # require a key, use env expansion instead of hardcoding it:
+  #   export AI_ANALYST_API_KEY="sk-..."
+  #   api_key: "${AI_ANALYST_API_KEY}"
+  api_key: ""
+
+  # OpenCode only — not used by this provider.
+  username: ""
+
+  # Replace with a model id your server offers, e.g. "qwen3.8",
+  # "llama3.1:8b" (Ollama) or "gpt-4o-mini".
+  model: "local-model"
+
+  # Automatic analysis only considers findings at/above this severity.
+  minimum_severity: "medium"
+
+  # Cost/latency controls.
+  max_requests_per_minute: 10
+  # Per model call. Local models are slow: with a full context a quantized
+  # 27B model can need 2-4 minutes — keep this high.
+  timeout_seconds: 300
+  # Surrounding events included in the analyst context.
+  max_context_events: 50
+  retry_count: 1

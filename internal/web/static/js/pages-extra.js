@@ -774,7 +774,8 @@
           '<div class="field"><label>Max requests / minute</label>' +
           '<input class="input input-mono" id="ai-rpm" type="number" min="1" value="' + (c.max_requests_per_minute || 10) + '"></div>' +
           '<div class="field"><label>Timeout (seconds)</label>' +
-          '<input class="input input-mono" id="ai-timeout" type="number" min="5" value="' + (c.timeout_seconds || 60) + '"></div>' +
+          '<input class="input input-mono" id="ai-timeout" type="number" min="5" value="' + (c.timeout_seconds || 300) + '">' +
+          '<div class="field-hint">Per model call. Local models are slow — with a full context a quantized model can take 2-4 minutes.</div></div>' +
           '<div class="field"><label>Max context events</label>' +
           '<input class="input input-mono" id="ai-events" type="number" min="1" value="' + (c.max_context_events || 100) + '"></div>' +
           '<div class="field"><label>Retries</label>' +
@@ -798,7 +799,7 @@
             model: $("#ai-model").value.trim(),
             minimum_severity: $("#ai-sev").value,
             max_requests_per_minute: Number($("#ai-rpm").value) || 10,
-            timeout_seconds: Number($("#ai-timeout").value) || 60,
+            timeout_seconds: Number($("#ai-timeout").value) || 300,
             max_context_events: Number($("#ai-events").value) || 100,
             retry_count: Number($("#ai-retry").value) || 0,
           };

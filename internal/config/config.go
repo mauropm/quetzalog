@@ -1,9 +1,12 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -53,7 +56,7 @@ type AIAnalyst struct {
 	MinimumSeverity string `yaml:"minimum_severity"`
 	// MaxRequestsPerMinute caps model requests (0 = default 10).
 	MaxRequestsPerMinute int `yaml:"max_requests_per_minute"`
-	// TimeoutSeconds bounds a single model request (0 = default 60).
+	// TimeoutSeconds bounds a single model request (0 = default 300).
 	TimeoutSeconds int `yaml:"timeout_seconds"`
 	// MaxContextEvents caps the surrounding events included in the
 	// analysis context (0 = default 100).
@@ -208,7 +211,7 @@ func DefaultConfig() Config {
 			Provider:             "openai-compatible",
 			MinimumSeverity:      "medium",
 			MaxRequestsPerMinute: 10,
-			TimeoutSeconds:       60,
+			TimeoutSeconds:       300,
 			MaxContextEvents:     100,
 			RetryCount:           1,
 		},
@@ -260,4 +263,70 @@ func (c Config) Save(path string) error {
 	}
 
 	return nil
+}
+
+// SaveAIAnalyst persists the ai_analyst section into the config file at
+// path while preserving every other section — including operator comments —
+// verbatim. If the file exists without an ai_analyst section, the section
+// is appended; if the file does not exist at all, the full configuration
+// is written.
+func (c Config) SaveAIAnalyst(path string) error {
+	existing, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return c.Save(path)
+	}
+	if err != nil {
+		return fmt.Errorf("read config file %q: %w", path, err)
+	}
+
+	section, err := yaml.Marshal(&c.AIAnalyst)
+	if err != nil {
+		return fmt.Errorf("marshal ai_analyst section: %w", err)
+	}
+	block := "ai_analyst:\n" + indentLines(string(section), "  ")
+
+	lines := strings.Split(string(existing), "\n")
+	topKey := regexp.MustCompile(`^[A-Za-z_][\w-]*:(\s|$)`)
+	start, end := -1, len(lines)
+	for i, l := range lines {
+		if l == "ai_analyst:" || strings.HasPrefix(l, "ai_analyst:") {
+			start = i
+			continue
+		}
+		if start != -1 && topKey.MatchString(l) {
+			end = i
+			break
+		}
+	}
+
+	var out []string
+	if start == -1 {
+		// No ai_analyst section yet: append it (keep one blank line apart).
+		out = append(lines, "")
+		out = append(out, strings.Split(block, "\n")...)
+	} else {
+		out = append(lines[:start], strings.Split(block, "\n")...)
+		out = append(out, lines[end:]...)
+	}
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create config directory %q: %w", dir, err)
+	}
+	// Owner-only perms: the file may contain a model API key.
+	if err := os.WriteFile(path, []byte(strings.Join(out, "\n")), 0o600); err != nil {
+		return fmt.Errorf("write config file %q: %w", path, err)
+	}
+	return nil
+}
+
+// indentLines prefixes every non-empty line of s with prefix.
+func indentLines(s, prefix string) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	for i, l := range lines {
+		if l != "" {
+			lines[i] = prefix + l
+		}
+	}
+	return strings.Join(lines, "\n")
 }

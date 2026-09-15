@@ -1,0 +1,46 @@
+# Quetzalog configuration — OpenCode (opencode serve) as the AI analyst.
+#
+# Start the server with this file:
+#   ./quetzalog serve --config config.opencode.yaml
+#
+# OpenCode is used through its session-based HTTP API (opencode serve),
+# not through /chat/completions. Authentication is HTTP basic auth:
+#   user     = `username` below (defaults to "opencode")
+#   password = `api_key` below (the OPENCODE_SERVER_PASSWORD value)
+
+ai_analyst:
+  enabled: true
+
+  provider: "opencode"
+
+  # Base URL of the `opencode serve` process.
+  endpoint: "http://127.0.0.1:4096"
+
+  # FAKE PLACEHOLDER — replace with your real OPENCODE_SERVER_PASSWORD
+  # (set that env var when starting `opencode serve` with the same value),
+  # or use env expansion:
+  #   api_key: "${OPENCODE_SERVER_PASSWORD}"
+  api_key: "fake-opencode-server-password"
+
+  # Basic-auth username; "opencode" is the default, keep it unless your
+  # server was started differently.
+  username: "opencode"
+
+  # Model id in "provider/model" form — list what your OpenCode server
+  # offers with the "Fetch models" button in Settings → AI Analyst, e.g.
+  #   "anthropic/claude-sonnet-4"
+  #   "openai/gpt-4o-mini"
+  #   "openrouter/deepseek/deepseek-chat"
+  model: "openai/gpt-4o-mini"
+
+  # Automatic analysis only considers findings at/above this severity.
+  minimum_severity: "medium"
+
+  # Cost/latency controls.
+  max_requests_per_minute: 10
+  # Per model call; cloud models are faster than local ones but the same
+  # bound applies — keep enough headroom for large contexts.
+  timeout_seconds: 300
+  # Surrounding events included in the analyst context.
+  max_context_events: 50
+  retry_count: 1

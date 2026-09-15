@@ -7,6 +7,11 @@ bin/
 data/
 *.db
 
+# Machine-specific config (contains local endpoints/keys). The generic
+# templates stay tracked: config.openai.yaml, config.opencode.yaml.
+config.yaml
+.opencode/
+
 # IDE
 .idea/
 .vscode/

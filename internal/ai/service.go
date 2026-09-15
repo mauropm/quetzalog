@@ -42,14 +42,14 @@ func severityRank(sev string) int {
 // provider calls, validation, persistence and human decisions. It never
 // executes recommended actions.
 type Service struct {
-	cfg    *config.Config // live configuration (shared with the API layer)
-	cfgPath string        // config file to persist changes to ("" = memory only)
+	cfg     *config.Config // live configuration (shared with the API layer)
+	cfgPath string         // config file to persist changes to ("" = memory only)
 
-	store     *Store
-	findings  *findings.Store
-	builder   *ContextBuilder
+	store       *Store
+	findings    *findings.Store
+	builder     *ContextBuilder
 	providerFor func(cfg config.AIAnalyst) (Provider, error)
-	logger    *slog.Logger
+	logger      *slog.Logger
 
 	limiterMu sync.Mutex
 	limiter   *tokenBucket
@@ -141,7 +141,8 @@ func (s *Service) UpdateConfig(ctx context.Context, in config.AIAnalyst) error {
 		in.MaxRequestsPerMinute = 10
 	}
 	if in.TimeoutSeconds <= 0 {
-		in.TimeoutSeconds = 60
+		// Local models are slow; 300s is the floor for one analyst call.
+		in.TimeoutSeconds = 300
 	}
 	if in.MaxContextEvents <= 0 {
 		in.MaxContextEvents = 100
@@ -160,7 +161,8 @@ func (s *Service) UpdateConfig(ctx context.Context, in config.AIAnalyst) error {
 
 	s.cfg.AIAnalyst = in
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		// Preserve the operator's other sections and comments in the file.
+		if err := s.cfg.SaveAIAnalyst(s.cfgPath); err != nil {
 			return fmt.Errorf("configuration applied but not persisted: %w", err)
 		}
 	}

@@ -100,6 +100,7 @@ func (p *openAIProvider) doJSON(ctx context.Context, method, path string, in, ou
 }
 
 func (p *openAIProvider) doJSONOnce(ctx context.Context, method, base, path string, in, out any) error {
+	start := time.Now()
 	var body io.Reader
 	if in != nil {
 		buf, err := json.Marshal(in)
@@ -124,7 +125,7 @@ func (p *openAIProvider) doJSONOnce(ctx context.Context, method, base, path stri
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				// The per-request timeout fired: the model was too slow.
 				// Classify it as a provider timeout (transient, retryable).
-				return fmt.Errorf("%w: request to %s timed out", ErrTimeout, base)
+				return fmt.Errorf("%w: request to %s timed out after %s", ErrTimeout, base, time.Since(start).Round(time.Second))
 			}
 			return ctx.Err() // caller cancelled; not a provider failure
 		}
@@ -184,7 +185,9 @@ type chatResponse struct {
 func (p *openAIProvider) Analyze(ctx context.Context, req Request) (string, error) {
 	timeout := req.Timeout
 	if timeout <= 0 {
-		timeout = 60 * time.Second
+		// Local models are slow: a single analyst call on a quantized 27B
+		// model can easily take two to four minutes.
+		timeout = 300 * time.Second
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

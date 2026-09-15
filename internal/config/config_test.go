@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -84,7 +85,7 @@ func TestAIAnalystDefaults(t *testing.T) {
 	if c.AIAnalyst.MinimumSeverity != "medium" {
 		t.Errorf("minimum_severity default: %q", c.AIAnalyst.MinimumSeverity)
 	}
-	if c.AIAnalyst.MaxRequestsPerMinute != 10 || c.AIAnalyst.TimeoutSeconds != 60 ||
+	if c.AIAnalyst.MaxRequestsPerMinute != 10 || c.AIAnalyst.TimeoutSeconds != 300 ||
 		c.AIAnalyst.MaxContextEvents != 100 || c.AIAnalyst.RetryCount != 1 {
 		t.Errorf("cost controls defaults: %+v", c.AIAnalyst)
 	}
@@ -115,6 +116,102 @@ func TestAIAnalystRoundTrip(t *testing.T) {
 	}
 	if back.AIAnalyst != orig.AIAnalyst {
 		t.Errorf("ai_analyst lost in round trip:\n got %+v\nwant %+v", back.AIAnalyst, orig.AIAnalyst)
+	}
+}
+
+// SaveAIAnalyst must persist only the ai_analyst section, keeping every
+// other section and operator comment in the file verbatim.
+func TestSaveAIAnalystPreservesOtherSections(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	hand := `# operator notes stay
+server:
+  port: 9443   # custom
+
+database:
+  path: ./x.db
+  # keep this comment
+
+ai_analyst:
+  enabled: false
+  model: "old-model"
+`
+	if err := os.WriteFile(path, []byte(hand), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.AIAnalyst.Enabled = true
+	cfg.AIAnalyst.Provider = "openai-compatible"
+	cfg.AIAnalyst.Endpoint = "http://10.0.0.1:8000"
+	cfg.AIAnalyst.Model = "new-model"
+	cfg.AIAnalyst.TimeoutSeconds = 300
+	if err := cfg.SaveAIAnalyst(path); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	for _, keep := range []string{"# operator notes stay", "port: 9443   # custom", "path: ./x.db", "# keep this comment"} {
+		if !strings.Contains(s, keep) {
+			t.Errorf("lost content %q after SaveAIAnalyst:\n%s", keep, s)
+		}
+	}
+	for _, gone := range []string{"old-model", "enabled: false"} {
+		if strings.Contains(s, gone) {
+			t.Errorf("stale ai_analyst value %q still present:\n%s", gone, s)
+		}
+	}
+	back, err := config.LoadConfig(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if back.Server.Port != 9443 {
+		t.Errorf("other section changed: %+v", back.Server)
+	}
+	if back.AIAnalyst.Model != "new-model" || back.AIAnalyst.Endpoint != "http://10.0.0.1:8000" || !back.AIAnalyst.Enabled {
+		t.Errorf("ai_analyst not updated: %+v", back.AIAnalyst)
+	}
+}
+
+func TestSaveAIAnalystAppendsMissingSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("server:\n  port: 9443\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.DefaultConfig()
+	cfg.AIAnalyst.Enabled = true
+	cfg.AIAnalyst.Model = "m"
+	if err := cfg.SaveAIAnalyst(path); err != nil {
+		t.Fatal(err)
+	}
+	back, err := config.LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Server.Port != 9443 || back.AIAnalyst.Model != "m" || !back.AIAnalyst.Enabled {
+		t.Errorf("round trip: server=%+v ai=%+v", back.Server, back.AIAnalyst)
+	}
+}
+
+func TestSaveAIAnalystCreatesFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "new.yaml")
+	cfg := config.DefaultConfig()
+	cfg.AIAnalyst.Model = "m"
+	if err := cfg.SaveAIAnalyst(path); err != nil {
+		t.Fatal(err)
+	}
+	back, err := config.LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.AIAnalyst.Model != "m" || back.Server.Port != 8080 {
+		t.Errorf("full-config write: server=%+v ai=%+v", back.Server, back.AIAnalyst)
 	}
 }
 

@@ -76,7 +76,9 @@ ai_analyst:
   # Automatic analysis only considers findings at/above this severity.
   minimum_severity: "medium"
   max_requests_per_minute: 10
-  timeout_seconds: 60
+  # How long one model call may take. Local models are slow: with a full
+  # context a quantized 27B model can need 2-4 minutes, so keep this high.
+  timeout_seconds: 300
   max_context_events: 100
   retry_count: 1
 
