@@ -370,6 +370,33 @@ func cmdServe(cfgFile string, debug bool) int {
 		defer behavioralEngine.Stop()
 		eventStore.AddObserver(behavioralEngine.Enqueue)
 	}
+	// Threat scenarios: async evaluator opening/advancing attack-chain
+	// runs from mapped events + telemetry coverage. Default off.
+	scenarioEvaluator := detections.NewScenarioEvaluator(db, eventStore, findingStore, assetsStore, coverageStore, func(msg string, kv ...any) {
+		logger.Info(msg, kv...)
+	})
+	if cfg.Scenarios.Enabled {
+		scenInterval := cfg.Scenarios.EvaluateInterval
+		if scenInterval <= 0 {
+			scenInterval = time.Hour
+		}
+		go func() {
+			if n, err := scenarioEvaluator.Evaluate(context.Background(), time.Now().UTC()); err != nil {
+				logger.Warn("scenario evaluate", "error", err)
+			} else if n > 0 {
+				logger.Info("scenario evaluate", "steps_changed", n)
+			}
+			t := time.NewTicker(scenInterval)
+			defer t.Stop()
+			for range t.C {
+				if n, err := scenarioEvaluator.Evaluate(context.Background(), time.Now().UTC()); err != nil {
+					logger.Warn("scenario evaluate", "error", err)
+				} else if n > 0 {
+					logger.Info("scenario evaluate", "steps_changed", n)
+				}
+			}
+		}()
+	}
 	if cfg.ThreatIntelligence.Enabled {
 		// Indicator enrichment: bounded async queue matching event values
 		// against the indicator store (never blocks ingestion).
@@ -547,7 +574,7 @@ func cmdServe(cfgFile string, debug bool) int {
 	}
 
 	mux := http.NewServeMux()
-	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, tiStore, tiRegistry, mitreMapper, correlationEngine, logger)
+	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, tiStore, tiRegistry, mitreMapper, correlationEngine, scenarioEvaluator, logger)
 	if err != nil {
 		logger.Error("API setup failed", "error", err)
 		if debug {

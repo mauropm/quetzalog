@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 
+	"quetzalog/internal/assets"
+	"quetzalog/internal/coverage"
 	"quetzalog/internal/detections"
 	"quetzalog/internal/events"
 	"quetzalog/internal/findings"
@@ -29,6 +31,18 @@ func correlationEngineForTest(t *testing.T, db *sql.DB) *detections.CorrelationE
 		events.NewStore(db),
 		findings.NewStore(db),
 		risk.NewEntityRiskStore(db),
+		nil,
+	)
+}
+
+func scenarioEvaluatorForTest(t *testing.T, db *sql.DB) *detections.ScenarioEvaluator {
+	t.Helper()
+	return detections.NewScenarioEvaluator(
+		db,
+		events.NewStore(db),
+		findings.NewStore(db),
+		assets.NewStore(db),
+		coverage.NewStore(db),
 		nil,
 	)
 }

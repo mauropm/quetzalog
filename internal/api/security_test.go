@@ -92,6 +92,7 @@ func newSecureEnv(t *testing.T, cfg config.Config) func(method, path, token stri
 		threatintel.NewStore(db), threatintel.NewRegistry(threatintel.NewStore(db)),
 		mitreMapperForTest(t),
 		correlationEngineForTest(t, db),
+		scenarioEvaluatorForTest(t, db),
 		logger,
 	)
 	if err != nil {
@@ -358,7 +359,8 @@ func TestSEC_LoginRateLimited(t *testing.T) {
 		coverage.NewRunner(db, assets.NewStore(db), coverage.NewStore(db), logger, time.Hour),
 		threatintel.NewStore(db), threatintel.NewRegistry(threatintel.NewStore(db)),
 		mitreMapperForTest(t),
-		correlationEngineForTest(t, db), logger)
+		correlationEngineForTest(t, db),
+		scenarioEvaluatorForTest(t, db), logger)
 	if err != nil {
 		t.Fatal(err)
 	}

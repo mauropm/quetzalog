@@ -125,6 +125,44 @@ func TestDetectionV2API(t *testing.T) {
 	}
 }
 
+func TestScenarioEndpoints(t *testing.T) {
+	e := newEnv(t)
+
+	// Seed an active scenario run + a step directly.
+	if _, err := e.db.Exec(`INSERT INTO scenario_runs (id, definition, scope, status, confidence, risk, opened_at)
+		VALUES ('run-1', '{"name":"web_compromise"}', 'host:web01', 'active', 0.4, 10, datetime('now'))`); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	if _, err := e.db.Exec(`INSERT INTO scenario_steps (run_id, step_id, tactic, technique, status)
+		VALUES ('run-1', 'T1190', 'TA0001', 'T1190', 'observed')`); err != nil {
+		t.Fatalf("seed step: %v", err)
+	}
+
+	w, _ := do(e, "GET", "/api/v1/scenarios", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("scenarios status %d: %s", w.Code, w.Body.String())
+	}
+	out := decodeBody(t, w)
+	if list, _ := out["data"].([]any); len(list) != 1 {
+		t.Errorf("scenario runs: %d, want 1", len(list))
+	}
+
+	w, _ = do(e, "GET", "/api/v1/scenarios/run-1", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("scenario run status %d: %s", w.Code, w.Body.String())
+	}
+	out = decodeBody(t, w)
+	data, _ := out["data"].(map[string]any)
+	if data["what_next"] == nil {
+		t.Errorf("what_next missing: %v", data)
+	}
+
+	w, _ = do(e, "GET", "/api/v1/scenarios/nope", nil, nil)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("missing run status %d, want 404", w.Code)
+	}
+}
+
 func TestBehavioralEndpoints(t *testing.T) {
 	e := newEnv(t)
 

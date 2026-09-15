@@ -123,6 +123,7 @@ func newAIEnv(t *testing.T, fake *apiFakeProvider) *aiEnv {
 		threatintel.NewStore(db), threatintel.NewRegistry(threatintel.NewStore(db)),
 		mitreMapperForTest(t),
 		correlationEngineForTest(t, db),
+		scenarioEvaluatorForTest(t, db),
 		logger,
 	)
 	if err != nil {

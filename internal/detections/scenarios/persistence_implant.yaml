@@ -1,0 +1,14 @@
+name: persistence_implant
+title: Persistence Establishment
+description: >
+  An implant establishing persistence (scheduled tasks/services/launch
+  agents), executing code and beaconing.
+risk: medium
+severity: medium
+trigger: T1053
+expected_techniques:
+  - T1053
+  - T1059
+  - T1071
+required_sources:
+  - os.linux.auditd

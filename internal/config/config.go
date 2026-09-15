@@ -32,6 +32,7 @@ type Config struct {
 	ThreatIntelligence `yaml:"threat_intelligence"`
 	Mitre             `yaml:"mitre"`
 	BehavioralAnalysis `yaml:"behavioral_analysis"`
+	Scenarios          `yaml:"scenarios"`
 	AIAnalyst     `yaml:"ai_analyst"`
 }
 
@@ -41,6 +42,13 @@ type Config struct {
 type BehavioralAnalysis struct {
 	Enabled        bool          `yaml:"enabled"`
 	UpdateInterval time.Duration `yaml:"update_interval"`
+}
+
+// Scenarios configures the threat-scenario evaluator (attack chains with
+// explicit telemetry requirements). Default OFF on upgrades.
+type Scenarios struct {
+	Enabled          bool          `yaml:"enabled"`
+	EvaluateInterval time.Duration `yaml:"evaluate_interval"`
 }
 
 // Mitre configures ATT&CK event→technique mapping. When enabled, an async
@@ -320,6 +328,10 @@ func DefaultConfig() Config {
 		BehavioralAnalysis: BehavioralAnalysis{
 			Enabled:        false,
 			UpdateInterval: time.Hour,
+		},
+		Scenarios: Scenarios{
+			Enabled:          false,
+			EvaluateInterval: time.Hour,
 		},
 		AIAnalyst: AIAnalyst{
 			Enabled:              false,

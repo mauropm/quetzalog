@@ -245,6 +245,50 @@ func (h *Handler) Anomalies(w http.ResponseWriter, r *http.Request) {
 	api.WriteJSON(w, http.StatusOK, api.Success(out))
 }
 
+// ScenarioRuns lists active/completed/stale threat-scenario runs
+// (GET /api/v1/scenarios).
+func (h *Handler) ScenarioRuns(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if h.scenarioEvaluator == nil {
+		api.WriteJSON(w, http.StatusServiceUnavailable, api.ServiceUnavailable("scenario evaluator not available"))
+		return
+	}
+	limit := 50
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			limit = n
+		}
+	}
+	runs, err := h.scenarioEvaluator.ListRuns(ctx, limit)
+	if err != nil {
+		h.logger.Error("list scenario runs", "error", err)
+		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to list scenario runs"))
+		return
+	}
+	api.WriteJSON(w, http.StatusOK, api.Success(runs))
+}
+
+// ScenarioRun fetches one run with its steps and the what-next list
+// (GET /api/v1/scenarios/{id}).
+func (h *Handler) ScenarioRun(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if h.scenarioEvaluator == nil {
+		api.WriteJSON(w, http.StatusServiceUnavailable, api.ServiceUnavailable("scenario evaluator not available"))
+		return
+	}
+	run, steps, whatNext, err := h.scenarioEvaluator.GetRun(ctx, id)
+	if err != nil {
+		api.WriteJSON(w, http.StatusNotFound, api.NotFound(err.Error()))
+		return
+	}
+	api.WriteJSON(w, http.StatusOK, api.Success(map[string]any{
+		"run":        run,
+		"steps":      steps,
+		"what_next":  whatNext,
+	}))
+}
+
 // DetectionStates lists the persisted correlation/sequence state for a rule
 // (GET /api/v1/detections/{id}/states). A stuck sequence must be debuggable,
 // not a black box (detection-engine.md §2).

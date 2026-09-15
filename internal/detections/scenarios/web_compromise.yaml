@@ -1,0 +1,20 @@
+name: web_compromise
+title: Web Server Compromise
+description: >
+  Exploitation of an internet-exposed web server, followed by command
+  execution, persistence and C2 — with exfiltration as the terminal step.
+risk: high
+severity: high
+trigger: T1190
+prerequisites:
+  - asset.internet_exposed
+expected_techniques:
+  - T1190
+  - T1059
+  - T1136
+  - T1071
+  - T1041
+required_sources:
+  - web.access
+  - net.firewall
+  - os.linux.auditd

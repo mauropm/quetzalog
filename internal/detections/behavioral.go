@@ -799,6 +799,23 @@ func haversineKm(lat1, lon1, lat2, lon2 float64) float64 {
 	return 2 * r * math.Asin(math.Sqrt(a))
 }
 
+// parseEventTime converts a raw event timestamp column value (aggregate
+// functions defeat the driver's time.Time conversion) back to a time.Time.
+func parseEventTime(s string, fallback time.Time) time.Time {
+	formats := []string{
+		"2006-01-02 15:04:05.999999999-07:00",
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+	}
+	for _, f := range formats {
+		if ts, err := time.Parse(f, s); err == nil {
+			return ts
+		}
+	}
+	return fallback
+}
+
 // newID returns a random id (no uuid dependency in this file).
 func newID() string {
 	var b [16]byte

@@ -92,6 +92,7 @@ func newEnv(t *testing.T) *env {
 		threatintel.NewStore(db), threatintel.NewRegistry(threatintel.NewStore(db)),
 		mitreMapperForTest(t),
 		correlationEngineForTest(t, db),
+		scenarioEvaluatorForTest(t, db),
 		logger,
 	)
 	if err != nil {
@@ -548,7 +549,8 @@ func TestAPIAuthTokensEnforcedWhenConfigured(t *testing.T) {
 		coverage.NewRunner(db, assets.NewStore(db), coverage.NewStore(db), logger, time.Hour),
 		threatintel.NewStore(db), threatintel.NewRegistry(threatintel.NewStore(db)),
 		mitreMapperForTest(t),
-		correlationEngineForTest(t, db), logger)
+		correlationEngineForTest(t, db),
+		scenarioEvaluatorForTest(t, db), logger)
 	if err != nil {
 		t.Fatalf("setup router: %v", err)
 	}
