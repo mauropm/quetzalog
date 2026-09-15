@@ -17,6 +17,7 @@ import (
 
 	"quetzalog/internal/ai"
 	"quetzalog/internal/alerts"
+	"quetzalog/internal/assets"
 	"quetzalog/internal/api"
 	"quetzalog/internal/auth"
 	"quetzalog/internal/config"
@@ -111,6 +112,7 @@ func newAIEnv(t *testing.T, fake *apiFakeProvider) *aiEnv {
 		fs, is, rs, rr,
 		auth.NewStore(db),
 		aiS, aiSvc,
+		assets.NewStore(db),
 		logger,
 	)
 	if err != nil {

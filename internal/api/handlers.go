@@ -15,6 +15,7 @@ import (
 
 	"quetzalog/internal/ai"
 	"quetzalog/internal/alerts"
+	"quetzalog/internal/assets"
 	"quetzalog/internal/auth"
 	"quetzalog/internal/config"
 	"quetzalog/internal/detections"
@@ -56,12 +57,13 @@ type Handler struct {
 	searchSvc          *query.Service
 	aiStore            *ai.Store
 	aiService          *ai.Service
+	assetsStore        *assets.Store
 	config             config.Config
 	logger             *slog.Logger
 }
 
 // NewHandler creates a new API handler with the given configuration and dependencies.
-func NewHandler(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, logger *slog.Logger) *Handler {
+func NewHandler(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, assetsStore *assets.Store, logger *slog.Logger) *Handler {
 	return &Handler{
 		store:              store,
 		alertStore:         alertStore,
@@ -75,6 +77,7 @@ func NewHandler(cfg config.Config, store *events.Store, searchSvc *query.Service
 		searchSvc:          searchSvc,
 		aiStore:            aiStore,
 		aiService:          aiService,
+		assetsStore:        assetsStore,
 		config:             cfg,
 		logger:             logger,
 	}

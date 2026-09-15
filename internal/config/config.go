@@ -25,7 +25,17 @@ type Config struct {
 	FileIngestion `yaml:"file_ingestion"`
 	Auth          `yaml:"auth"`
 	Detections    `yaml:"detections"`
+	Assets        `yaml:"assets"`
 	AIAnalyst     `yaml:"ai_analyst"`
+}
+
+// Assets configures the asset inventory. When enabled, the first event
+// naming a host auto-creates a DRAFT asset (created_by='observed',
+// criticality suggested by heuristics and never auto-applied). Disabling it
+// turns off observed-draft creation; existing assets and the API stay
+// available.
+type Assets struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // AIAnalyst configures the AI-assisted investigation capability. The analyst
@@ -205,6 +215,9 @@ func DefaultConfig() Config {
 		Detections: Detections{
 			Scheduled: false,
 			Interval:  5 * time.Minute,
+		},
+		Assets: Assets{
+			Enabled: false,
 		},
 		AIAnalyst: AIAnalyst{
 			Enabled:              false,

@@ -19,6 +19,7 @@ import (
 
 	"quetzalog/internal/ai"
 	"quetzalog/internal/alerts"
+	"quetzalog/internal/assets"
 	"quetzalog/internal/api"
 	"quetzalog/internal/auth"
 	"quetzalog/internal/config"
@@ -233,6 +234,20 @@ func cmdServe(cfgFile string, debug bool) int {
 	})
 	aiStore := ai.NewStore(db)
 	aiService := ai.NewService(&cfg, cfgFile, aiStore, findingStore, ai.NewContextBuilder(findingStore, eventStore), logger)
+	assetsStore := assets.NewStore(db)
+	if cfg.Assets.Enabled {
+		// Observed-draft asset creation: the first event naming a host
+		// auto-creates a draft asset (synchronous, bounded, non-fatal —
+		// the events store swallows observer errors).
+		eventStore.SetObserver(func(ev *event.Event) {
+			if ev == nil || ev.Host == "" {
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_, _, _ = assetsStore.Observe(ctx, "host", "host:"+ev.Host, ev.Host, "", ev.Timestamp)
+		})
+	}
 	// New findings materialized by the detection engine are offered to the
 	// AI Analyst (no-op unless enabled; the service runs it asynchronously).
 	detectionStore.SetOnNewFinding(aiService.OnFindingCreated)
@@ -352,7 +367,7 @@ func cmdServe(cfgFile string, debug bool) int {
 	}
 
 	mux := http.NewServeMux()
-	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, logger)
+	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, logger)
 	if err != nil {
 		logger.Error("API setup failed", "error", err)
 		if debug {
