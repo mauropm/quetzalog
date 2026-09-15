@@ -44,6 +44,7 @@ import (
 	"quetzalog/internal/response"
 	"quetzalog/internal/risk"
 	"quetzalog/internal/telemetry"
+	"quetzalog/internal/threatintel"
 	"quetzalog/internal/web"
 	"quetzalog/pkg/event"
 
@@ -286,6 +287,45 @@ func cmdServe(cfgFile string, debug bool) int {
 	if cfg.TelemetryCoverage.Enabled {
 		go coverageRunner.Start(context.Background(), cfg.TelemetryCoverage.Interval)
 	}
+	// Threat intelligence: indicator store + provider registry. External
+	// feeds are untrusted input; the internal provider is the built-in
+	// store (analyst-created indicators).
+	tiStore := threatintel.NewStore(db)
+	tiRegistry := threatintel.NewRegistry(tiStore)
+	for _, p := range cfg.ThreatIntelligence.Providers {
+		if !p.Enabled {
+			continue
+		}
+		switch p.Type {
+		case "internal":
+			tiRegistry.Register(threatintel.NewInternalProvider(tiStore))
+		case "abusech":
+			tiRegistry.Register(threatintel.NewAbuseChProvider(threatintel.AbuseChConfig{
+				UserAgent: "quetzalog-threatintel/1.0",
+			}))
+		}
+	}
+	if cfg.ThreatIntelligence.Enabled {
+		// Indicator enrichment: bounded async queue matching event values
+		// against the indicator store (never blocks ingestion).
+		tiEnricher := threatintel.NewEnricher(tiStore, entityRiskStore, db, logger)
+		tiEnricher.Start(2)
+		defer tiEnricher.Stop()
+		eventStore.AddObserver(tiEnricher.Enqueue)
+		go func() {
+			interval := cfg.ThreatIntelligence.SyncInterval
+			if interval <= 0 {
+				interval = 6 * time.Hour
+			}
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			for range ticker.C {
+				if n, errs := tiRegistry.SyncAll(context.Background()); len(errs) > 0 {
+					logger.Warn("ti sync", "imported", n, "errors", errs)
+				}
+			}
+		}()
+	}
 	// Enrich the AI context with asset criticality and telemetry gaps for
 	// the finding's hosts (read-only lookups; nil when the asset is absent).
 	contextBuilder.
@@ -442,7 +482,7 @@ func cmdServe(cfgFile string, debug bool) int {
 	}
 
 	mux := http.NewServeMux()
-	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, logger)
+	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, tiStore, tiRegistry, logger)
 	if err != nil {
 		logger.Error("API setup failed", "error", err)
 		if debug {

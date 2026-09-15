@@ -26,6 +26,7 @@ import (
 	"quetzalog/internal/query"
 	"quetzalog/internal/response"
 	"quetzalog/internal/risk"
+	"quetzalog/internal/threatintel"
 	"quetzalog/pkg/api"
 )
 
@@ -39,13 +40,13 @@ const (
 )
 
 // SetupRouter wires up all HTTP API endpoints and applies middleware.
-func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, assetsStore *assets.Store, entitiesStore *entities.Store, graphLayer *graph.Graph, coverageRunner *coverage.Runner, logger *slog.Logger) (http.Handler, error) {
+func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, assetsStore *assets.Store, entitiesStore *entities.Store, graphLayer *graph.Graph, coverageRunner *coverage.Runner, tiStore *threatintel.Store, tiRegistry *threatintel.Registry, logger *slog.Logger) (http.Handler, error) {
 	if authStore == nil {
 		authStore = auth.NewStore(nil)
 	} else if err := authStore.EnsureSchema(context.Background()); err != nil {
 		return nil, fmt.Errorf("initialize auth schema: %w", err)
 	}
-	handler := NewHandler(cfg, store, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, riskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, logger)
+	handler := NewHandler(cfg, store, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, riskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, tiStore, tiRegistry, logger)
 
 	mux := http.NewServeMux()
 
@@ -149,6 +150,19 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 	mux.HandleFunc("GET /api/v1/risk/entities/{type}/{value}/explain", handler.RiskExplain)
 	mux.HandleFunc("GET /api/v1/entities/{type}/{value}", handler.GetEntityDetail)
 	mux.HandleFunc("GET /api/v1/intel/{type}/{value}", handler.GetEntityIntel)
+
+	// Threat intelligence (indicators, providers, actors, campaigns, malware)
+	mux.HandleFunc("GET /api/v1/intel/indicators", handler.ListIndicators)
+	mux.HandleFunc("POST /api/v1/intel/indicators", handler.CreateIndicator)
+	mux.HandleFunc("POST /api/v1/intel/indicators/lookup", handler.LookupIndicators)
+	mux.HandleFunc("GET /api/v1/intel/indicators/{type}/{value}", handler.GetIndicatorByValue)
+	mux.HandleFunc("GET /api/v1/threat-intel/providers", handler.ListTIProviders)
+	mux.HandleFunc("POST /api/v1/threat-intel/providers/{name}/sync", handler.SyncTIProvider)
+	mux.HandleFunc("GET /api/v1/threat-intel/sync/status", handler.TISyncStatus)
+	mux.HandleFunc("GET /api/v1/threat-actors", handler.ListActors)
+	mux.HandleFunc("GET /api/v1/threat-actors/{id}", handler.GetActor)
+	mux.HandleFunc("GET /api/v1/campaigns", handler.ListCampaigns)
+	mux.HandleFunc("GET /api/v1/malware", handler.ListMalware)
 
 	// MITRE ATT&CK
 	mux.HandleFunc("GET /api/v1/mitre/techniques", handler.MITRETechniques)

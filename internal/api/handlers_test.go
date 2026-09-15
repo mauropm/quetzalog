@@ -34,6 +34,7 @@ import (
 	"quetzalog/internal/query"
 	"quetzalog/internal/response"
 	"quetzalog/internal/risk"
+	"quetzalog/internal/threatintel"
 )
 
 type env struct {
@@ -88,6 +89,7 @@ func newEnv(t *testing.T) *env {
 		entities.NewStore(db),
 		graph.NewGraph(db),
 		coverage.NewRunner(db, assets.NewStore(db), coverage.NewStore(db), logger, time.Hour),
+		threatintel.NewStore(db), threatintel.NewRegistry(threatintel.NewStore(db)),
 		logger,
 	)
 	if err != nil {
@@ -541,7 +543,8 @@ func TestAPIAuthTokensEnforcedWhenConfigured(t *testing.T) {
 		ev, query.NewService(db), alerts.NewStore(db),
 		incidents.NewStore(db), detections.NewStore(db), fs, is, rs, rr,
 		auth.NewStore(db), aiS, aiSvc, assets.NewStore(db), entities.NewStore(db), graph.NewGraph(db),
-		coverage.NewRunner(db, assets.NewStore(db), coverage.NewStore(db), logger, time.Hour), logger)
+		coverage.NewRunner(db, assets.NewStore(db), coverage.NewStore(db), logger, time.Hour),
+		threatintel.NewStore(db), threatintel.NewRegistry(threatintel.NewStore(db)), logger)
 	if err != nil {
 		t.Fatalf("setup router: %v", err)
 	}

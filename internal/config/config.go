@@ -25,11 +25,12 @@ type Config struct {
 	FileIngestion     `yaml:"file_ingestion"`
 	Auth              `yaml:"auth"`
 	Detections        `yaml:"detections"`
-	Assets            `yaml:"assets"`
-	Entities          `yaml:"entities"`
+	Assets        `yaml:"assets"`
+	Entities      `yaml:"entities"`
 	TelemetryCoverage `yaml:"telemetry_coverage"`
-	Risk              `yaml:"risk"`
-	AIAnalyst         `yaml:"ai_analyst"`
+	Risk            `yaml:"risk"`
+	ThreatIntelligence `yaml:"threat_intelligence"`
+	AIAnalyst     `yaml:"ai_analyst"`
 }
 
 // Entities configures v2 entity extraction/resolution on the write path.
@@ -72,6 +73,24 @@ type Risk struct {
 // EventScoring gates per-event risk contribution recording on the write path.
 type EventScoring struct {
 	Enabled bool `yaml:"enabled"`
+}
+
+// ThreatIntelligence configures the TI layer. When enabled, the indicator
+// store is populated from the configured providers on a schedule; the
+// internal provider is the built-in store (analyst-created indicators).
+// External feeds are untrusted input and are quarantined in the indicator
+// tables (architecture doc, principle 10).
+type ThreatIntelligence struct {
+	Enabled      bool          `yaml:"enabled"`
+	SyncInterval time.Duration `yaml:"sync_interval"`
+	Providers    []TIBProvider `yaml:"providers"`
+}
+
+// TIBProvider configures one TI provider entry.
+type TIBProvider struct {
+	Name    string `yaml:"name"`
+	Type    string `yaml:"type"`
+	Enabled bool   `yaml:"enabled"`
 }
 
 // AIAnalyst configures the AI-assisted investigation capability. The analyst
@@ -266,6 +285,13 @@ func DefaultConfig() Config {
 		Risk: Risk{
 			EventScoring: EventScoring{
 				Enabled: false,
+			},
+		},
+		ThreatIntelligence: ThreatIntelligence{
+			Enabled:      false,
+			SyncInterval: 6 * time.Hour,
+			Providers: []TIBProvider{
+				{Name: "internal", Type: "internal", Enabled: true},
 			},
 		},
 		AIAnalyst: AIAnalyst{
