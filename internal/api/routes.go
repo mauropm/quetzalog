@@ -41,13 +41,13 @@ const (
 )
 
 // SetupRouter wires up all HTTP API endpoints and applies middleware.
-func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, assetsStore *assets.Store, entitiesStore *entities.Store, graphLayer *graph.Graph, coverageRunner *coverage.Runner, tiStore *threatintel.Store, tiRegistry *threatintel.Registry, mitreMapper *mitre.Mapper, logger *slog.Logger) (http.Handler, error) {
+func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, assetsStore *assets.Store, entitiesStore *entities.Store, graphLayer *graph.Graph, coverageRunner *coverage.Runner, tiStore *threatintel.Store, tiRegistry *threatintel.Registry, mitreMapper *mitre.Mapper, correlationEngine *detections.CorrelationEngine, logger *slog.Logger) (http.Handler, error) {
 	if authStore == nil {
 		authStore = auth.NewStore(nil)
 	} else if err := authStore.EnsureSchema(context.Background()); err != nil {
 		return nil, fmt.Errorf("initialize auth schema: %w", err)
 	}
-	handler := NewHandler(cfg, store, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, riskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, tiStore, tiRegistry, mitreMapper, logger)
+	handler := NewHandler(cfg, store, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, riskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, tiStore, tiRegistry, mitreMapper, correlationEngine, logger)
 
 	mux := http.NewServeMux()
 
@@ -103,6 +103,7 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 	mux.HandleFunc("POST /api/v1/detections/{id}/exec", handler.ExecuteDetection)
 	mux.HandleFunc("POST /api/v1/detections/{id}/suppression", handler.SetDetectionSuppression)
 	mux.HandleFunc("GET /api/v1/detections/{id}/stats", handler.DetectionStats)
+	mux.HandleFunc("GET /api/v1/detections/{id}/states", handler.DetectionStates)
 
 	// Analyst Queue (findings)
 	mux.HandleFunc("GET /api/v1/findings", handler.ListFindings)

@@ -319,6 +319,26 @@ func cmdServe(cfgFile string, debug bool) int {
 		defer eventMapper.Stop()
 		eventStore.AddObserver(eventMapper.Enqueue)
 	}
+	// Correlation engine: online evaluation of sequence + correlation
+	// rules on the event stream (bounded queue, off the write path).
+	// Scheduled detection runs remain the safety net (state pruning).
+	correlationEngine := detections.NewCorrelationEngine(db, detectionStore, eventStore, findingStore, entityRiskStore, func(msg string, kv ...any) {
+		logger.Info(msg, kv...)
+	})
+	correlationEngine.Start(2)
+	defer correlationEngine.Stop()
+	eventStore.AddObserver(correlationEngine.Enqueue)
+	go func() {
+		sweep := time.NewTicker(15 * time.Minute)
+		defer sweep.Stop()
+		for range sweep.C {
+			if n, err := correlationEngine.Sweep(context.Background()); err != nil {
+				logger.Warn("correlation state sweep", "error", err)
+			} else if n > 0 {
+				logger.Info("correlation state sweep", "pruned", n)
+			}
+		}
+	}()
 	if cfg.ThreatIntelligence.Enabled {
 		// Indicator enrichment: bounded async queue matching event values
 		// against the indicator store (never blocks ingestion).
@@ -496,7 +516,7 @@ func cmdServe(cfgFile string, debug bool) int {
 	}
 
 	mux := http.NewServeMux()
-	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, tiStore, tiRegistry, mitreMapper, logger)
+	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, tiStore, tiRegistry, mitreMapper, correlationEngine, logger)
 	if err != nil {
 		logger.Error("API setup failed", "error", err)
 		if debug {

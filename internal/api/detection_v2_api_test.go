@@ -112,6 +112,17 @@ func TestDetectionV2API(t *testing.T) {
 	if w.Code != http.StatusNotFound && w.Code != http.StatusBadRequest {
 		t.Errorf("unknown rule suppression status %d", w.Code)
 	}
+
+	// States endpoint: a sequence rule with no activity → empty list, 200.
+	w, _ = do(e, "GET", "/api/v1/detections/"+id+"/states", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Errorf("states status %d: %s", w.Code, w.Body.String())
+	}
+	// Unknown rule → 404.
+	w, _ = do(e, "GET", "/api/v1/detections/nope/states", nil, nil)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("unknown rule states status %d, want 404", w.Code)
+	}
 }
 
 func insertFinding(t *testing.T, db *sql.DB, id, detectionID string) {

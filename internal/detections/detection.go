@@ -97,6 +97,10 @@ type Store struct {
 	onNewFinding func(ctx context.Context, f *findings.Finding)
 }
 
+// DB exposes the underlying database (used by tests and the correlation
+// engine for shared tables such as correlation_state).
+func (s *Store) DB() *sql.DB { return s.db }
+
 // NewStore creates a new detection store backed by the given database.
 func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
@@ -654,8 +658,10 @@ func (s *Store) RunWithFindings(ctx context.Context, rule *DetectionRule, evStor
 		return &FindingRunResult{Duration: 0}, nil
 	}
 
-	// Kind dispatch: SPL rules run through the full pipeline; everything
-	// else uses the legacy threshold engine (kind "threshold" default).
+	// Kind dispatch: SPL rules run through the full pipeline; state-machine
+	// kinds are evaluated online by the CorrelationEngine (scheduled runs
+	// only prune expired state); everything else uses the legacy threshold
+	// engine (kind "threshold" default).
 	if strings.EqualFold(rule.Kind, "spl") {
 		db := evStore.DB()
 		rangeStart, rangeEnd := runTimeRange(rule)
@@ -663,6 +669,19 @@ func (s *Store) RunWithFindings(ctx context.Context, rule *DetectionRule, evStor
 		if err != nil {
 			return nil, err
 		}
+		if rule.ID != "" {
+			_ = s.MarkRun(ctx, rule.ID, time.Now())
+		}
+		return res, nil
+	}
+
+	if k := strings.ToLower(rule.Kind); k == "sequence" || k == "correlation" {
+		// Online engine owns matching; the scheduled run is the safety net
+		// that prunes expired correlation states.
+		_, _ = s.db.ExecContext(ctx,
+			`DELETE FROM correlation_state WHERE rule_id = ? AND expires_at < ?`,
+			rule.ID, time.Now().UTC())
+		res := &FindingRunResult{Duration: time.Since(start)}
 		if rule.ID != "" {
 			_ = s.MarkRun(ctx, rule.ID, time.Now())
 		}

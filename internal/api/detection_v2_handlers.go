@@ -113,3 +113,27 @@ func (h *Handler) DetectionStats(w http.ResponseWriter, r *http.Request) {
 		"feedback":  stats,
 	}))
 }
+
+// DetectionStates lists the persisted correlation/sequence state for a rule
+// (GET /api/v1/detections/{id}/states). A stuck sequence must be debuggable,
+// not a black box (detection-engine.md §2).
+func (h *Handler) DetectionStates(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+
+	if h.correlationEngine == nil {
+		api.WriteJSON(w, http.StatusServiceUnavailable, api.ServiceUnavailable("correlation engine not available"))
+		return
+	}
+	if _, err := h.detectionStore.GetByID(ctx, id); err != nil {
+		api.WriteJSON(w, http.StatusNotFound, api.NotFound("detection not found"))
+		return
+	}
+	states, err := h.correlationEngine.ListStates(ctx, id)
+	if err != nil {
+		h.logger.Error("list detection states", "id", id, "error", err)
+		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to list states"))
+		return
+	}
+	api.WriteJSON(w, http.StatusOK, api.Success(states))
+}

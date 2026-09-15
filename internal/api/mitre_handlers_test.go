@@ -1,10 +1,15 @@
 package api_test
 
 import (
+	"database/sql"
 	"net/http"
 	"testing"
 
+	"quetzalog/internal/detections"
+	"quetzalog/internal/events"
+	"quetzalog/internal/findings"
 	"quetzalog/internal/mitre"
+	"quetzalog/internal/risk"
 )
 
 func mitreMapperForTest(t *testing.T) *mitre.Mapper {
@@ -14,6 +19,18 @@ func mitreMapperForTest(t *testing.T) *mitre.Mapper {
 		t.Fatalf("mitre mapper: %v", err)
 	}
 	return m
+}
+
+func correlationEngineForTest(t *testing.T, db *sql.DB) *detections.CorrelationEngine {
+	t.Helper()
+	return detections.NewCorrelationEngine(
+		db,
+		detections.NewStore(db),
+		events.NewStore(db),
+		findings.NewStore(db),
+		risk.NewEntityRiskStore(db),
+		nil,
+	)
 }
 
 func TestMappingRulesAPI(t *testing.T) {
