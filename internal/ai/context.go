@@ -19,14 +19,44 @@ const maxContextJSONBytes = 48 * 1024
 // maxEventMessage trims individual event messages to keep the context tight.
 const maxEventMessage = 240
 
+// maxContextHosts bounds how many of the finding's hosts get asset/coverage
+// lookups in the context.
+const maxContextHosts = 3
+
 // FindingContext is the structured evidence snapshot sent to the model:
-// the finding itself, its surrounding events, related findings and the
-// entities involved. No credentials or configuration data are included.
+// the finding itself, its surrounding events, related findings, the
+// entities involved and — when assets/coverage lookups are wired — the
+// asset criticality and telemetry gaps around the finding's hosts.
+// No credentials or configuration data are included.
 type FindingContext struct {
-	Finding   FindingInfo   `json:"finding"`
-	Events    []EventInfo   `json:"events"`
-	Related   []FindingInfo `json:"related_findings"`
-	Entities  EntitySummary `json:"entities"`
+	Finding   FindingInfo     `json:"finding"`
+	Events    []EventInfo     `json:"events"`
+	Related   []FindingInfo   `json:"related_findings"`
+	Entities  EntitySummary   `json:"entities"`
+	Assets    []AssetBrief    `json:"assets,omitempty"`
+	Telemetry []CoverageBrief `json:"telemetry_gaps,omitempty"`
+}
+
+// AssetBrief is a compact asset-criticality snapshot for the model.
+type AssetBrief struct {
+	Name               string `json:"name"`
+	EntityType         string `json:"entity_type"`
+	OS                 string `json:"os,omitempty"`
+	Criticality        string `json:"criticality"`
+	Owner              string `json:"owner,omitempty"`
+	Environment        string `json:"environment,omitempty"`
+	InternetExposed    bool   `json:"internet_exposed"`
+	DataClassification string `json:"data_classification,omitempty"`
+	Draft              bool   `json:"draft"`
+}
+
+// CoverageBrief is a compact telemetry-gap snapshot for one asset.
+type CoverageBrief struct {
+	Asset       string   `json:"asset"`
+	CoveragePct float64  `json:"coverage_pct"`
+	Available   []string `json:"available,omitempty"`
+	Missing     []string `json:"missing,omitempty"`
+	Stale       []string `json:"stale,omitempty"`
 }
 
 // FindingInfo is a compact finding representation.
@@ -69,13 +99,29 @@ type EntitySummary struct {
 
 // ContextBuilder assembles the analyst context from a finding.
 type ContextBuilder struct {
-	findings *findings.Store
-	events   *events.Store
+	findings    *findings.Store
+	events      *events.Store
+	assetFor    func(ctx context.Context, host string) *AssetBrief
+	coverageFor func(ctx context.Context, host string) *CoverageBrief
 }
 
 // NewContextBuilder creates a context builder over the finding and event stores.
 func NewContextBuilder(findings *findings.Store, evStore *events.Store) *ContextBuilder {
 	return &ContextBuilder{findings: findings, events: evStore}
+}
+
+// WithAssets adds an optional asset-criticality lookup for the finding's
+// hosts. Nil-safe: when unset, the context omits the asset block.
+func (b *ContextBuilder) WithAssets(fn func(ctx context.Context, host string) *AssetBrief) *ContextBuilder {
+	b.assetFor = fn
+	return b
+}
+
+// WithCoverage adds an optional telemetry-gap lookup for the finding's hosts.
+// Nil-safe: when unset, the context omits the telemetry block.
+func (b *ContextBuilder) WithCoverage(fn func(ctx context.Context, host string) *CoverageBrief) *ContextBuilder {
+	b.coverageFor = fn
+	return b
 }
 
 // Build collects the finding's events (bounded), related findings and the
@@ -90,17 +136,17 @@ func (b *ContextBuilder) Build(ctx context.Context, f *findings.Finding, maxEven
 
 	fctx := &FindingContext{
 		Finding: FindingInfo{
-			ID:               f.ID,
-			Title:            f.Title,
-			Description:      truncate(f.Description, 500),
-			Severity:         f.Severity,
-			Status:           f.Status,
-			DetectionName:    f.DetectionName,
-			MITRETactic:      f.MITRETactic,
-			MITRETechnique:   f.MITRETechnique,
-			MatchCount:       f.MatchCount,
-			FirstSeen:        f.FirstSeen,
-			LastSeen:         f.LastSeen,
+			ID:             f.ID,
+			Title:          f.Title,
+			Description:    truncate(f.Description, 500),
+			Severity:       f.Severity,
+			Status:         f.Status,
+			DetectionName:  f.DetectionName,
+			MITRETactic:    f.MITRETactic,
+			MITRETechnique: f.MITRETechnique,
+			MatchCount:     f.MatchCount,
+			FirstSeen:      f.FirstSeen,
+			LastSeen:       f.LastSeen,
 		},
 	}
 
@@ -196,6 +242,25 @@ func (b *ContextBuilder) Build(ctx context.Context, f *findings.Finding, maxEven
 		Hosts:     unique(sum.Hosts),
 		Sources:   unique(sum.Sources),
 		Processes: unique(sum.Processes),
+	}
+
+	// Asset criticality + telemetry gaps for the finding's hosts (bounded
+	// to a few hosts so the context stays compact and deterministic).
+	hosts := fctx.Entities.Hosts
+	if len(hosts) > maxContextHosts {
+		hosts = hosts[:maxContextHosts]
+	}
+	for _, host := range hosts {
+		if b.assetFor != nil {
+			if a := b.assetFor(ctx, host); a != nil {
+				fctx.Assets = append(fctx.Assets, *a)
+			}
+		}
+		if b.coverageFor != nil {
+			if c := b.coverageFor(ctx, host); c != nil {
+				fctx.Telemetry = append(fctx.Telemetry, *c)
+			}
+		}
 	}
 
 	// Enforce the context size budget by dropping oldest events.

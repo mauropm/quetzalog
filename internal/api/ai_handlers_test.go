@@ -17,10 +17,11 @@ import (
 
 	"quetzalog/internal/ai"
 	"quetzalog/internal/alerts"
-	"quetzalog/internal/assets"
 	"quetzalog/internal/api"
+	"quetzalog/internal/assets"
 	"quetzalog/internal/auth"
 	"quetzalog/internal/config"
+	"quetzalog/internal/coverage"
 	"quetzalog/internal/database"
 	"quetzalog/internal/detections"
 	"quetzalog/internal/entities"
@@ -117,6 +118,7 @@ func newAIEnv(t *testing.T, fake *apiFakeProvider) *aiEnv {
 		assets.NewStore(db),
 		entities.NewStore(db),
 		graph.NewGraph(db),
+		coverage.NewRunner(db, assets.NewStore(db), coverage.NewStore(db), logger, time.Hour),
 		logger,
 	)
 	if err != nil {

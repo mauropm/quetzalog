@@ -15,6 +15,7 @@ import (
 	"quetzalog/internal/assets"
 	"quetzalog/internal/auth"
 	"quetzalog/internal/config"
+	"quetzalog/internal/coverage"
 	"quetzalog/internal/detections"
 	"quetzalog/internal/entities"
 	"quetzalog/internal/events"
@@ -38,13 +39,13 @@ const (
 )
 
 // SetupRouter wires up all HTTP API endpoints and applies middleware.
-func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, assetsStore *assets.Store, entitiesStore *entities.Store, graphLayer *graph.Graph, logger *slog.Logger) (http.Handler, error) {
+func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, assetsStore *assets.Store, entitiesStore *entities.Store, graphLayer *graph.Graph, coverageRunner *coverage.Runner, logger *slog.Logger) (http.Handler, error) {
 	if authStore == nil {
 		authStore = auth.NewStore(nil)
 	} else if err := authStore.EnsureSchema(context.Background()); err != nil {
 		return nil, fmt.Errorf("initialize auth schema: %w", err)
 	}
-	handler := NewHandler(cfg, store, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, riskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, logger)
+	handler := NewHandler(cfg, store, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, riskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, logger)
 
 	mux := http.NewServeMux()
 
@@ -137,9 +138,15 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 	mux.HandleFunc("GET /api/v1/entities-v2/{type}/{value}", handler.GetEntityV2)
 	mux.HandleFunc("GET /api/v1/entities-v2/{type}/{value}/neighbors", handler.NeighborsV2)
 
+	// Telemetry coverage
+	mux.HandleFunc("GET /api/v1/coverage/assets/{id}", handler.AssetCoverage)
+	mux.HandleFunc("GET /api/v1/coverage/summary", handler.CoverageSummary)
+	mux.HandleFunc("POST /api/v1/coverage/assets/{id}/expected", handler.MarkCoverageExpected)
+
 	// SOC overview & entity risk
 	mux.HandleFunc("GET /api/v1/soc/overview", handler.SOCOverview)
 	mux.HandleFunc("GET /api/v1/risk/entities", handler.ListRiskEntities)
+	mux.HandleFunc("GET /api/v1/risk/entities/{type}/{value}/explain", handler.RiskExplain)
 	mux.HandleFunc("GET /api/v1/entities/{type}/{value}", handler.GetEntityDetail)
 	mux.HandleFunc("GET /api/v1/intel/{type}/{value}", handler.GetEntityIntel)
 

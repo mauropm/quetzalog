@@ -8,19 +8,21 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"net/http"
-	"net/url"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"quetzalog/internal/ai"
 	"quetzalog/internal/alerts"
-	"quetzalog/internal/assets"
 	"quetzalog/internal/api"
+	"quetzalog/internal/assets"
 	"quetzalog/internal/auth"
 	"quetzalog/internal/config"
+	"quetzalog/internal/coverage"
 	"quetzalog/internal/database"
 	"quetzalog/internal/detections"
 	"quetzalog/internal/entities"
@@ -85,6 +87,7 @@ func newEnv(t *testing.T) *env {
 		assets.NewStore(db),
 		entities.NewStore(db),
 		graph.NewGraph(db),
+		coverage.NewRunner(db, assets.NewStore(db), coverage.NewStore(db), logger, time.Hour),
 		logger,
 	)
 	if err != nil {
@@ -139,10 +142,10 @@ func TestHealth(t *testing.T) {
 func TestCreateEventAttributeRoundTrip(t *testing.T) {
 	e := newEnv(t)
 	body := map[string]any{
-		"id":        "evt-attr-1",
-		"message":   "hello world",
-		"source":    "unit",
-		"severity":  "err",
+		"id":         "evt-attr-1",
+		"message":    "hello world",
+		"source":     "unit",
+		"severity":   "err",
 		"attributes": map[string]any{"tenant": "acme", "count": 7},
 	}
 	w, _ := do(e, "POST", "/api/v1/events", body, nil)
@@ -537,7 +540,8 @@ func TestAPIAuthTokensEnforcedWhenConfigured(t *testing.T) {
 	h, err := api.SetupRouter(cfg,
 		ev, query.NewService(db), alerts.NewStore(db),
 		incidents.NewStore(db), detections.NewStore(db), fs, is, rs, rr,
-		auth.NewStore(db), aiS, aiSvc, assets.NewStore(db), entities.NewStore(db), graph.NewGraph(db), logger)
+		auth.NewStore(db), aiS, aiSvc, assets.NewStore(db), entities.NewStore(db), graph.NewGraph(db),
+		coverage.NewRunner(db, assets.NewStore(db), coverage.NewStore(db), logger, time.Hour), logger)
 	if err != nil {
 		t.Fatalf("setup router: %v", err)
 	}

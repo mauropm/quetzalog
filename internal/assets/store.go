@@ -165,6 +165,24 @@ func (s *Store) Get(ctx context.Context, id string) (*Asset, error) {
 }
 
 // GetByRef returns the asset for an entity type+ref pair.
+// GetByEntityRef finds an asset by its entity_ref alone. The ref carries its
+// own type prefix ("host:NAME") and is unique in practice, so this locates a
+// host-linked asset regardless of which asset class (host/server/...) it is.
+func (s *Store) GetByEntityRef(ctx context.Context, entityRef string) (*Asset, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+assetColumns+` FROM assets WHERE entity_ref = ? LIMIT 1`, entityRef)
+	a, err := scanAsset(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get asset by entity ref: %w", err)
+	}
+	if err := s.loadRelated(ctx, a); err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
 func (s *Store) GetByRef(ctx context.Context, entityType, entityRef string) (*Asset, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT `+assetColumns+` FROM assets WHERE entity_type = ? AND entity_ref = ?`, entityType, entityRef)
 	a, err := scanAsset(row)

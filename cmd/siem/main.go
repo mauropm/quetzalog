@@ -19,15 +19,16 @@ import (
 
 	"quetzalog/internal/ai"
 	"quetzalog/internal/alerts"
-	"quetzalog/internal/assets"
-	"quetzalog/internal/entities"
 	"quetzalog/internal/api"
+	"quetzalog/internal/assets"
 	"quetzalog/internal/auth"
 	"quetzalog/internal/config"
 	"quetzalog/internal/correlation"
+	"quetzalog/internal/coverage"
 	"quetzalog/internal/database"
 	"quetzalog/internal/detections"
 	"quetzalog/internal/enrichment"
+	"quetzalog/internal/entities"
 	"quetzalog/internal/events"
 	"quetzalog/internal/findings"
 	"quetzalog/internal/graph"
@@ -235,7 +236,7 @@ func cmdServe(cfgFile string, debug bool) int {
 		Risk:           entityRiskStore,
 	})
 	aiStore := ai.NewStore(db)
-	aiService := ai.NewService(&cfg, cfgFile, aiStore, findingStore, ai.NewContextBuilder(findingStore, eventStore), logger)
+	contextBuilder := ai.NewContextBuilder(findingStore, eventStore)
 	assetsStore := assets.NewStore(db)
 	if cfg.Assets.Enabled {
 		// Observed-draft asset creation: the first event naming a host
@@ -266,6 +267,63 @@ func cmdServe(cfgFile string, debug bool) int {
 			resolver.FromEvent(ctx, ev)
 		})
 	}
+	if cfg.Risk.EventScoring.Enabled {
+		// Per-event risk contributions: severity base + asset criticality
+		// + identity privilege, recorded explainably (synchronous, bounded,
+		// non-fatal).
+		eventScorer := risk.NewEventScorer(entityRiskStore, assetsStore, entitiesStore)
+		eventStore.AddObserver(func(ev *event.Event) {
+			if ev == nil {
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_, _ = eventScorer.ScoreEvent(ctx, ev)
+		})
+	}
+	coverageStore := coverage.NewStore(db)
+	coverageRunner := coverage.NewRunner(db, assetsStore, coverageStore, logger, cfg.TelemetryCoverage.Freshness)
+	if cfg.TelemetryCoverage.Enabled {
+		go coverageRunner.Start(context.Background(), cfg.TelemetryCoverage.Interval)
+	}
+	// Enrich the AI context with asset criticality and telemetry gaps for
+	// the finding's hosts (read-only lookups; nil when the asset is absent).
+	contextBuilder.
+		WithAssets(func(ctx context.Context, host string) *ai.AssetBrief {
+			a, err := assetsStore.GetByEntityRef(ctx, "host:"+host)
+			if err != nil || a == nil {
+				return nil
+			}
+			return &ai.AssetBrief{
+				Name:               a.Name,
+				EntityType:         a.EntityType,
+				OS:                 a.OS,
+				Criticality:        a.Criticality,
+				Owner:              a.Owner,
+				Environment:        a.Environment,
+				InternetExposed:    a.InternetExposed,
+				DataClassification: a.DataClassification,
+				Draft:              a.CreatedBy == "observed",
+			}
+		}).
+		WithCoverage(func(ctx context.Context, host string) *ai.CoverageBrief {
+			a, err := assetsStore.GetByEntityRef(ctx, "host:"+host)
+			if err != nil || a == nil {
+				return nil
+			}
+			cov, err := coverageRunner.CoverageFor(ctx, a.ID)
+			if err != nil || cov == nil || (len(cov.Available) == 0 && len(cov.Missing) == 0) {
+				return nil
+			}
+			return &ai.CoverageBrief{
+				Asset:       a.Name,
+				CoveragePct: cov.CoveragePct,
+				Available:   cov.Available,
+				Missing:     cov.Missing,
+				Stale:       cov.Stale,
+			}
+		})
+	aiService := ai.NewService(&cfg, cfgFile, aiStore, findingStore, contextBuilder, logger)
 	// New findings materialized by the detection engine are offered to the
 	// AI Analyst (no-op unless enabled; the service runs it asynchronously).
 	detectionStore.SetOnNewFinding(aiService.OnFindingCreated)
@@ -274,7 +332,6 @@ func cmdServe(cfgFile string, debug bool) int {
 		enrichment.NewLocalIPEnricher(),
 		geoEnricher,
 	})
-	_ = risk.NewScorer(risk.DefaultConfig, db)
 	telemetryMetrics := telemetry.New()
 
 	pipeline := ingestion.NewPipeline(eventStore, cfg.Ingestion.Workers, cfg.Ingestion.BatchSize, logger)
@@ -385,7 +442,7 @@ func cmdServe(cfgFile string, debug bool) int {
 	}
 
 	mux := http.NewServeMux()
-	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, logger)
+	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, logger)
 	if err != nil {
 		logger.Error("API setup failed", "error", err)
 		if debug {
@@ -790,57 +847,57 @@ func cmdDemo(args []string) int {
 
 	rules := []detections.DetectionRule{
 		{
-			Name:        "Suspicious Logins (Geo Anomaly)",
-			Description: "Failed logins flagged by geo-velocity heuristics",
-			Query:       "event_type=authentication action=login_failed geo_anomaly=true",
-			Severity:    "high",
-			Enabled:     true,
-			RiskScore:   35,
-			GroupBy:     []string{"user"},
-			MITRETactic: "TA0006",
+			Name:           "Suspicious Logins (Geo Anomaly)",
+			Description:    "Failed logins flagged by geo-velocity heuristics",
+			Query:          "event_type=authentication action=login_failed geo_anomaly=true",
+			Severity:       "high",
+			Enabled:        true,
+			RiskScore:      35,
+			GroupBy:        []string{"user"},
+			MITRETactic:    "TA0006",
 			MITRETechnique: "T1110",
-			Tags:        []string{"credential-access", "scenario"},
-			DataSources: []string{"authentication"},
+			Tags:           []string{"credential-access", "scenario"},
+			DataSources:    []string{"authentication"},
 			Threshold: &detections.Threshold{
 				Count:  2,
 				Window: "4h",
 			},
 		},
 		{
-			Name:        "Encoded PowerShell Execution",
-			Description: "PowerShell launched with an encoded payload (T1059.001)",
-			Query:       "event_type=process encoded_command=true",
-			Severity:    "high",
-			Enabled:     true,
-			RiskScore:   40,
-			GroupBy:     []string{"host"},
-			MITRETactic: "TA0002",
+			Name:           "Encoded PowerShell Execution",
+			Description:    "PowerShell launched with an encoded payload (T1059.001)",
+			Query:          "event_type=process encoded_command=true",
+			Severity:       "high",
+			Enabled:        true,
+			RiskScore:      40,
+			GroupBy:        []string{"host"},
+			MITRETactic:    "TA0002",
 			MITRETechnique: "T1059.001",
-			Tags:        []string{"execution", "defense-evasion", "scenario"},
+			Tags:           []string{"execution", "defense-evasion", "scenario"},
 		},
 		{
-			Name:        "Lateral Movement via SMB",
-			Description: "SMB session establishment to file services (T1021.002)",
-			Query:       "event_type=network action=smb_session",
-			Severity:    "medium",
-			Enabled:     true,
-			RiskScore:   25,
-			GroupBy:     []string{"user"},
-			MITRETactic: "TA0008",
+			Name:           "Lateral Movement via SMB",
+			Description:    "SMB session establishment to file services (T1021.002)",
+			Query:          "event_type=network action=smb_session",
+			Severity:       "medium",
+			Enabled:        true,
+			RiskScore:      25,
+			GroupBy:        []string{"user"},
+			MITRETactic:    "TA0008",
 			MITRETechnique: "T1021.002",
-			Tags:        []string{"lateral-movement", "scenario"},
+			Tags:           []string{"lateral-movement", "scenario"},
 		},
 		{
-			Name:        "Large Outbound Exfiltration",
-			Description: "Large outbound transfer from a file server (T1041)",
-			Query:       "event_type=data_exfil exfil_suspect=true",
-			Severity:    "critical",
-			Enabled:     true,
-			RiskScore:   50,
-			GroupBy:     []string{"destination_ip"},
-			MITRETactic: "TA0010",
+			Name:           "Large Outbound Exfiltration",
+			Description:    "Large outbound transfer from a file server (T1041)",
+			Query:          "event_type=data_exfil exfil_suspect=true",
+			Severity:       "critical",
+			Enabled:        true,
+			RiskScore:      50,
+			GroupBy:        []string{"destination_ip"},
+			MITRETactic:    "TA0010",
 			MITRETechnique: "T1041",
-			Tags:        []string{"exfiltration", "scenario"},
+			Tags:           []string{"exfiltration", "scenario"},
 		},
 		{
 			Name:        "Intrusion Attempt",

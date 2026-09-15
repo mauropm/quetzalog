@@ -11,15 +11,17 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"database/sql"
 
 	"quetzalog/internal/ai"
 	"quetzalog/internal/alerts"
-	"quetzalog/internal/assets"
 	"quetzalog/internal/api"
+	"quetzalog/internal/assets"
 	"quetzalog/internal/auth"
 	"quetzalog/internal/config"
+	"quetzalog/internal/coverage"
 	"quetzalog/internal/database"
 	"quetzalog/internal/detections"
 	"quetzalog/internal/entities"
@@ -85,6 +87,7 @@ func newSecureEnv(t *testing.T, cfg config.Config) func(method, path, token stri
 		assets.NewStore(db),
 		entities.NewStore(db),
 		graph.NewGraph(db),
+		coverage.NewRunner(db, assets.NewStore(db), coverage.NewStore(db), logger, time.Hour),
 		logger,
 	)
 	if err != nil {
@@ -347,7 +350,8 @@ func TestSEC_LoginRateLimited(t *testing.T) {
 	h, err := api.SetupRouter(cfg,
 		ev, query.NewService(db), alerts.NewStore(db),
 		incidents.NewStore(db), detections.NewStore(db), fs, is, rs, rr,
-		auth.NewStore(db), aiS, aiSvc, assets.NewStore(db), entities.NewStore(db), graph.NewGraph(db), logger)
+		auth.NewStore(db), aiS, aiSvc, assets.NewStore(db), entities.NewStore(db), graph.NewGraph(db),
+		coverage.NewRunner(db, assets.NewStore(db), coverage.NewStore(db), logger, time.Hour), logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -489,7 +493,7 @@ func TestSEC_PropertyFuzz(t *testing.T) {
 		var body any
 		switch next(4) {
 		case 0:
-			body = map[string]any{"query": junk(1+next(200)), "limit": next(2000000) - 1}
+			body = map[string]any{"query": junk(1 + next(200)), "limit": next(2000000) - 1}
 		case 1:
 			body = map[string]any{"message": junk(next(2000)), "attributes": map[string]any{junk(4): junk(20)}}
 		case 2:

@@ -80,6 +80,18 @@ func InternalServerError(msg string) Response {
 	}
 }
 
+// ServiceUnavailable creates a 503 Service Unavailable response.
+func ServiceUnavailable(msg string) Response {
+	if msg == "" {
+		msg = "Service unavailable"
+	}
+	return Response{
+		Status:  http.StatusServiceUnavailable,
+		Message: msg,
+		Errors:  []string{msg},
+	}
+}
+
 // Unauthorized creates a 401 Unauthorized response.
 func Unauthorized(msg string) Response {
 	if msg == "" {

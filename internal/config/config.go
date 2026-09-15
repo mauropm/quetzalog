@@ -14,20 +14,22 @@ import (
 
 // Config holds the application configuration.
 type Config struct {
-	Server        `yaml:"server"`
-	Database      `yaml:"database"`
-	Ingestion     `yaml:"ingestion"`
-	HTTP          `yaml:"http"`
-	OTel          `yaml:"otel"`
-	Syslog        `yaml:"syslog"`
-	Splunk        `yaml:"splunk"`
-	Logging       `yaml:"logging"`
-	FileIngestion `yaml:"file_ingestion"`
-	Auth          `yaml:"auth"`
-	Detections    `yaml:"detections"`
-	Assets        `yaml:"assets"`
-	Entities      `yaml:"entities"`
-	AIAnalyst     `yaml:"ai_analyst"`
+	Server            `yaml:"server"`
+	Database          `yaml:"database"`
+	Ingestion         `yaml:"ingestion"`
+	HTTP              `yaml:"http"`
+	OTel              `yaml:"otel"`
+	Syslog            `yaml:"syslog"`
+	Splunk            `yaml:"splunk"`
+	Logging           `yaml:"logging"`
+	FileIngestion     `yaml:"file_ingestion"`
+	Auth              `yaml:"auth"`
+	Detections        `yaml:"detections"`
+	Assets            `yaml:"assets"`
+	Entities          `yaml:"entities"`
+	TelemetryCoverage `yaml:"telemetry_coverage"`
+	Risk              `yaml:"risk"`
+	AIAnalyst         `yaml:"ai_analyst"`
 }
 
 // Entities configures v2 entity extraction/resolution on the write path.
@@ -46,6 +48,29 @@ type Entities struct {
 // turns off observed-draft creation; existing assets and the API stay
 // available.
 type Assets struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+// TelemetryCoverage configures per-asset telemetry coverage computation.
+// When enabled, a background runner periodically recomputes which source
+// classes actually emit telemetry for each host asset and persists the
+// observed availability/freshness. It never asserts a negative claim: a
+// class with no observed telemetry is simply "missing", not "safe".
+type TelemetryCoverage struct {
+	Enabled   bool          `yaml:"enabled"`
+	Interval  time.Duration `yaml:"interval"`
+	Freshness time.Duration `yaml:"freshness"`
+}
+
+// Risk configures the risk engine. EventScoring, when enabled, records a
+// per-event risk contribution (severity base + asset criticality + identity
+// privilege) so that entity risk is explainable as a sum of contributions.
+type Risk struct {
+	EventScoring EventScoring `yaml:"event_scoring"`
+}
+
+// EventScoring gates per-event risk contribution recording on the write path.
+type EventScoring struct {
 	Enabled bool `yaml:"enabled"`
 }
 
@@ -232,6 +257,16 @@ func DefaultConfig() Config {
 		},
 		Entities: Entities{
 			Enabled: false,
+		},
+		TelemetryCoverage: TelemetryCoverage{
+			Enabled:   false,
+			Interval:  time.Hour,
+			Freshness: 24 * time.Hour,
+		},
+		Risk: Risk{
+			EventScoring: EventScoring{
+				Enabled: false,
+			},
 		},
 		AIAnalyst: AIAnalyst{
 			Enabled:              false,
