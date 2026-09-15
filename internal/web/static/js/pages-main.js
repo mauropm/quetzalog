@@ -957,6 +957,16 @@
 
         var ra = $("#ai-reanalyze");
         if (ra) ra.addEventListener("click", reanalyze);
+        var co = $("#ai-correlate");
+        if (co) co.addEventListener("click", function () {
+          co.disabled = true;
+          api("/ai-analyst/correlate/" + encodeURIComponent(id)).then(function (d) {
+            if (!d.query) { QL.toast("Nothing to correlate yet", "error"); co.disabled = false; return; }
+            S.searchPreset = d.query;
+            S.searchWindow = { earliest: d.earliest || "", latest: d.latest || "" };
+            location.hash = "#/search";
+          }).catch(function (e) { QL.toast(e.message, "error"); co.disabled = false; });
+        });
         var ap = $("#ai-approve");
         if (ap) ap.addEventListener("click", function () {
           ap.disabled = true;
@@ -1027,6 +1037,9 @@
       return '<div class="ai-reco' + riskCls + '">' +
         '<div class="reco-type">' + QL.icon("zap") + " Recommended next step: " + QL.esc((ra.type || "investigate").replace(/_/g, " ")) + "</div>" +
         '<div class="reco-desc">' + QL.esc(ra.description || "") + "</div>" +
+        '<div class="reco-actions"><button class="btn btn-sm" id="ai-correlate" title="Open the entities and time window of this recommendation as a Search query">' +
+        QL.icon("search") + " Correlate in Search</button>" +
+        '<span class="reco-hint">Translates this step into a query over the involved users, hosts and IPs</span></div>' +
         '<div class="reco-note">' + QL.icon("shield") + " Risk level: " + QL.esc(ra.risk || "medium") +
         ' · ' + QL.icon("user") + " Requires explicit human approval — nothing is executed automatically.</div></div>";
     }

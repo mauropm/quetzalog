@@ -145,6 +145,7 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 	mux.HandleFunc("GET /api/v1/ai-analyst/{id}", handler.GetAIAnalyst)
 	mux.HandleFunc("GET /api/v1/ai-analyst/finding/{findingID}", handler.GetAIAnalystByFinding)
 	mux.HandleFunc("POST /api/v1/ai-analyst/analyze", handler.AnalyzeAIFinding)
+	mux.HandleFunc("GET /api/v1/ai-analyst/correlate/{id}", handler.CorrelateAIAnalysis)
 	mux.HandleFunc("POST /api/v1/ai-analyst/{id}/approve", handler.ApproveAIAnalysis)
 	mux.HandleFunc("POST /api/v1/ai-analyst/{id}/dismiss", handler.DismissAIAnalysis)
 

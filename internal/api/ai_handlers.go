@@ -124,6 +124,20 @@ func (h *Handler) AnalyzeAIFinding(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 
+// CorrelateAIAnalysis returns the Search-page correlation query for a stored
+// analysis: an SPL filter over every entity the analysis considered plus the
+// time window it reasoned about. Read-only; nothing is executed.
+// GET /api/v1/ai-analyst/correlate/{id}
+func (h *Handler) CorrelateAIAnalysis(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	res, err := h.aiService.CorrelateQuery(r.Context(), id)
+	if err != nil {
+		writeAIErr(w, err)
+		return
+	}
+	api.WriteJSON(w, http.StatusOK, api.Success(res))
+}
+
 // ApproveAIAnalysis records the human approval.
 // POST /api/v1/ai-analyst/{id}/approve
 func (h *Handler) ApproveAIAnalysis(w http.ResponseWriter, r *http.Request) {

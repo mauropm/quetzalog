@@ -88,14 +88,20 @@
       var el = $("#s-results");
       el.innerHTML = QL.loading("Searching…");
       var body = { query: query, limit: Number($("#s-limit").value) || 50 };
+      var corrWindow = S.searchWindow && S.searchWindow.earliest ? S.searchWindow : null;
+      S.searchWindow = null;
       var tr = $("#s-time").value;
-      if (tr) { body.earliest = "-" + tr; body.latest = "now"; }
+      if (corrWindow) {
+        body.earliest = corrWindow.earliest;
+        body.latest = corrWindow.latest || "now";
+      } else if (tr) { body.earliest = "-" + tr; body.latest = "now"; }
       api("/search", { method: "POST", body: body }).then(function (d) {
         var cols = d.columns || [];
         var rows = d.results || [];
         var total = d.total != null ? d.total : rows.length;
         $("#s-title").textContent = "Results · " + cols.length + " fields";
-        $("#s-meta").textContent = total + " events" + (d.execution_ms != null ? " · " + Math.round(d.execution_ms) + " ms" : "");
+        var windowNote = corrWindow ? " · " + QL.fmtDateTime(corrWindow.earliest) + " → " + QL.fmtDateTime(corrWindow.latest) : "";
+        $("#s-meta").textContent = total + " events" + windowNote + (d.execution_ms != null ? " · " + Math.round(d.execution_ms) + " ms" : "");
         if (!rows.length) {
           el.innerHTML = QL.emptyState({ icon: "search", title: "No results", sub: "Try broadening the query or the time range." });
           return;

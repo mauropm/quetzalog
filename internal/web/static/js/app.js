@@ -20,6 +20,7 @@
     ownersFetched: false,
     fieldsCache: null,
     searchPreset: "",
+    searchWindow: null,
   };
 
   var $ = function (sel, root) { return (root || document).querySelector(sel); };

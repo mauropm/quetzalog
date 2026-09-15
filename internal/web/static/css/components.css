@@ -595,6 +595,9 @@ table.ql-table { width: 100%; border-collapse: collapse; font-size: var(--ql-t-s
 .ai-reco .reco-type .ic { width: 13px; height: 13px; }
 .ai-reco.risk-high .reco-type, .ai-reco.risk-critical .reco-type { color: var(--ql-sev-high); }
 .ai-reco .reco-desc { font-size: 13.5px; margin-top: 8px; line-height: 1.55; }
+.ai-reco .reco-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.ai-reco .reco-actions .ic { width: 14px; height: 14px; }
+.ai-reco .reco-hint { font-size: 11.5px; color: var(--ql-text-muted); }
 .ai-reco .reco-note { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 11.5px; color: var(--ql-text-muted); }
 
 .ai-section { border-top: 1px solid var(--ql-border-soft); padding: 14px 0; }
