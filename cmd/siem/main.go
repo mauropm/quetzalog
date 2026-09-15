@@ -1057,6 +1057,26 @@ func cmdDemo(args []string) int {
 		fmt.Printf("  Added: %s\n", rule.Name)
 	}
 
+	// Install the built-in catalog detection entries (spec §41/§54). Each
+	// install stamps the catalog version so upgrades are detectable.
+	catalogEntries, err := detections.ListCatalog()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error listing detection catalog: %v\n", err)
+		return 1
+	}
+	for i := range catalogEntries {
+		entry := &catalogEntries[i]
+		if entry.Category != "detection" {
+			continue
+		}
+		installed, err := detectionStore.InstallCatalog(context.Background(), entry)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error installing catalog entry %s: %v\n", entry.Name, err)
+			return 1
+		}
+		fmt.Printf("  Added: %s (catalog v%d)\n", installed.Name, entry.Version)
+	}
+
 	fmt.Println("\nCreating demo users...")
 	if err := authStore.CreateUser(context.Background(), "analyst", "analyst123", auth.RoleAnalyst); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating analyst user: %v\n", err)
@@ -1618,6 +1638,13 @@ func cmdDetections(args []string) int {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
+	// Subcommand: `detections import-sigma <file>` imports a Sigma rule YAML
+	// as a detection rule. Unsupported constructs fail with a structured
+	// error listing each clause (never a partial import).
+	if len(args) > 0 && args[0] == "import-sigma" {
+		return cmdDetectionsImportSigma(args[1:])
+	}
+
 	var (
 		configFile string
 		format     string
@@ -1719,6 +1746,75 @@ func cmdDetections(args []string) int {
 	}
 
 	fmt.Printf("\nTotal: %d detections\n", len(allRules))
+	return 0
+}
+
+// cmdDetectionsImportSigma imports a Sigma rule YAML file as a detection rule
+// (spec §42). Usage: quetzalog detections import-sigma <file> [--config c].
+func cmdDetectionsImportSigma(args []string) int {
+	var configFile string
+	fs := flag.NewFlagSet("detections import-sigma", flag.ExitOnError)
+	fs.StringVar(&configFile, "config", "", "path to config file")
+	rest := parseMixed(fs, args)
+	if len(rest) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: quetzalog detections import-sigma <sigma-rule.yaml> [--config c]")
+		return 1
+	}
+	path := rest[0]
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading sigma file: %v\n", err)
+		return 1
+	}
+
+	rule, err := detections.ImportSigma(data)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error importing sigma rule: %v\n", err)
+		return 1
+	}
+
+	cfg := config.DefaultConfig()
+	if configFile != "" {
+		loaded, err := config.LoadConfig(configFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			return 1
+		}
+		cfg = loaded
+	}
+	dbPath := cfg.Database.Path
+	if dbPath == "" {
+		dbPath = "./data/siem.db"
+	}
+	db, err := database.Open(dbPath, cfg.Database.MaxOpenConns, cfg.Database.MaxIdleConns, cfg.Database.MaxIdleTime)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
+		return 1
+	}
+	defer database.Shutdown(db)
+	if err := database.Migrate(db); err != nil {
+		fmt.Fprintf(os.Stderr, "Error running migrations: %v\n", err)
+		return 1
+	}
+
+	detectionStore := detections.NewStore(db)
+	if err := detectionStore.Create(context.Background(), rule); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating detection rule: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("Imported Sigma rule:\n")
+	fmt.Printf("  Name:      %s\n", rule.Name)
+	fmt.Printf("  Severity:  %s\n", rule.Severity)
+	fmt.Printf("  Kind:      %s\n", rule.Kind)
+	fmt.Printf("  Query:     %s\n", rule.Query)
+	if rule.Threshold != nil {
+		fmt.Printf("  Threshold: %d in %s\n", rule.Threshold.Count, rule.Threshold.Window)
+	}
+	if len(rule.Tags) > 0 {
+		fmt.Printf("  Tags:      %s\n", strings.Join(rule.Tags, ", "))
+	}
 	return 0
 }
 

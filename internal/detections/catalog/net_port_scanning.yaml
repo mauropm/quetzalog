@@ -1,0 +1,28 @@
+name: net_port_scanning
+title: Port Scanning
+category: hunting
+version: 1
+severity: medium
+hunting: true
+description: >
+  Many failed connection attempts across ports from a single source
+  (T1595.001).
+tags:
+  - hunting
+  - reconnaissance
+mitre:
+  tactics:
+    - TA0043
+  techniques:
+    - T1595.001
+data_sources:
+  - net.firewall.generic
+fp_notes: Network scanners / vulnerability managers running scheduled sweeps
+rule:
+  kind: spl
+  query: search source_type=net.firewall.generic outcome=failure | stats count by source_ip | where count >= 100
+  threshold:
+    count: 1
+    window: 10m
+  group_by:
+    - source_ip

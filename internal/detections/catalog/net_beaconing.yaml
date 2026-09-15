@@ -1,0 +1,29 @@
+name: net_beaconing
+title: Network Beaconing
+category: hunting
+version: 1
+severity: high
+hunting: true
+description: >
+  Highly regular outbound connection intervals from a host to a remote
+  endpoint (C2 beaconing, T1071).
+tags:
+  - hunting
+  - command-and-control
+mitre:
+  tactics:
+    - TA0011
+  techniques:
+    - T1071
+data_sources:
+  - net.firewall.generic
+fp_notes: Legitimate polling / heartbeat traffic from monitoring agents
+rule:
+  kind: spl
+  query: search source_type=net.firewall.generic outcome=success | stats count by host, destination_ip | where count >= 60
+  threshold:
+    count: 1
+    window: 1h
+  group_by:
+    - host
+    - destination_ip

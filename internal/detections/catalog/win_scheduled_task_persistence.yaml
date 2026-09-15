@@ -1,0 +1,29 @@
+name: win_scheduled_task_persistence
+title: Scheduled Task Persistence
+category: hunting
+version: 1
+severity: high
+hunting: true
+description: >
+  Scheduled task creation/modification (EID 4698, Task Scheduler) as a
+  persistence mechanism (T1053.005).
+tags:
+  - hunting
+  - persistence
+mitre:
+  tactics:
+    - TA0003
+  techniques:
+    - T1053.005
+data_sources:
+  - os.windows.security
+fp_notes: Patch management and backup tooling that manages scheduled tasks
+rule:
+  kind: spl
+  query: search source_type=os.windows.security | where event_type=admin AND (message LIKE '%4698%' OR message LIKE '%Task Scheduler%' OR message LIKE '%schtasks%')
+  threshold:
+    count: 1
+    window: 15m
+  group_by:
+    - host
+    - user

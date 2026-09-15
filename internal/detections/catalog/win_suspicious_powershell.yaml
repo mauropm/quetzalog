@@ -1,0 +1,33 @@
+name: win_suspicious_powershell
+title: Suspicious PowerShell Execution
+category: hunting
+version: 1
+severity: high
+hunting: true
+description: >
+  PowerShell launched with encoded payloads, non-interactive mode, or
+  download cradles (T1059.001 / T1105).
+tags:
+  - hunting
+  - execution
+  - defense-evasion
+mitre:
+  tactics:
+    - TA0002
+    - TA0011
+  techniques:
+    - T1059.001
+    - T1105
+data_sources:
+  - os.windows.powershell
+  - os.windows.security
+fp_notes: Admin scripts using -NonInteractive in controlled pipelines; CI/CD agents with base64-encoded deploy payloads
+rule:
+  kind: spl
+  query: search source_type=os.windows.powershell | where process = 'powershell.exe' AND (message LIKE '%-enc%' OR message LIKE '%-EncodedCommand%' OR message LIKE '%-NonInteractive%' OR message LIKE '%IEX%' OR message LIKE '%FromBase64String%' OR message LIKE '%DownloadString%')
+  threshold:
+    count: 1
+    window: 15m
+  group_by:
+    - host
+    - user

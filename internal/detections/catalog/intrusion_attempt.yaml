@@ -1,0 +1,17 @@
+name: intrusion_attempt
+title: Intrusion Attempt Detected
+category: detection
+version: 2
+severity: critical
+hunting: false
+description: Detects potential intrusion attempts.
+tags:
+  - intrusion
+data_sources:
+  - network
+rule:
+  kind: threshold
+  query: event_type="intrusion_attempt"
+  threshold:
+    count: 1
+    window: 1h

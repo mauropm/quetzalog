@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"quetzalog/internal/detections"
 	"quetzalog/internal/findings"
 	"quetzalog/pkg/api"
 )
@@ -287,6 +288,48 @@ func (h *Handler) ScenarioRun(w http.ResponseWriter, r *http.Request) {
 		"steps":      steps,
 		"what_next":  whatNext,
 	}))
+}
+
+// CatalogList lists the built-in detection/hunting catalog entries
+// (GET /api/v1/detections/catalog). Filter with ?category=detection|hunting.
+func (h *Handler) CatalogList(w http.ResponseWriter, r *http.Request) {
+	entries, err := detections.ListCatalog()
+	if err != nil {
+		h.logger.Error("list catalog", "error", err)
+		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to list catalog"))
+		return
+	}
+	if cat := r.URL.Query().Get("category"); cat != "" {
+		filtered := []detections.CatalogEntry{}
+		for _, e := range entries {
+			if e.Category == cat {
+				filtered = append(filtered, e)
+			}
+		}
+		entries = filtered
+	}
+	api.WriteJSON(w, http.StatusOK, api.Success(entries))
+}
+
+// CatalogInstall installs a catalog entry as a detection rule
+// (POST /api/v1/detections/catalog/{name}/install). Each install stamps the
+// catalog version so upgrades are detectable; existing rules with the same
+// name are upgraded in place (suppression preserved).
+func (h *Handler) CatalogInstall(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	name := r.PathValue("name")
+	entry, err := detections.CatalogEntryByName(name)
+	if err != nil {
+		api.WriteJSON(w, http.StatusNotFound, api.NotFound(err.Error()))
+		return
+	}
+	rule, err := h.detectionStore.InstallCatalog(ctx, entry)
+	if err != nil {
+		h.logger.Error("install catalog entry", "entry", name, "error", err)
+		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to install catalog entry"))
+		return
+	}
+	api.WriteJSON(w, http.StatusCreated, api.Success(rule))
 }
 
 // DetectionStates lists the persisted correlation/sequence state for a rule

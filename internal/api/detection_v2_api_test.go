@@ -125,6 +125,62 @@ func TestDetectionV2API(t *testing.T) {
 	}
 }
 
+func TestCatalogEndpoints(t *testing.T) {
+	e := newEnv(t)
+
+	w, _ := do(e, "GET", "/api/v1/detections/catalog", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("catalog status %d: %s", w.Code, w.Body.String())
+	}
+	out := decodeBody(t, w)
+	if list, _ := out["data"].([]any); len(list) < 3 {
+		t.Fatalf("catalog entries: %d, want >= 3", len(list))
+	}
+
+	w, _ = do(e, "GET", "/api/v1/detections/catalog?category=hunting", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("catalog hunting status %d: %s", w.Code, w.Body.String())
+	}
+	out = decodeBody(t, w)
+	list, _ := out["data"].([]any)
+	if len(list) == 0 {
+		t.Errorf("no hunting entries")
+	}
+	for _, it := range list {
+		if row, _ := it.(map[string]any); !row["hunting"].(bool) {
+			t.Errorf("non-hunting entry in hunting filter: %v", row)
+		}
+	}
+
+	// Install one entry; it becomes a regular detection rule.
+	w, _ = do(e, "POST", "/api/v1/detections/catalog/brute_force_login/install", nil, nil)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("install status %d: %s", w.Code, w.Body.String())
+	}
+
+	w, _ = do(e, "GET", "/api/v1/detections", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list detections status %d: %s", w.Code, w.Body.String())
+	}
+	out = decodeBody(t, w)
+	installed := false
+	if list, _ := out["data"].([]any); list != nil {
+		for _, it := range list {
+			if row, _ := it.(map[string]any); row["name"] == "Brute Force Login Attempt" {
+				installed = true
+			}
+		}
+	}
+	if !installed {
+		t.Errorf("installed catalog rule not in detection list")
+	}
+
+	w, _ = do(e, "POST", "/api/v1/detections/catalog/nope/install", nil, nil)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("unknown entry status %d, want 404", w.Code)
+	}
+}
+
 func TestScenarioEndpoints(t *testing.T) {
 	e := newEnv(t)
 

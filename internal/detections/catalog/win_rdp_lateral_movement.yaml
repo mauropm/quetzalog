@@ -1,0 +1,28 @@
+name: win_rdp_lateral_movement
+title: RDP Lateral Movement
+category: hunting
+version: 1
+severity: high
+hunting: true
+description: >
+  Remote Desktop (session type 10) logons across multiple hosts (T1021.001).
+tags:
+  - hunting
+  - lateral-movement
+mitre:
+  tactics:
+    - TA0008
+  techniques:
+    - T1021.001
+data_sources:
+  - os.windows.security
+fp_notes: Remote desktop sessions opened by support personnel
+rule:
+  kind: spl
+  query: search source_type=os.windows.security | where event_type=authentication AND message LIKE '%4624%' AND message LIKE '%10%'
+  threshold:
+    count: 3
+    window: 1h
+  group_by:
+    - user
+    - source_ip

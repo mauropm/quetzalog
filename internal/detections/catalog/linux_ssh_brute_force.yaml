@@ -1,0 +1,30 @@
+name: linux_ssh_brute_force
+title: SSH Brute Force / Auth Failure Burst
+category: hunting
+version: 1
+severity: medium
+hunting: true
+description: >
+  Burst of failed SSH authentication attempts from a single source
+  (T1110.001 / T1021.004).
+tags:
+  - hunting
+  - credential-access
+mitre:
+  tactics:
+    - TA0006
+    - TA0008
+  techniques:
+    - T1110.001
+    - T1021.004
+data_sources:
+  - os.linux.sshd
+fp_notes: Monitoring agents that connect with short-lived failures
+rule:
+  kind: spl
+  query: search source_type=os.linux.sshd outcome=failure | stats count by source_ip, user | where count >= 10
+  threshold:
+    count: 1
+    window: 10m
+  group_by:
+    - source_ip

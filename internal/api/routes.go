@@ -98,6 +98,8 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 	// Detections
 	mux.HandleFunc("GET /api/v1/detections", handler.ListDetections)
 	mux.HandleFunc("POST /api/v1/detections", handler.CreateDetection)
+	mux.HandleFunc("GET /api/v1/detections/catalog", handler.CatalogList)
+	mux.HandleFunc("POST /api/v1/detections/catalog/{name}/install", handler.CatalogInstall)
 	mux.HandleFunc("PUT /api/v1/detections/{id}", handler.UpdateDetection)
 	mux.HandleFunc("DELETE /api/v1/detections/{id}", handler.DeleteDetection)
 	mux.HandleFunc("POST /api/v1/detections/{id}/exec", handler.ExecuteDetection)

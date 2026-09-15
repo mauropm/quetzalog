@@ -1,0 +1,29 @@
+name: web_scanning
+title: Web Scanning / 404 405 Burst
+category: hunting
+version: 1
+severity: medium
+hunting: true
+description: >
+  High rate of 404/405 responses from a single client — directory or
+  vulnerability scanning (T1595).
+tags:
+  - hunting
+  - reconnaissance
+mitre:
+  tactics:
+    - TA0043
+  techniques:
+    - T1595
+data_sources:
+  - web.nginx.access
+  - web.apache.access
+fp_notes: Link checkers and search engine crawlers
+rule:
+  kind: spl
+  query: search source_type=web.nginx.access | where status_code >= 404 | stats count by source_ip | where count >= 50
+  threshold:
+    count: 1
+    window: 10m
+  group_by:
+    - source_ip

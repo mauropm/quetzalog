@@ -1,0 +1,28 @@
+name: macos_launchagent_persistence
+title: macOS LaunchAgent Persistence
+category: hunting
+version: 1
+severity: high
+hunting: true
+description: >
+  Writes to LaunchAgents directories as a persistence mechanism (T1543.001).
+tags:
+  - hunting
+  - persistence
+mitre:
+  tactics:
+    - TA0003
+  techniques:
+    - T1543.001
+data_sources:
+  - os.darwin.unified
+fp_notes: Development tooling that installs launch agents for local services
+rule:
+  kind: spl
+  query: search source_type=os.darwin.unified | where file_path LIKE '%/Library/LaunchAgents%' AND (action = 'create' OR action = 'modify')
+  threshold:
+    count: 1
+    window: 15m
+  group_by:
+    - host
+    - user

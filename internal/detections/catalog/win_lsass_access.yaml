@@ -1,0 +1,28 @@
+name: win_lsass_access
+title: LSASS Memory Access
+category: hunting
+version: 1
+severity: critical
+hunting: true
+description: >
+  Access to LSASS memory — credential dumping via comsvcs.dll (T1003.001).
+tags:
+  - hunting
+  - credential-access
+mitre:
+  tactics:
+    - TA0006
+  techniques:
+    - T1003.001
+data_sources:
+  - os.windows.sysmon
+fp_notes: Endpoint agents that snapshot LSASS for compliance; authorized debugging sessions
+rule:
+  kind: spl
+  query: search source_type=os.windows.sysmon | where (message LIKE '%lsass.exe%' OR message LIKE '%comsvcs.dll%') AND message LIKE '%0x1010%'
+  threshold:
+    count: 1
+    window: 15m
+  group_by:
+    - host
+    - process

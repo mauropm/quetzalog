@@ -1,0 +1,30 @@
+name: brute_force_login
+title: Brute Force Login Attempt
+category: detection
+version: 2
+severity: high
+hunting: false
+description: Detects multiple failed login attempts from the same source.
+tags:
+  - credential-access
+data_sources:
+  - authentication
+mitre:
+  tactics:
+    - TA0006
+  techniques:
+    - T1110
+fp_notes: Interactive sign-in failures from a single user; batch jobs with rotating credentials
+references:
+  - https://attack.mitre.org/techniques/T1110/
+rule:
+  kind: threshold
+  query: event_type="authentication" outcome="failure"
+  threshold:
+    count: 5
+    window: 5m
+  group_by:
+    - source_ip
+    - user
+test_events:
+  - "5 failed logins from the same source_ip within 5m"

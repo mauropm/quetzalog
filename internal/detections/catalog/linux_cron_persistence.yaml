@@ -1,0 +1,28 @@
+name: linux_cron_persistence
+title: Cron Persistence on Linux
+category: hunting
+version: 1
+severity: high
+hunting: true
+description: >
+  Writes to /etc/cron* as a persistence mechanism (T1053.003).
+tags:
+  - hunting
+  - persistence
+mitre:
+  tactics:
+    - TA0003
+  techniques:
+    - T1053.003
+data_sources:
+  - os.linux.auditd
+fp_notes: Package management that schedules log rotation or backups
+rule:
+  kind: spl
+  query: search source_type=os.linux.auditd | where file_path LIKE '/etc/cron%' AND (action = 'modify' OR action = 'create')
+  threshold:
+    count: 1
+    window: 15m
+  group_by:
+    - host
+    - user
