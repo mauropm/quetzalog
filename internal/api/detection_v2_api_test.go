@@ -229,6 +229,74 @@ func TestAttackGraphEndpoints(t *testing.T) {
 	}
 }
 
+func TestThreatModelEndpoints(t *testing.T) {
+	e := newEnv(t)
+
+	// Seed one exposed asset so derive produces entry-point threats.
+	if _, err := e.db.Exec(`INSERT INTO assets (id, entity_type, entity_ref, name, criticality, environment, internet_exposed, tags, first_seen, last_seen, created_by, updated_at)
+		VALUES ('asset-w1', 'host', 'host:web-1', 'web-1', 'high', 'dmz', 1, '[]', datetime('now'), datetime('now'), 'test', datetime('now'))`); err != nil {
+		t.Fatalf("seed asset: %v", err)
+	}
+
+	// Create a telemetry model.
+	w, _ := do(e, "POST", "/api/v1/threat-models", map[string]any{"name": "corp", "source": "telemetry"}, nil)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create model status %d: %s", w.Code, w.Body.String())
+	}
+	out := decodeBody(t, w)
+	modelID, _ := out["data"].(map[string]any)["id"].(string)
+	if modelID == "" {
+		t.Fatalf("no model id: %v", out)
+	}
+
+	// Refresh (derive + drift snapshot).
+	w, _ = do(e, "POST", "/api/v1/threat-models/"+modelID+"/refresh", map[string]any{"triggered_by": "test"}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("refresh status %d: %s", w.Code, w.Body.String())
+	}
+	out = decodeBody(t, w)
+	if ver, _ := out["data"].(map[string]any)["version"].(float64); ver != 2 {
+		t.Errorf("version after refresh: %v, want 2", out["data"])
+	}
+
+	// Fetch the model with content.
+	w, _ = do(e, "GET", "/api/v1/threat-models/"+modelID, nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("get model status %d: %s", w.Code, w.Body.String())
+	}
+	out = decodeBody(t, w)
+	data, _ := out["data"].(map[string]any)
+	if data["nodes"] == nil || data["threats"] == nil {
+		t.Errorf("model content missing: %v", out)
+	}
+
+	// Snapshots (drift history).
+	w, _ = do(e, "GET", "/api/v1/threat-models/"+modelID+"/snapshots", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("snapshots status %d: %s", w.Code, w.Body.String())
+	}
+	out = decodeBody(t, w)
+	if list, _ := out["data"].([]any); len(list) != 1 {
+		t.Errorf("snapshots: %d, want 1", len(list))
+	}
+
+	// Controls catalog.
+	w, _ = do(e, "GET", "/api/v1/threat-models/controls", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("controls status %d: %s", w.Code, w.Body.String())
+	}
+	out = decodeBody(t, w)
+	if list, _ := out["data"].([]any); len(list) == 0 {
+		t.Errorf("no controls")
+	}
+
+	// Unknown model → 404.
+	w, _ = do(e, "GET", "/api/v1/threat-models/nope", nil, nil)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("unknown model status %d, want 404", w.Code)
+	}
+}
+
 func TestScenarioEndpoints(t *testing.T) {
 	e := newEnv(t)
 

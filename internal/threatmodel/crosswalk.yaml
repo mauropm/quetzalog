@@ -1,0 +1,241 @@
+# Framework crosswalk catalogs (threat-model.md §1). Embedded data, same
+# pattern as internal/mitre rules. A threat may carry STRIDE + technique +
+# kill-chain + D3FEND simultaneously — the point is multi-framework, not
+# forcing one model into one framework.
+
+# STRIDE axis → representative ATT&CK techniques.
+stride_to_techniques:
+  spoofing:
+    - T1110
+    - T1078
+    - T1568
+  tampering:
+    - T1070
+    - T1562
+    - T1602
+  repudiation:
+    - T1070
+    - T1490
+    - T1621
+  information_disclosure:
+    - T1005
+    - T1039
+    - T1213
+    - T1530
+  denial_of_service:
+    - T1499
+  elevation_of_privilege:
+    - T1068
+    - T1548
+    - T1547
+
+# Cyber Kill Chain phase → representative ATT&CK techniques.
+kill_chain_to_techniques:
+  recon:
+    - T1595
+    - T1592
+  weaponization:
+    - T1566
+    - T1583
+  delivery:
+    - T1566
+    - T1105
+  exploitation:
+    - T1190
+    - T1059
+    - T1068
+  installation:
+    - T1059
+    - T1547
+    - T1543
+  c2:
+    - T1071
+    - T1132
+    - T1571
+  actions_on_objectives:
+    - T1485
+    - T1041
+    - T1567
+
+# ATT&CK technique → D3FEND mitigations (representative subset; the full
+# MITRE D3FEND catalog is versioned separately upstream).
+d3fend_by_technique:
+  T1005:
+    - DF_74 # File System Isolation
+    - DF_85 # File Monitoring
+  T1039:
+    - DF_74
+  T1041:
+    - DF_31 # Network Traffic Filtering
+    - DF_66 # Network Traffic Encryption
+  T1059:
+    - DF_14 # Application Filtering
+    - DF_40 # Code Signing Enforcement
+  T1068:
+    - DF_02 # Access Control
+    - DF_13 # Least Privilege
+  T1070:
+    - DF_54 # Logging
+    - DF_94 # Anti-tampering
+  T1071:
+    - DF_31
+    - DF_98 # Network Anomaly Detection
+  T1078:
+    - DF_43 # Multi-Factor Authentication
+    - DF_48 # Password Protection
+  T1105:
+    - DF_14
+    - DF_31
+  T1110:
+    - DF_43
+    - DF_48
+    - DF_53 # Account Lockout
+  T1132:
+    - DF_31
+    - DF_66
+  T1190:
+    - DF_22 # Web Application Firewall
+    - DF_14
+  T1213:
+    - DF_85
+    - DF_74
+  T1485:
+    - DF_64 # Backup
+  T1490:
+    - DF_54
+    - DF_94
+  T1499:
+    - DF_31
+    - DF_04 # Rate Limiting
+  T1543:
+    - DF_40
+    - DF_85
+  T1547:
+    - DF_40
+  T1548:
+    - DF_02
+    - DF_13
+  T1562:
+    - DF_94
+  T1566:
+    - DF_14
+    - DF_49 # Email Filtering
+  T1567:
+    - DF_64
+  T1568:
+    - DF_43
+    - DF_48
+  T1571:
+    - DF_31
+    - DF_66
+  T1595:
+    - DF_31
+    - DF_98
+  T1592:
+    - DF_31
+  T1530:
+    - DF_74
+    - DF_64
+  T1583:
+    - DF_94
+  T1587:
+    - DF_85
+  T1602:
+    - DF_94
+  T1621:
+    - DF_54
+    - DF_94
+
+# Control catalog: embedded compliance control definitions used to map
+# threats → controls (threat-controls with mapping_state).
+controls:
+  - control_id: ctl_mfa
+    framework: d3fend
+    ref: DF_43
+    name: Multi-Factor Authentication
+    description: Require a second authentication factor for privileged and remote access.
+  - control_id: ctl_password
+    framework: d3fend
+    ref: DF_48
+    name: Password Protection
+    description: Enforce strong password policies and storage.
+  - control_id: ctl_lockout
+    framework: d3fend
+    ref: DF_53
+    name: Account Lockout
+    description: Temporarily lock accounts after repeated authentication failures.
+  - control_id: ctl_access_control
+    framework: d3fend
+    ref: DF_02
+    name: Access Control
+    description: Restrict object access to authorized identities.
+  - control_id: ctl_least_privilege
+    framework: d3fend
+    ref: DF_13
+    name: Least Privilege
+    description: Grant only the minimum privileges required.
+  - control_id: ctl_app_filtering
+    framework: d3fend
+    ref: DF_14
+    name: Application Filtering
+    description: Block or restrict unapproved executable content.
+  - control_id: ctl_waf
+    framework: d3fend
+    ref: DF_22
+    name: Web Application Firewall
+    description: Filter web requests for known attack patterns.
+  - control_id: ctl_net_filtering
+    framework: d3fend
+    ref: DF_31
+    name: Network Traffic Filtering
+    description: Filter network traffic at the boundary.
+  - control_id: ctl_net_anomaly
+    framework: d3fend
+    ref: DF_98
+    name: Network Anomaly Detection
+    description: Detect anomalous network behavior (beaconing, scanning).
+  - control_id: ctl_logging
+    framework: d3fend
+    ref: DF_54
+    name: Logging
+    description: Record security-relevant events for review and audit.
+  - control_id: ctl_backup
+    framework: d3fend
+    ref: DF_64
+    name: Backup
+    description: Maintain recoverable copies of critical data.
+  - control_id: ctl_anti_tamper
+    framework: d3fend
+    ref: DF_94
+    name: Anti-tampering
+    description: Protect integrity of logs, configs, and binaries.
+  - control_id: ctl_code_signing
+    framework: d3fend
+    ref: DF_40
+    name: Code Signing Enforcement
+    description: Execute only signed, trusted code.
+  - control_id: ctl_email_filtering
+    framework: d3fend
+    ref: DF_49
+    name: Email Filtering
+    description: Screen inbound mail for malicious content.
+  - control_id: ctl_rate_limit
+    framework: d3fend
+    ref: DF_04
+    name: Rate Limiting
+    description: Cap request rates to blunt DoS and brute force.
+  - control_id: ctl_file_isolation
+    framework: d3fend
+    ref: DF_74
+    name: File System Isolation
+    description: Isolate sensitive data from general-access storage.
+  - control_id: ctl_file_monitoring
+    framework: d3fend
+    ref: DF_85
+    name: File Monitoring
+    description: Monitor file access and modification for anomalies.
+  - control_id: ctl_net_encryption
+    framework: d3fend
+    ref: DF_66
+    name: Network Traffic Encryption
+    description: Encrypt data in transit to the network.

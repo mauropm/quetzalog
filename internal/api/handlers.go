@@ -33,6 +33,7 @@ import (
 	"quetzalog/internal/risk"
 	"quetzalog/internal/spl/ast"
 	"quetzalog/internal/threatintel"
+	"quetzalog/internal/threatmodel"
 	"quetzalog/pkg/api"
 	"quetzalog/pkg/event"
 )
@@ -73,13 +74,15 @@ type Handler struct {
 	correlationEngine  *detections.CorrelationEngine
 	scenarioEvaluator  *detections.ScenarioEvaluator
 	attackGraph        *attackgraph.Builder
+	tmStore            *threatmodel.Store
+	tmCoverage         *coverage.Store
 	config             config.Config
 	logger             *slog.Logger
 }
 
 // NewHandler creates a new API handler with the given configuration and dependencies.
 func NewHandler(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, assetsStore *assets.Store, entitiesStore *entities.Store, graphLayer *graph.Graph, coverageRunner *coverage.Runner, tiStore *threatintel.Store, tiRegistry *threatintel.Registry, mitreMapper *mitre.Mapper, correlationEngine *detections.CorrelationEngine, scenarioEvaluator *detections.ScenarioEvaluator, logger *slog.Logger) *Handler {
-	return &Handler{
+	h := &Handler{
 		store:              store,
 		alertStore:         alertStore,
 		incidentStore:      incidentStore,
@@ -102,9 +105,16 @@ func NewHandler(cfg config.Config, store *events.Store, searchSvc *query.Service
 		correlationEngine:  correlationEngine,
 		scenarioEvaluator:  scenarioEvaluator,
 		attackGraph:        attackgraph.NewBuilder(store.DB(), assetsStore, nil, logger),
+		tmStore:            threatmodel.NewStore(store.DB()),
+		tmCoverage:         coverage.NewStore(store.DB()),
 		config:             cfg,
 		logger:             logger,
 	}
+	// Seed the embedded control catalog (idempotent).
+	if cw, err := threatmodel.LoadCrosswalk(); err == nil {
+		_ = h.tmStore.EnsureControls(context.Background(), cw.Controls)
+	}
+	return h
 }
 
 // ─────────────────────────────────────────────
