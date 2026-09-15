@@ -23,6 +23,7 @@ import (
 	"quetzalog/internal/graph"
 	"quetzalog/internal/incidents"
 	"quetzalog/internal/investigations"
+	"quetzalog/internal/mitre"
 	"quetzalog/internal/query"
 	"quetzalog/internal/response"
 	"quetzalog/internal/risk"
@@ -40,13 +41,13 @@ const (
 )
 
 // SetupRouter wires up all HTTP API endpoints and applies middleware.
-func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, assetsStore *assets.Store, entitiesStore *entities.Store, graphLayer *graph.Graph, coverageRunner *coverage.Runner, tiStore *threatintel.Store, tiRegistry *threatintel.Registry, logger *slog.Logger) (http.Handler, error) {
+func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, assetsStore *assets.Store, entitiesStore *entities.Store, graphLayer *graph.Graph, coverageRunner *coverage.Runner, tiStore *threatintel.Store, tiRegistry *threatintel.Registry, mitreMapper *mitre.Mapper, logger *slog.Logger) (http.Handler, error) {
 	if authStore == nil {
 		authStore = auth.NewStore(nil)
 	} else if err := authStore.EnsureSchema(context.Background()); err != nil {
 		return nil, fmt.Errorf("initialize auth schema: %w", err)
 	}
-	handler := NewHandler(cfg, store, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, riskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, tiStore, tiRegistry, logger)
+	handler := NewHandler(cfg, store, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, riskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, tiStore, tiRegistry, mitreMapper, logger)
 
 	mux := http.NewServeMux()
 
@@ -168,6 +169,9 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 	mux.HandleFunc("GET /api/v1/mitre/techniques", handler.MITRETechniques)
 	mux.HandleFunc("GET /api/v1/mitre/tactics", handler.MITRETactics)
 	mux.HandleFunc("GET /api/v1/mitre/active", handler.MITREActive)
+	mux.HandleFunc("GET /api/v1/mitre/mapping-rules", handler.ListMappingRules)
+	mux.HandleFunc("POST /api/v1/mitre/mapping-rules", handler.RegisterMappingRule)
+	mux.HandleFunc("GET /api/v1/mitre/techniques/{id}/events", handler.TechniqueEvents)
 
 	// Response actions
 	mux.HandleFunc("GET /api/v1/response-actions", handler.ListResponseActions)

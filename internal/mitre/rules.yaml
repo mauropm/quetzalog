@@ -1,0 +1,212 @@
+# Built-in MITRE event→technique mapping rules.
+#
+# Rules are pure functions (event) → {tactic, technique, confidence}; a
+# single event may match multiple rules (multi-technique). All conditions
+# in `when` are ANDed; unset conditions are wildcards. message_regex and
+# match patterns are case-insensitive. `source_type` matches both the
+# transport source type and the normalized source_class attribute.
+#
+# Techniques and tactics must exist in the embedded catalog
+# (mitre.go); unknown IDs fail startup.
+---
+- id: ps1-encoded-command
+  when:
+    process: powershell
+    message_regex: (-enc(odedcommand)?\b|frombase64string|invoke-expression\s+invoke)
+  tactic: TA0002
+  technique: T1059.001
+  confidence: 0.9
+  description: PowerShell with encoded or base64 command execution
+
+- id: ps1-web-request
+  when:
+    process: powershell
+    message_regex: (invoke-webrequest|invoke-restmethod|downloadstring|downloadfile|\biwr\b|\bwc\.|\bcurl\b.*http)
+  tactic: TA0010
+  technique: T1105
+  confidence: 0.7
+  description: PowerShell fetching remote content (download cradle)
+
+- id: wmic-process-create
+  when:
+    process: wmic
+    message_regex: process\s+call\s+create
+  tactic: TA0002
+  technique: T1059.001
+  confidence: 0.8
+  description: wmic process call create (defense evasion via signed binary)
+
+- id: regsvr32-proxy
+  when:
+    process: regsvr32
+    message_regex: (/scrobj|/i:.*\.dll|/s,/u|http)
+  tactic: TA0002
+  technique: T1218.010
+  confidence: 0.75
+  description: regsvr32 signed-binary proxy execution
+
+- id: rundll32-proxy
+  when:
+    process: rundll32
+    message_regex: (javascript:|vbscript:|http|\.dll\s+)
+  tactic: TA0002
+  technique: T1218.011
+  confidence: 0.75
+  description: rundll32 signed-binary proxy execution
+
+- id: certutil-download
+  when:
+    process: certutil
+    message_regex: (-urlcache|-verifyctl.*-f.*http|-\s*url\s+http)
+  tactic: TA0010
+  technique: T1105
+  confidence: 0.8
+  description: certutil used to download remote content
+
+- id: win-logon-privileged
+  when:
+    vendor_event_id: "4672"
+  tactic: TA0004
+  technique: T1078
+  confidence: 0.5
+  description: Special privileges assigned to new logon (Windows 4672)
+
+- id: win-logon-failure
+  when:
+    vendor_event_id: "4625"
+  tactic: TA0006
+  technique: T1110.001
+  confidence: 0.4
+  description: Failed logon (Windows 4625)
+
+- id: win-scheduled-task
+  when:
+    vendor_event_id: "4698"
+  tactic: TA0003
+  technique: T1053.005
+  confidence: 0.7
+  description: Scheduled task created (Windows 4698)
+
+- id: win-schtasks-process
+  when:
+    process: schtasks
+    message_regex: /create
+  tactic: TA0003
+  technique: T1053.005
+  confidence: 0.7
+  description: schtasks /create
+
+- id: win-service-created
+  when:
+    process: sc.exe
+    message_regex: (create\s+\S+|/create)
+  tactic: TA0003
+  technique: T1543.002
+  confidence: 0.6
+  description: Service creation via sc.exe
+
+- id: win-user-created
+  when:
+    vendor_event_id: "4670"
+  tactic: TA0003
+  technique: T1136.001
+  confidence: 0.7
+  description: A user account was created (Windows 4670)
+
+- id: win-group-member-added
+  when:
+    vendor_event_id: "4728"
+  tactic: TA0003
+  technique: T1098
+  confidence: 0.5
+  description: Member added to security-enabled local group (Windows 4728)
+
+- id: win-eventlog-cleared
+  when:
+    vendor_event_id: "1102"
+  tactic: TA0005
+  technique: T1070.001
+  confidence: 0.8
+  description: Audit log was cleared (Windows 1102)
+
+- id: lsass-access
+  when:
+    message_regex: (lsass\.exe|procdump.*-ma|comsvcs\.dll|vssadmin\s+delete)
+  tactic: TA0006
+  technique: T1003.001
+  confidence: 0.75
+  description: LSASS memory access / credential dumping tooling
+
+- id: psexec-lateral
+  when:
+    process: psexec
+  tactic: TA0008
+  technique: T1021
+  confidence: 0.8
+  description: PsExec remote service execution (lateral movement)
+
+- id: domain-account-enumeration
+  when:
+    message_regex: (nltest\s+|net\s+group\s+/domain|net\s+user\s+/domain|dsquery)
+  tactic: TA0007
+  technique: T1087.002
+  confidence: 0.6
+  description: Domain account enumeration
+
+- id: linux-sshd-failure
+  when:
+    service: sshd
+    message_regex: (failed\s+password|authentication\s+failure|invalid\s+user)
+  tactic: TA0006
+  technique: T1110.001
+  confidence: 0.7
+  description: SSH authentication failure
+
+- id: linux-sudo-exec
+  when:
+    service: sudo
+    message_regex: command
+  tactic: TA0004
+  technique: T1078
+  confidence: 0.4
+  description: Privileged command execution via sudo
+
+- id: linux-cron-modification
+  when:
+    message_regex: (crontab|/etc/cron(d)?|/var/spool/cron)
+  tactic: TA0003
+  technique: T1053.003
+  confidence: 0.6
+  description: Cron job creation/modification (persistence)
+
+- id: linux-authorized-keys
+  when:
+    message_regex: authorized_keys
+  tactic: TA0003
+  technique: T1098.004
+  confidence: 0.7
+  description: SSH authorized_keys modification (account manipulation)
+
+- id: linux-user-creation
+  when:
+    service: useradd
+  tactic: TA0003
+  technique: T1136.001
+  confidence: 0.7
+  description: Local user account creation
+
+- id: web-sql-injection
+  when:
+    message_regex: (union\s+select|information_schema|0x27|'\s*or\s*'1'\s*=\s*'1|sleep\s*\(\s*\d+\s*\)|benchmark\s*\()
+  tactic: TA0001
+  technique: T1190
+  confidence: 0.7
+  description: SQL injection attempt in web traffic
+
+- id: web-path-traversal
+  when:
+    message_regex: (\.\./|\.\.\\|%2e%2e%2f|%2e%2e/)
+  tactic: TA0001
+  technique: T1190
+  confidence: 0.5
+  description: Path traversal attempt in web traffic

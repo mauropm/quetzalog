@@ -30,7 +30,17 @@ type Config struct {
 	TelemetryCoverage `yaml:"telemetry_coverage"`
 	Risk            `yaml:"risk"`
 	ThreatIntelligence `yaml:"threat_intelligence"`
+	Mitre             `yaml:"mitre"`
 	AIAnalyst     `yaml:"ai_analyst"`
+}
+
+// Mitre configures ATT&CK event→technique mapping. When enabled, an async
+// worker evaluates the mapping rules over the event stream and writes the
+// result to each event's `mitre.attack` attribute (never on the write
+// path). Rules are the embedded set, extendable at runtime via API.
+type Mitre struct {
+	Enabled      bool `yaml:"enabled"`
+	EventMapping bool `yaml:"event_mapping"`
 }
 
 // Entities configures v2 entity extraction/resolution on the write path.
@@ -293,6 +303,10 @@ func DefaultConfig() Config {
 			Providers: []TIBProvider{
 				{Name: "internal", Type: "internal", Enabled: true},
 			},
+		},
+		Mitre: Mitre{
+			Enabled:      false,
+			EventMapping: true,
 		},
 		AIAnalyst: AIAnalyst{
 			Enabled:              false,

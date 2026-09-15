@@ -42,6 +42,17 @@ var tactics = []Tactic{
 }
 
 var techniques = map[string]Technique{
+	"T1105":    {ID: "T1105", Name: "Ingress Tool Transfer", TacticIDs: []string{"TA0010"}},
+	"T1190":    {ID: "T1190", Name: "Exploit Public-Facing Application", TacticIDs: []string{"TA0001"}},
+	"T1136":    {ID: "T1136", Name: "Create Account", TacticIDs: []string{"TA0003"}},
+	"T1136.001": {ID: "T1136.001", Name: "Local Account", TacticIDs: []string{"TA0003"}, SubOf: "T1136"},
+	"T1098":    {ID: "T1098", Name: "Account Manipulation", TacticIDs: []string{"TA0003"}},
+	"T1098.004": {ID: "T1098.004", Name: "SSH Authorized Keys", TacticIDs: []string{"TA0003"}, SubOf: "T1098"},
+	"T1053":    {ID: "T1053", Name: "Scheduled Task/Job", TacticIDs: []string{"TA0003", "TA0004"}},
+	"T1053.003": {ID: "T1053.003", Name: "Cron", TacticIDs: []string{"TA0003", "TA0004"}, SubOf: "T1053"},
+	"T1218":    {ID: "T1218", Name: "Signed Binary Proxy Execution", TacticIDs: []string{"TA0002", "TA0004", "TA0005"}},
+	"T1218.010": {ID: "T1218.010", Name: "Regsvr32", TacticIDs: []string{"TA0002", "TA0004", "TA0005"}, SubOf: "T1218"},
+	"T1218.011": {ID: "T1218.011", Name: "Rundll32", TacticIDs: []string{"TA0002", "TA0004", "TA0005"}, SubOf: "T1218"},
 	"T1110":    {ID: "T1110", Name: "Brute Force", TacticIDs: []string{"TA0006"}},
 	"T1110.001": {ID: "T1110.001", Name: "Password Guessing", TacticIDs: []string{"TA0006"}, SubOf: "T1110"},
 	"T1110.003": {ID: "T1110.003", Name: "Credential Stuffing", TacticIDs: []string{"TA0006"}, SubOf: "T1110"},

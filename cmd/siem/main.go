@@ -40,6 +40,7 @@ import (
 	"quetzalog/internal/ingestion/otlp"
 	"quetzalog/internal/ingestion/syslog"
 	"quetzalog/internal/investigations"
+	"quetzalog/internal/mitre"
 	"quetzalog/internal/query"
 	"quetzalog/internal/response"
 	"quetzalog/internal/risk"
@@ -305,6 +306,19 @@ func cmdServe(cfgFile string, debug bool) int {
 			}))
 		}
 	}
+	// MITRE event→technique mapping: async worker writing mitre.attack
+	// attributes (embedded rules, runtime-extensible via API).
+	mitreMapper, err := mitre.NewMapper()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading mitre mapping rules: %v\n", err)
+		return 1
+	}
+	if cfg.Mitre.Enabled && cfg.Mitre.EventMapping {
+		eventMapper := mitre.NewEventMapper(mitreMapper, db, logger)
+		eventMapper.Start(2)
+		defer eventMapper.Stop()
+		eventStore.AddObserver(eventMapper.Enqueue)
+	}
 	if cfg.ThreatIntelligence.Enabled {
 		// Indicator enrichment: bounded async queue matching event values
 		// against the indicator store (never blocks ingestion).
@@ -482,7 +496,7 @@ func cmdServe(cfgFile string, debug bool) int {
 	}
 
 	mux := http.NewServeMux()
-	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, tiStore, tiRegistry, logger)
+	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, tiStore, tiRegistry, mitreMapper, logger)
 	if err != nil {
 		logger.Error("API setup failed", "error", err)
 		if debug {

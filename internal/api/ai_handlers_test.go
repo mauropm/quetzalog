@@ -121,6 +121,7 @@ func newAIEnv(t *testing.T, fake *apiFakeProvider) *aiEnv {
 		graph.NewGraph(db),
 		coverage.NewRunner(db, assets.NewStore(db), coverage.NewStore(db), logger, time.Hour),
 		threatintel.NewStore(db), threatintel.NewRegistry(threatintel.NewStore(db)),
+		mitreMapperForTest(t),
 		logger,
 	)
 	if err != nil {

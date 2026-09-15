@@ -26,6 +26,7 @@ import (
 	"quetzalog/internal/graph"
 	"quetzalog/internal/incidents"
 	"quetzalog/internal/investigations"
+	"quetzalog/internal/mitre"
 	"quetzalog/internal/query"
 	"quetzalog/internal/response"
 	"quetzalog/internal/risk"
@@ -67,12 +68,13 @@ type Handler struct {
 	coverageRunner     *coverage.Runner
 	tiStore            *threatintel.Store
 	tiRegistry         *threatintel.Registry
+	mitreMapper        *mitre.Mapper
 	config             config.Config
 	logger             *slog.Logger
 }
 
 // NewHandler creates a new API handler with the given configuration and dependencies.
-func NewHandler(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, assetsStore *assets.Store, entitiesStore *entities.Store, graphLayer *graph.Graph, coverageRunner *coverage.Runner, tiStore *threatintel.Store, tiRegistry *threatintel.Registry, logger *slog.Logger) *Handler {
+func NewHandler(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, assetsStore *assets.Store, entitiesStore *entities.Store, graphLayer *graph.Graph, coverageRunner *coverage.Runner, tiStore *threatintel.Store, tiRegistry *threatintel.Registry, mitreMapper *mitre.Mapper, logger *slog.Logger) *Handler {
 	return &Handler{
 		store:              store,
 		alertStore:         alertStore,
@@ -92,6 +94,7 @@ func NewHandler(cfg config.Config, store *events.Store, searchSvc *query.Service
 		coverageRunner:     coverageRunner,
 		tiStore:            tiStore,
 		tiRegistry:         tiRegistry,
+		mitreMapper:        mitreMapper,
 		config:             cfg,
 		logger:             logger,
 	}
