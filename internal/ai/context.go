@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"quetzalog/internal/events"
 	"quetzalog/internal/findings"
+	"quetzalog/pkg/event"
 )
 
 // maxContextJSONBytes bounds the serialized evidence snapshot. The context
@@ -23,40 +25,164 @@ const maxEventMessage = 240
 // lookups in the context.
 const maxContextHosts = 3
 
-// FindingContext is the structured evidence snapshot sent to the model:
-// the finding itself, its surrounding events, related findings, the
-// entities involved and — when assets/coverage lookups are wired — the
-// asset criticality and telemetry gaps around the finding's hosts.
-// No credentials or configuration data are included.
+// maxTIHits bounds threat-intel entries included in the context.
+const maxTIHits = 10
+
+// maxPriorAnalyses bounds the operator-feedback section.
+const maxPriorAnalyses = 5
+
+// FindingContext is the structured evidence snapshot sent to the model
+// (ai-security-analysis.md §1). Every section is a bounded query result and
+// carries the ids its facts came from; the model must cite them.
+// No credentials or configuration data are included — untrusted text is
+// redacted before the context is serialized.
 type FindingContext struct {
 	Finding   FindingInfo     `json:"finding"`
 	Events    []EventInfo     `json:"events"`
 	Related   []FindingInfo   `json:"related_findings"`
 	Entities  EntitySummary   `json:"entities"`
-	Assets    []AssetBrief    `json:"assets,omitempty"`
-	Telemetry []CoverageBrief `json:"telemetry_gaps,omitempty"`
+	AssetContext *AssetContext `json:"asset_context,omitempty"`
+	ThreatIntel  []TIHit      `json:"threat_intel,omitempty"`
+	Mitre        *MitreContext  `json:"mitre_context,omitempty"`
+	AttackGraph  *AttackGraphBrief `json:"attack_graph,omitempty"`
+	TelemetryGaps []string     `json:"telemetry_gaps,omitempty"`
+	PriorAnalyses []PriorAnalysis `json:"prior_analyses,omitempty"`
 }
 
-// AssetBrief is a compact asset-criticality snapshot for the model.
-type AssetBrief struct {
-	Name               string `json:"name"`
-	EntityType         string `json:"entity_type"`
-	OS                 string `json:"os,omitempty"`
-	Criticality        string `json:"criticality"`
-	Owner              string `json:"owner,omitempty"`
-	Environment        string `json:"environment,omitempty"`
-	InternetExposed    bool   `json:"internet_exposed"`
-	DataClassification string `json:"data_classification,omitempty"`
-	Draft              bool   `json:"draft"`
+// UnmarshalJSON tolerates legacy v1 context rows, whose telemetry_gaps were
+// objects and which had a flat "assets" list. Those fields are dropped
+// before the strict decode so stored contexts remain readable.
+func (c *FindingContext) UnmarshalJSON(b []byte) error {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err == nil {
+		if raw, ok := m["telemetry_gaps"]; ok {
+			var probe []string
+			if json.Unmarshal(raw, &probe) != nil {
+				delete(m, "telemetry_gaps")
+			}
+		}
+		if raw, ok := m["assets"]; ok {
+			var probe []map[string]any
+			if json.Unmarshal(raw, &probe) != nil {
+				delete(m, "assets")
+			}
+		}
+		if len(m) > 0 {
+			if scrubbed, err := json.Marshal(m); err == nil {
+				b = scrubbed
+			}
+		}
+	}
+	type alias FindingContext
+	return json.Unmarshal(b, (*alias)(c))
 }
 
-// CoverageBrief is a compact telemetry-gap snapshot for one asset.
-type CoverageBrief struct {
-	Asset       string   `json:"asset"`
-	CoveragePct float64  `json:"coverage_pct"`
-	Available   []string `json:"available,omitempty"`
-	Missing     []string `json:"missing,omitempty"`
-	Stale       []string `json:"stale,omitempty"`
+// AssetContext is the bounded asset view around the finding's hosts.
+type AssetContext struct {
+	Hosts []HostAsset `json:"hosts,omitempty"`
+}
+
+// HostAsset is one asset with its criticality, telemetry coverage and
+// linked vulnerabilities.
+type HostAsset struct {
+	Name               string        `json:"name"`
+	EntityType         string        `json:"entity_type,omitempty"`
+	OS                 string        `json:"os,omitempty"`
+	Criticality        string        `json:"criticality,omitempty"`
+	Owner              string        `json:"owner,omitempty"`
+	Environment        string        `json:"environment,omitempty"`
+	InternetExposed    bool          `json:"internet_exposed"`
+	DataClassification string        `json:"data_classification,omitempty"`
+	TelemetryCoverage  *CoveragePct  `json:"telemetry_coverage,omitempty"`
+	Vulnerabilities    []VulnBrief   `json:"vulnerabilities,omitempty"`
+}
+
+// CoveragePct is a compact telemetry-coverage snapshot.
+type CoveragePct struct {
+	Pct     float64  `json:"pct"`
+	Missing []string `json:"missing,omitempty"`
+}
+
+// VulnBrief is one CVE linked to an asset.
+type VulnBrief struct {
+	CVE              string   `json:"cve"`
+	CVSS             *float64 `json:"cvss,omitempty"`
+	ExploitAvailable string   `json:"exploit_available,omitempty"`
+}
+
+// TIHit is one threat-intel entry for a context value, with its confidence
+// composition and attribution.
+type TIHit struct {
+	Value        string    `json:"value"`
+	Type         string    `json:"type"`
+	Severity     string    `json:"severity,omitempty"`
+	Description  string    `json:"description,omitempty"`
+	Source       string    `json:"source,omitempty"`
+	Confidence   TIConfidence `json:"confidence"`
+	Actors       []string  `json:"actors,omitempty"`
+	Malware      []string  `json:"malware,omitempty"`
+	FirstSeen    time.Time `json:"first_seen,omitempty"`
+	LastSeen     time.Time `json:"last_seen,omitempty"`
+	References   []string  `json:"references,omitempty"`
+}
+
+// TIConfidence mirrors the threat-intel confidence composition.
+type TIConfidence struct {
+	SourceReliability  float64 `json:"source_reliability"`
+	IndicatorConfidence float64 `json:"indicator_confidence"`
+	Corroboration      int     `json:"corroboration"`
+}
+
+// MitreContext is the observed ATT&CK position of the finding.
+type MitreContext struct {
+	Observed          []ObservedTechnique `json:"observed_techniques"`
+	KillChainPosition string              `json:"kill_chain_position,omitempty"`
+	ScenarioRun       *ScenarioBrief      `json:"scenario_run,omitempty"`
+}
+
+// ObservedTechnique is a mapped technique with the event ids it came from.
+type ObservedTechnique struct {
+	ID             string   `json:"id"`
+	Name           string   `json:"name,omitempty"`
+	Tactic         string   `json:"tactic,omitempty"`
+	EvidenceEvents []string `json:"evidence_events"`
+}
+
+// ScenarioBrief summarizes one active scenario run for the finding's host.
+type ScenarioBrief struct {
+	Name         string    `json:"name"`
+	Status       string    `json:"status,omitempty"`
+	OpenedAt     time.Time `json:"opened_at,omitempty"`
+	Observed     []string  `json:"observed,omitempty"`
+	ExpectedNext []string  `json:"expected_next,omitempty"`
+	Unknown      []string  `json:"unknown,omitempty"`
+}
+
+// AttackGraphBrief is the bounded, state-labeled neighborhood of the
+// finding's hosts in the attack graph.
+type AttackGraphBrief struct {
+	CompromisedNodes []string    `json:"compromised_nodes,omitempty"`
+	AtRiskNodes      []string    `json:"at_risk_nodes,omitempty"`
+	Edges            []GraphEdge `json:"edges,omitempty"`
+}
+
+// GraphEdge is one relationship with its compromise state.
+type GraphEdge struct {
+	From     string `json:"from"`
+	To       string `json:"to"`
+	Relation string `json:"relation"`
+	State    string `json:"state,omitempty"`
+}
+
+// PriorAnalysis is one earlier analysis with the operator's decision —
+// the feedback loop (spec §33): FP decisions are visible to the model.
+type PriorAnalysis struct {
+	ID        string `json:"id"`
+	FindingID string `json:"finding_id,omitempty"`
+	Summary   string `json:"summary,omitempty"`
+	Severity  string `json:"severity,omitempty"`
+	Decision  string `json:"decision"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 // FindingInfo is a compact finding representation.
@@ -74,18 +200,29 @@ type FindingInfo struct {
 	LastSeen       time.Time `json:"last_seen"`
 }
 
-// EventInfo is a compact event representation.
+// EventInfo is a compact event representation with provenance.
 type EventInfo struct {
-	Timestamp time.Time `json:"timestamp"`
-	Severity  string    `json:"severity"`
-	Source    string    `json:"source,omitempty"`
-	Host      string    `json:"host,omitempty"`
-	User      string    `json:"user,omitempty"`
-	Message   string    `json:"message"`
-	EventType string    `json:"event_type,omitempty"`
-	Category  string    `json:"category,omitempty"`
-	Action    string    `json:"action,omitempty"`
-	Outcome   string    `json:"outcome,omitempty"`
+	ID        string      `json:"id"`
+	Timestamp time.Time   `json:"timestamp"`
+	Severity  string      `json:"severity"`
+	Source    string      `json:"source,omitempty"`
+	Host      string      `json:"host,omitempty"`
+	User      string      `json:"user,omitempty"`
+	Message   string      `json:"message"`
+	EventType string      `json:"event_type,omitempty"`
+	Category  string      `json:"category,omitempty"`
+	Action    string      `json:"action,omitempty"`
+	Outcome   string      `json:"outcome,omitempty"`
+	Entities  []string    `json:"entities,omitempty"`
+	Mitre     []MitreHit  `json:"mitre,omitempty"`
+}
+
+// MitreHit is one ATT&CK mapping carried on an event.
+type MitreHit struct {
+	Technique string  `json:"technique"`
+	Name      string  `json:"name,omitempty"`
+	Tactic    string  `json:"tactic,omitempty"`
+	Confidence float64 `json:"confidence,omitempty"`
 }
 
 // EntitySummary groups the entities involved in the finding.
@@ -95,14 +232,24 @@ type EntitySummary struct {
 	Hosts     []string `json:"hosts,omitempty"`
 	Sources   []string `json:"sources,omitempty"`
 	Processes []string `json:"processes,omitempty"`
+	Domains   []string `json:"domains,omitempty"`
+	Files     []string `json:"files,omitempty"`
+	Hashes    []string `json:"hashes,omitempty"`
 }
 
-// ContextBuilder assembles the analyst context from a finding.
+// ContextBuilder assembles the analyst context from a finding. Optional
+// lookups (assets, threat intel, scenarios, attack graph, prior analyses)
+// are wired via hooks; when unset, the corresponding section is omitted.
+// Untrusted text is redacted before serialization.
 type ContextBuilder struct {
 	findings    *findings.Store
 	events      *events.Store
-	assetFor    func(ctx context.Context, host string) *AssetBrief
-	coverageFor func(ctx context.Context, host string) *CoverageBrief
+	logger      *slog.Logger
+	assetFor    func(ctx context.Context, host string) *HostAsset
+	tiFor       func(ctx context.Context, values []string) []TIHit
+	scenarioFor func(ctx context.Context, host string) *ScenarioBrief
+	graphFor    func(ctx context.Context, hosts []string) *AttackGraphBrief
+	analysesFor func(ctx context.Context, findingIDs []string) []PriorAnalysis
 }
 
 // NewContextBuilder creates a context builder over the finding and event stores.
@@ -110,22 +257,45 @@ func NewContextBuilder(findings *findings.Store, evStore *events.Store) *Context
 	return &ContextBuilder{findings: findings, events: evStore}
 }
 
-// WithAssets adds an optional asset-criticality lookup for the finding's
-// hosts. Nil-safe: when unset, the context omits the asset block.
-func (b *ContextBuilder) WithAssets(fn func(ctx context.Context, host string) *AssetBrief) *ContextBuilder {
+// WithLogger sets the logger used for redaction records.
+func (b *ContextBuilder) WithLogger(l *slog.Logger) *ContextBuilder {
+	b.logger = l
+	return b
+}
+
+// WithAssets adds an asset-enrichment lookup for the finding's hosts
+// (criticality, coverage, vulnerabilities). Nil-safe.
+func (b *ContextBuilder) WithAssets(fn func(ctx context.Context, host string) *HostAsset) *ContextBuilder {
 	b.assetFor = fn
 	return b
 }
 
-// WithCoverage adds an optional telemetry-gap lookup for the finding's hosts.
-// Nil-safe: when unset, the context omits the telemetry block.
-func (b *ContextBuilder) WithCoverage(fn func(ctx context.Context, host string) *CoverageBrief) *ContextBuilder {
-	b.coverageFor = fn
+// WithThreatIntel adds an indicator lookup for the context's values. Nil-safe.
+func (b *ContextBuilder) WithThreatIntel(fn func(ctx context.Context, values []string) []TIHit) *ContextBuilder {
+	b.tiFor = fn
 	return b
 }
 
-// Build collects the finding's events (bounded), related findings and the
-// entity summary. maxEvents <= 0 falls back to 100.
+// WithScenarios adds an active-scenario lookup for a host. Nil-safe.
+func (b *ContextBuilder) WithScenarios(fn func(ctx context.Context, host string) *ScenarioBrief) *ContextBuilder {
+	b.scenarioFor = fn
+	return b
+}
+
+// WithAttackGraph adds the bounded attack-graph neighborhood lookup. Nil-safe.
+func (b *ContextBuilder) WithAttackGraph(fn func(ctx context.Context, hosts []string) *AttackGraphBrief) *ContextBuilder {
+	b.graphFor = fn
+	return b
+}
+
+// WithPriorAnalyses adds the operator-feedback lookup. Nil-safe.
+func (b *ContextBuilder) WithPriorAnalyses(fn func(ctx context.Context, findingIDs []string) []PriorAnalysis) *ContextBuilder {
+	b.analysesFor = fn
+	return b
+}
+
+// Build collects the finding's events (bounded), related findings, entities,
+// and the wired context sections. maxEvents <= 0 falls back to 100.
 func (b *ContextBuilder) Build(ctx context.Context, f *findings.Finding, maxEvents int) (*FindingContext, error) {
 	if f == nil {
 		return nil, fmt.Errorf("nil finding")
@@ -160,7 +330,8 @@ func (b *ContextBuilder) Build(ctx context.Context, f *findings.Finding, maxEven
 		if err != nil || ev == nil {
 			continue
 		}
-		fctx.Events = append(fctx.Events, EventInfo{
+		info := EventInfo{
+			ID:        ev.ID,
 			Timestamp: ev.Timestamp,
 			Severity:  ev.Severity,
 			Source:    ev.Source,
@@ -171,11 +342,24 @@ func (b *ContextBuilder) Build(ctx context.Context, f *findings.Finding, maxEven
 			Category:  ev.Category,
 			Action:    ev.Action,
 			Outcome:   ev.Outcome,
-		})
+			Entities:  eventEntities(ev),
+			Mitre:     eventMitre(ev),
+		}
+		// Redaction pass: untrusted text becomes marked placeholders.
+		if msg, fired := RedactText(info.Message); len(fired) > 0 {
+			info.Message = msg
+			logRedaction(b.logger, "event:"+ev.ID, fired)
+		}
+		if user, fired := RedactText(info.User); len(fired) > 0 {
+			info.User = user
+			logRedaction(b.logger, "event.user:"+ev.ID, fired)
+		}
+		fctx.Events = append(fctx.Events, info)
 	}
 
 	// Related findings through shared entities.
 	seen := map[string]bool{f.ID: true}
+	relatedIDs := []string{f.ID}
 	for _, ent := range f.Entities {
 		parts := strings.SplitN(ent, ":", 2)
 		if len(parts) != 2 || parts[1] == "" {
@@ -194,6 +378,7 @@ func (b *ContextBuilder) Build(ctx context.Context, f *findings.Finding, maxEven
 				continue
 			}
 			seen[r.ID] = true
+			relatedIDs = append(relatedIDs, r.ID)
 			fctx.Related = append(fctx.Related, FindingInfo{
 				ID:            r.ID,
 				Title:         r.Title,
@@ -212,28 +397,18 @@ func (b *ContextBuilder) Build(ctx context.Context, f *findings.Finding, maxEven
 		}
 	}
 
-	// Entity summary.
+	// Entity summary (depth-1: finding fields + event fields/attributes).
 	sum := &fctx.Entities
 	sum.IPs = append(sum.IPs, nonEmpty(f.SourceIP, f.DestinationIP)...)
 	sum.Users = append(sum.Users, f.User)
 	sum.Hosts = append(sum.Hosts, f.Host)
 	for _, ent := range f.Entities {
-		parts := strings.SplitN(ent, ":", 2)
-		if len(parts) != 2 || parts[1] == "" {
-			continue
-		}
-		switch parts[0] {
-		case "ip", "source_ip", "destination_ip":
-			sum.IPs = append(sum.IPs, parts[1])
-		case "user":
-			sum.Users = append(sum.Users, parts[1])
-		case "host":
-			sum.Hosts = append(sum.Hosts, parts[1])
-		case "process":
-			sum.Processes = append(sum.Processes, parts[1])
-		}
+		addEntity(sum, ent)
 	}
 	for _, ev := range fctx.Events {
+		for _, e := range ev.Entities {
+			addEntity(sum, e)
+		}
 		sum.Sources = append(sum.Sources, ev.Source)
 	}
 	fctx.Entities = EntitySummary{
@@ -242,38 +417,264 @@ func (b *ContextBuilder) Build(ctx context.Context, f *findings.Finding, maxEven
 		Hosts:     unique(sum.Hosts),
 		Sources:   unique(sum.Sources),
 		Processes: unique(sum.Processes),
+		Domains:   unique(sum.Domains),
+		Files:     unique(sum.Files),
+		Hashes:    unique(sum.Hashes),
 	}
 
-	// Asset criticality + telemetry gaps for the finding's hosts (bounded
-	// to a few hosts so the context stays compact and deterministic).
+	// Hosts get asset enrichment (bounded to a few hosts).
 	hosts := fctx.Entities.Hosts
 	if len(hosts) > maxContextHosts {
 		hosts = hosts[:maxContextHosts]
 	}
-	for _, host := range hosts {
-		if b.assetFor != nil {
-			if a := b.assetFor(ctx, host); a != nil {
-				fctx.Assets = append(fctx.Assets, *a)
+	if b.assetFor != nil && len(hosts) > 0 {
+		ac := &AssetContext{}
+		for _, host := range hosts {
+			a := b.assetFor(ctx, host)
+			if a == nil {
+				continue
+			}
+			ac.Hosts = append(ac.Hosts, *a)
+			if a.TelemetryCoverage != nil {
+				for _, m := range a.TelemetryCoverage.Missing {
+					fctx.TelemetryGaps = append(fctx.TelemetryGaps,
+						fmt.Sprintf("%s on %s — no telemetry; activity of this kind: unknown", m, a.Name))
+				}
 			}
 		}
-		if b.coverageFor != nil {
-			if c := b.coverageFor(ctx, host); c != nil {
-				fctx.Telemetry = append(fctx.Telemetry, *c)
-			}
+		if len(ac.Hosts) > 0 {
+			fctx.AssetContext = ac
 		}
 	}
 
-	// Enforce the context size budget by dropping oldest events.
-	for i := 0; i < 20; i++ {
+	// Threat intel for the context's values (bounded).
+	if b.tiFor != nil {
+		values := make([]string, 0, 8)
+		values = append(values, fctx.Entities.IPs...)
+		values = append(values, fctx.Entities.Domains...)
+		values = append(values, fctx.Entities.Hashes...)
+		if v := nonEmpty(f.SourceIP, f.DestinationIP); len(v) > 0 {
+			values = append(values, v...)
+		}
+		values = unique(values)
+		if len(values) > 0 {
+			hits := b.tiFor(ctx, values)
+			for i := range hits {
+				desc, fired := RedactText(hits[i].Description)
+				if len(fired) > 0 {
+					logRedaction(b.logger, "ti:"+hits[i].Value, fired)
+				}
+				hits[i].Description = truncate(desc, 300)
+			}
+			if len(hits) > maxTIHits {
+				hits = hits[:maxTIHits]
+			}
+			fctx.ThreatIntel = hits
+		}
+	}
+
+	// MITRE context: observed techniques + kill-chain position + scenario.
+	mitre, hasMitre := mitreContext(fctx.Events, f.MITRETactic)
+	if b.scenarioFor != nil && len(hosts) > 0 {
+		if sb := b.scenarioFor(ctx, hosts[0]); sb != nil {
+			if mitre == nil {
+				mitre = &MitreContext{}
+			}
+			mitre.ScenarioRun = sb
+			hasMitre = true
+		}
+	}
+	if hasMitre {
+		fctx.Mitre = mitre
+	}
+
+	// Attack graph neighborhood (bounded).
+	if b.graphFor != nil && len(hosts) > 0 {
+		if g := b.graphFor(ctx, hosts); g != nil &&
+			(len(g.CompromisedNodes) > 0 || len(g.AtRiskNodes) > 0 || len(g.Edges) > 0) {
+			fctx.AttackGraph = g
+		}
+	}
+
+	// Operator feedback: prior analyses with decisions.
+	if b.analysesFor != nil && len(relatedIDs) > 0 {
+		prior := b.analysesFor(ctx, relatedIDs)
+		if len(prior) > maxPriorAnalyses {
+			prior = prior[:maxPriorAnalyses]
+		}
+		fctx.PriorAnalyses = prior
+	}
+
+	// Enforce the context size budget: drop oldest events first, then shrink
+	// related findings (spec §1).
+	for i := 0; i < 40; i++ {
 		if fctx.jsonSize() <= maxContextJSONBytes {
 			break
 		}
-		if len(fctx.Events) == 0 {
-			break
+		if len(fctx.Events) > 0 {
+			fctx.Events = fctx.Events[1:]
+			continue
 		}
-		fctx.Events = fctx.Events[1:]
+		if len(fctx.Related) > 0 {
+			fctx.Related = fctx.Related[1:]
+			continue
+		}
+		if len(fctx.ThreatIntel) > 0 {
+			fctx.ThreatIntel = fctx.ThreatIntel[1:]
+			continue
+		}
+		break
 	}
 	return fctx, nil
+}
+
+// addEntity routes a "type:value" entity ref into the summary buckets.
+func addEntity(sum *EntitySummary, ent string) {
+	parts := strings.SplitN(ent, ":", 2)
+	if len(parts) != 2 || parts[1] == "" {
+		return
+	}
+	switch parts[0] {
+	case "ip", "source_ip", "destination_ip":
+		sum.IPs = append(sum.IPs, parts[1])
+	case "user":
+		sum.Users = append(sum.Users, parts[1])
+	case "host":
+		sum.Hosts = append(sum.Hosts, parts[1])
+	case "process":
+		sum.Processes = append(sum.Processes, parts[1])
+	case "domain":
+		sum.Domains = append(sum.Domains, parts[1])
+	case "file":
+		sum.Files = append(sum.Files, parts[1])
+	case "hash", "sha256", "md5", "sha1":
+		sum.Hashes = append(sum.Hashes, parts[1])
+	}
+}
+
+// eventEntities extracts the bounded, citable entity refs from one event.
+func eventEntities(ev *event.Event) []string {
+	var out []string
+	if ev.IP != "" {
+		out = append(out, "ip:"+ev.IP)
+	}
+	if ev.SourceIP != "" {
+		out = append(out, "ip:"+ev.SourceIP)
+	}
+	if ev.DestinationIP != "" {
+		out = append(out, "ip:"+ev.DestinationIP)
+	}
+	if ev.Host != "" {
+		out = append(out, "host:"+ev.Host)
+	}
+	if ev.User != "" {
+		out = append(out, "user:"+ev.User)
+	}
+	if ev.Process != "" {
+		out = append(out, "process:"+ev.Process)
+	}
+	if ev.FilePath != "" {
+		out = append(out, "file:"+ev.FilePath)
+	}
+	// Attribute-derived depth-1 entities.
+	for _, key := range []string{"domain", "destination_domain", "dns.query", "url"} {
+		if v, ok := ev.Attributes[key]; ok {
+			if s, ok := v.(string); ok && s != "" {
+				out = append(out, "domain:"+s)
+			}
+		}
+	}
+	for _, key := range []string{"hash", "sha256", "md5", "sha1"} {
+		if v, ok := ev.Attributes[key]; ok {
+			if s, ok := v.(string); ok && s != "" {
+				out = append(out, "hash:"+s)
+			}
+		}
+	}
+	return out
+}
+
+// eventMitre decodes the mitre.attack event attribute (written by the
+// event mapper). Absent/invalid mappings are omitted, never fatal.
+func eventMitre(ev *event.Event) []MitreHit {
+	mitre, ok := ev.Attributes["mitre"]
+	if !ok {
+		return nil
+	}
+	atk, ok := mitre.(map[string]any)
+	if !ok {
+		return nil
+	}
+	raw, ok := atk["attack"].([]any)
+	if !ok {
+		return nil
+	}
+	out := []MitreHit{}
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		h := MitreHit{}
+		if s, ok := m["technique"].(string); ok {
+			h.Technique = s
+		}
+		if s, ok := m["technique_name"].(string); ok {
+			h.Name = s
+		}
+		if s, ok := m["tactic"].(string); ok {
+			h.Tactic = s
+		}
+		if c, ok := m["confidence"].(float64); ok {
+			h.Confidence = c
+		}
+		if h.Technique != "" {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// mitreContext aggregates observed techniques across the context events and
+// derives the kill-chain position (dominant tactic; falls back to the
+// finding's mapped tactic).
+func mitreContext(events []EventInfo, findingTactic string) (*MitreContext, bool) {
+	byID := map[string]*ObservedTechnique{}
+	tacticCount := map[string]int{}
+	order := []string{}
+	for _, ev := range events {
+		for _, h := range ev.Mitre {
+			if h.Technique == "" {
+				continue
+			}
+			t, ok := byID[h.Technique]
+			if !ok {
+				t = &ObservedTechnique{ID: h.Technique, Name: h.Name, Tactic: h.Tactic}
+				byID[h.Technique] = t
+				order = append(order, h.Technique)
+			}
+			t.EvidenceEvents = append(t.EvidenceEvents, ev.ID)
+			if h.Tactic != "" {
+				tacticCount[h.Tactic]++
+			}
+		}
+	}
+	if len(byID) == 0 && findingTactic == "" {
+		return nil, false
+	}
+	mc := &MitreContext{}
+	for _, id := range order {
+		mc.Observed = append(mc.Observed, *byID[id])
+	}
+	if findingTactic != "" {
+		mc.KillChainPosition = findingTactic
+	}
+	for tactic, n := range tacticCount {
+		if mc.KillChainPosition == "" || n > tacticCount[mc.KillChainPosition] {
+			mc.KillChainPosition = tactic
+		}
+	}
+	return mc, true
 }
 
 func (c *FindingContext) jsonSize() int {

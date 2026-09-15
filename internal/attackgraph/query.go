@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -52,6 +53,14 @@ const (
 	maxSnapshotNodes = 1000
 	maxSnapshotEdges = 5000
 )
+
+// Brief is a bounded compromise-labeled graph view around a set of hosts.
+type Brief struct {
+	CompromisedNodes []string       `json:"compromised_nodes"`
+	AtRiskNodes      []string       `json:"at_risk_nodes"`
+	Edges            []SnapshotEdge `json:"edges,omitempty"`
+	GeneratedAt      time.Time      `json:"generated_at"`
+}
 
 // nodeKey dedupes a node id.
 func nodeKey(t, v string) string { return t + "\x00" + v }
@@ -423,3 +432,68 @@ func (b *Builder) WhatNext(ctx context.Context, nodeType, nodeValue string) (*Wh
 	}
 	return out, nil
 }
+
+// GraphBrief returns the bounded, state-labeled neighborhood of a set of
+// hosts: the compromised / at-risk nodes, and the edges touching those
+// hosts. It is the AI analyst's attack-graph context
+// (ai-security-analysis.md §1) and, like all graph views, is derived on
+// demand — never a per-node persisted claim.
+func (b *Builder) GraphBrief(ctx context.Context, hosts []string, edgeLimit int) (*Brief, error) {
+	if edgeLimit <= 0 || edgeLimit > 100 {
+		edgeLimit = 25
+	}
+	edges, err := b.allStatefulEdges(ctx)
+	if err != nil {
+		return nil, err
+	}
+	state, _, err := b.evaluateCompromise(ctx, edges)
+	if err != nil {
+		return nil, err
+	}
+
+	compromised := []string{}
+	atRisk := []string{}
+	for id, s := range state {
+		switch s {
+		case CompromisedObserved, CompromisedInferred:
+			compromised = append(compromised, id)
+		case AtRiskPotential:
+			atRisk = append(atRisk, id)
+		}
+	}
+	sort.Strings(compromised)
+	sort.Strings(atRisk)
+
+	hostSet := map[string]bool{}
+	for _, h := range hosts {
+		hostSet["host:"+h] = true
+	}
+	out := &Brief{
+		CompromisedNodes: compromised,
+		AtRiskNodes:      atRisk,
+		GeneratedAt:      time.Now().UTC(),
+	}
+	for _, e := range edges {
+		if e.State != "observed" && e.State != "inferred" {
+			continue
+		}
+		from := NodeID(e.FromType, e.FromValue)
+		to := NodeID(e.ToType, e.ToValue)
+		if !hostSet[from] && !hostSet[to] {
+			continue
+		}
+		out.Edges = append(out.Edges, SnapshotEdge{
+			From:            from,
+			To:              to,
+			Relation:        e.Relation,
+			State:           e.State,
+			CrossesBoundary: b.crossesBoundary(ctx, e.FromType, e.FromValue, e.ToType, e.ToValue),
+			Evidence:        e.Evidence,
+		})
+		if len(out.Edges) >= edgeLimit {
+			break
+		}
+	}
+	return out, nil
+}
+

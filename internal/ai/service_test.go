@@ -84,7 +84,7 @@ func TestServiceAnalyzeFindingSuccess(t *testing.T) {
 	svc, fs, _ := newServiceEnv(t, fake)
 	f := seedFinding(t, fs, "high")
 
-	row, err := svc.AnalyzeFinding(context.Background(), f.ID, false)
+	row, err := svc.AnalyzeFinding(context.Background(), f.ID, "", false)
 	if err != nil {
 		t.Fatalf("analyze: %v", err)
 	}
@@ -107,11 +107,11 @@ func TestServiceDeduplicationNoSecondAnalysis(t *testing.T) {
 	svc, fs, _ := newServiceEnv(t, fake)
 	f := seedFinding(t, fs, "high")
 
-	if _, err := svc.AnalyzeFinding(context.Background(), f.ID, false); err != nil {
+	if _, err := svc.AnalyzeFinding(context.Background(), f.ID, "", false); err != nil {
 		t.Fatal(err)
 	}
 	// Second automatic run: deduplicated, no provider call.
-	row, err := svc.AnalyzeFinding(context.Background(), f.ID, false)
+	row, err := svc.AnalyzeFinding(context.Background(), f.ID, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestServiceDeduplicationNoSecondAnalysis(t *testing.T) {
 		t.Errorf("expected exactly one provider call (dedup), got %d", fake.calls)
 	}
 	// Manual re-analysis is allowed and re-runs.
-	if _, err := svc.AnalyzeFinding(context.Background(), f.ID, true); err != nil {
+	if _, err := svc.AnalyzeFinding(context.Background(), f.ID, "", true); err != nil {
 		t.Fatal(err)
 	}
 	if atomic.LoadInt32(&fake.calls) != 2 {
@@ -136,7 +136,7 @@ func TestServiceSeverityGate(t *testing.T) {
 	cfg.AIAnalyst.MinimumSeverity = "high"
 	f := seedFinding(t, fs, "low")
 
-	_, err := svc.AnalyzeFinding(context.Background(), f.ID, false)
+	_, err := svc.AnalyzeFinding(context.Background(), f.ID, "", false)
 	if !errors.Is(err, ErrBelowSeverity) {
 		t.Fatalf("want ErrBelowSeverity, got %v", err)
 	}
@@ -144,7 +144,7 @@ func TestServiceSeverityGate(t *testing.T) {
 		t.Error("provider must not be called below the severity gate")
 	}
 	// Manual analysis bypasses the gate.
-	if _, err := svc.AnalyzeFinding(context.Background(), f.ID, true); err != nil {
+	if _, err := svc.AnalyzeFinding(context.Background(), f.ID, "", true); err != nil {
 		t.Fatalf("manual analyze: %v", err)
 	}
 }
@@ -155,10 +155,10 @@ func TestServiceDisabledGatesAutomaticButNotManual(t *testing.T) {
 	cfg.AIAnalyst.Enabled = false
 	f := seedFinding(t, fs, "high")
 
-	if _, err := svc.AnalyzeFinding(context.Background(), f.ID, false); !errors.Is(err, ErrDisabled) {
+	if _, err := svc.AnalyzeFinding(context.Background(), f.ID, "", false); !errors.Is(err, ErrDisabled) {
 		t.Fatalf("want ErrDisabled, got %v", err)
 	}
-	if _, err := svc.AnalyzeFinding(context.Background(), f.ID, true); err != nil {
+	if _, err := svc.AnalyzeFinding(context.Background(), f.ID, "", true); err != nil {
 		t.Fatalf("manual analyze while disabled: %v", err)
 	}
 }
@@ -168,7 +168,7 @@ func TestServiceFailedAnalysisRecordsNoRecommendation(t *testing.T) {
 	svc, fs, _ := newServiceEnv(t, fake)
 	f := seedFinding(t, fs, "high")
 
-	_, err := svc.AnalyzeFinding(context.Background(), f.ID, false)
+	_, err := svc.AnalyzeFinding(context.Background(), f.ID, "", false)
 	if err == nil {
 		t.Fatal("malformed output must fail the analysis")
 	}
@@ -212,7 +212,7 @@ func TestServiceTransientRetry(t *testing.T) {
 	svc.SetProviderFor(func(c config.AIAnalyst) (Provider, error) { return provider, nil })
 	f := seedFinding(t, fs, "high")
 
-	row, aerr := svc.AnalyzeFinding(context.Background(), f.ID, false)
+	row, aerr := svc.AnalyzeFinding(context.Background(), f.ID, "", false)
 	if aerr != nil {
 		t.Fatalf("retry should succeed: %v", aerr)
 	}
@@ -229,7 +229,7 @@ func TestServiceApproveAndDismiss(t *testing.T) {
 	svc, fs, _ := newServiceEnv(t, fake)
 	f := seedFinding(t, fs, "high")
 
-	row, err := svc.AnalyzeFinding(context.Background(), f.ID, false)
+	row, err := svc.AnalyzeFinding(context.Background(), f.ID, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestServiceApproveAndDismiss(t *testing.T) {
 
 	// A second finding: dismissal with reason.
 	f2 := seedFinding(t, fs, "high")
-	row2, err := svc.AnalyzeFinding(context.Background(), f2.ID, false)
+	row2, err := svc.AnalyzeFinding(context.Background(), f2.ID, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,13 +271,13 @@ func TestServiceRateLimit(t *testing.T) {
 	f2 := seedFinding(t, fs, "high")
 	f3 := seedFinding(t, fs, "high")
 
-	if _, err := svc.AnalyzeFinding(context.Background(), f1.ID, false); err != nil {
+	if _, err := svc.AnalyzeFinding(context.Background(), f1.ID, "", false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AnalyzeFinding(context.Background(), f2.ID, false); err != nil {
+	if _, err := svc.AnalyzeFinding(context.Background(), f2.ID, "", false); err != nil {
 		t.Fatal(err)
 	}
-	_, err := svc.AnalyzeFinding(context.Background(), f3.ID, false)
+	_, err := svc.AnalyzeFinding(context.Background(), f3.ID, "", false)
 	if !errors.Is(err, ErrRateLimited) {
 		t.Fatalf("want ErrRateLimited, got %v", err)
 	}
@@ -340,7 +340,7 @@ func TestServiceErrorNeverLeaksKey(t *testing.T) {
 	svc := NewService(&cfg, "", NewStore(db), fs, NewContextBuilder(fs, nil), logger)
 	f := seedFinding(t, fs, "high")
 
-	_, err := svc.AnalyzeFinding(context.Background(), f.ID, true)
+	_, err := svc.AnalyzeFinding(context.Background(), f.ID, "", true)
 	if err == nil {
 		t.Fatal("expected auth failure")
 	}

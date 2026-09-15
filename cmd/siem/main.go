@@ -398,14 +398,14 @@ func cmdServe(cfgFile string, debug bool) int {
 			}
 		}()
 	}
-	// Attack graph: hourly recompute of compromise state + materialized
-	// attack paths (attack-graph.md §2).
+	// Attack graph: shared builder for hourly recompute (attack-graph.md §2)
+	// and the AI context's bounded graph view.
+	agBuilder := attackgraph.NewBuilder(db, assetsStore, coverageStore, logger)
 	go func() {
-		ag := attackgraph.NewBuilder(db, assetsStore, coverageStore, logger)
 		t := time.NewTicker(time.Hour)
 		defer t.Stop()
 		for range t.C {
-			if n, err := ag.Recompute(context.Background()); err != nil {
+			if n, err := agBuilder.Recompute(context.Background()); err != nil {
 				logger.Warn("attack graph recompute", "error", err)
 			} else if n > 0 {
 				logger.Info("attack graph recompute", "paths", n)
@@ -433,15 +433,17 @@ func cmdServe(cfgFile string, debug bool) int {
 			}
 		}()
 	}
-	// Enrich the AI context with asset criticality and telemetry gaps for
-	// the finding's hosts (read-only lookups; nil when the asset is absent).
+	// Enrich the AI context with asset criticality, telemetry gaps, threat
+	// intel, active scenarios and the attack-graph neighborhood for the
+	// finding's hosts (bounded read-only lookups; nil when absent).
 	contextBuilder.
-		WithAssets(func(ctx context.Context, host string) *ai.AssetBrief {
+		WithLogger(logger).
+		WithAssets(func(ctx context.Context, host string) *ai.HostAsset {
 			a, err := assetsStore.GetByEntityRef(ctx, "host:"+host)
 			if err != nil || a == nil {
 				return nil
 			}
-			return &ai.AssetBrief{
+			h := &ai.HostAsset{
 				Name:               a.Name,
 				EntityType:         a.EntityType,
 				OS:                 a.OS,
@@ -450,25 +452,117 @@ func cmdServe(cfgFile string, debug bool) int {
 				Environment:        a.Environment,
 				InternetExposed:    a.InternetExposed,
 				DataClassification: a.DataClassification,
-				Draft:              a.CreatedBy == "observed",
+			}
+			if cov, cerr := coverageRunner.CoverageFor(ctx, a.ID); cerr == nil && cov != nil &&
+				(len(cov.Available) > 0 || len(cov.Missing) > 0) {
+				h.TelemetryCoverage = &ai.CoveragePct{Pct: cov.CoveragePct, Missing: cov.Missing}
+			}
+			if vulns, verr := assetsStore.Vulnerabilities(ctx, a.ID); verr == nil {
+				for _, v := range vulns {
+					h.Vulnerabilities = append(h.Vulnerabilities, ai.VulnBrief{
+						CVE:              v.CVE,
+						CVSS:             v.CVSS,
+						ExploitAvailable: v.ExploitAvailable,
+					})
+				}
+			}
+			return h
+		}).
+		WithThreatIntel(func(ctx context.Context, values []string) []ai.TIHit {
+			out := []ai.TIHit{}
+			for _, v := range values {
+				indicators, err := tiStore.Lookup(ctx, v)
+				if err != nil || len(indicators) == 0 {
+					continue
+				}
+				for _, ind := range indicators {
+					hit := ai.TIHit{
+						Value:       ind.Value,
+						Type:        ind.Type,
+						Severity:    ind.Severity,
+						Description: ind.Description,
+						Source:      ind.Source,
+						Confidence:  ai.TIConfidence{IndicatorConfidence: ind.Confidence, Corroboration: ind.HitCount},
+						FirstSeen:   ind.FirstSeen,
+						LastSeen:    ind.LastSeen,
+					}
+					if srcs, serr := tiStore.SourcesOf(ctx, ind.ID); serr == nil && len(srcs) > 0 {
+						var sum float64
+						n := 0
+						for _, s := range srcs {
+							sum += s.Reliability
+							n++
+							if s.SourceURL != "" {
+								hit.References = append(hit.References, s.SourceURL)
+							}
+						}
+						if n > 0 {
+							hit.Confidence.SourceReliability = sum / float64(n)
+							hit.Confidence.Corroboration = n
+						}
+					}
+					if actors, aerr := tiStore.ActorsOf(ctx, ind.ID, 5); aerr == nil {
+						hit.Actors = actors
+					}
+					if malw, merr := tiStore.MalwareOf(ctx, ind.ID, 5); merr == nil {
+						hit.Malware = malw
+					}
+					out = append(out, hit)
+				}
+			}
+			return out
+		}).
+		WithScenarios(func(ctx context.Context, host string) *ai.ScenarioBrief {
+			runs, err := scenarioEvaluator.ActiveRunsByHost(ctx, host)
+			if err != nil || len(runs) == 0 {
+				return nil
+			}
+			run := runs[0]
+			sb := &ai.ScenarioBrief{Status: run.Status, OpenedAt: run.OpenedAt}
+			var def struct {
+				Name string `json:"name"`
+			}
+			if json.Unmarshal(run.Definition, &def) == nil {
+				sb.Name = def.Name
+			}
+			steps, serr := scenarioEvaluator.Steps(ctx, run.ID)
+			if serr == nil {
+				for _, s := range steps {
+					switch s.Status {
+					case "observed":
+						sb.Observed = append(sb.Observed, s.Technique)
+					case "expected":
+						sb.ExpectedNext = append(sb.ExpectedNext, s.Technique)
+					case "unknown":
+						sb.Unknown = append(sb.Unknown, s.Technique+" — telemetry insufficient")
+					}
+				}
+			}
+			return sb
+		}).
+		WithAttackGraph(func(ctx context.Context, hosts []string) *ai.AttackGraphBrief {
+			brief, err := agBuilder.GraphBrief(ctx, hosts, 25)
+			if err != nil || brief == nil {
+				return nil
+			}
+			return &ai.AttackGraphBrief{
+				CompromisedNodes: brief.CompromisedNodes,
+				AtRiskNodes:      brief.AtRiskNodes,
+				Edges: func() []ai.GraphEdge {
+					out := []ai.GraphEdge{}
+					for _, e := range brief.Edges {
+						out = append(out, ai.GraphEdge{From: e.From, To: e.To, Relation: e.Relation, State: e.State})
+					}
+					return out
+				}(),
 			}
 		}).
-		WithCoverage(func(ctx context.Context, host string) *ai.CoverageBrief {
-			a, err := assetsStore.GetByEntityRef(ctx, "host:"+host)
-			if err != nil || a == nil {
+		WithPriorAnalyses(func(ctx context.Context, findingIDs []string) []ai.PriorAnalysis {
+			prior, err := aiStore.PriorAnalyses(ctx, findingIDs, 5)
+			if err != nil {
 				return nil
 			}
-			cov, err := coverageRunner.CoverageFor(ctx, a.ID)
-			if err != nil || cov == nil || (len(cov.Available) == 0 && len(cov.Missing) == 0) {
-				return nil
-			}
-			return &ai.CoverageBrief{
-				Asset:       a.Name,
-				CoveragePct: cov.CoveragePct,
-				Available:   cov.Available,
-				Missing:     cov.Missing,
-				Stale:       cov.Stale,
-			}
+			return prior
 		})
 	aiService := ai.NewService(&cfg, cfgFile, aiStore, findingStore, contextBuilder, logger)
 	// New findings materialized by the detection engine are offered to the

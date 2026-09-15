@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -58,11 +59,20 @@ type apiFakeProvider struct {
 	out   string
 	err   error
 	calls int32
+	// lastPrompt / lastModel capture what was sent (prompt layering, model
+	// role selection).
+	mu       sync.Mutex
+	lastPrompt string
+	lastModel  string
 }
 
 func (p *apiFakeProvider) Name() string { return "fake" }
 func (p *apiFakeProvider) Analyze(ctx context.Context, req ai.Request) (string, error) {
 	atomic.AddInt32(&p.calls, 1)
+	p.mu.Lock()
+	p.lastPrompt = req.Prompt
+	p.lastModel = req.Model
+	p.mu.Unlock()
 	return p.out, p.err
 }
 func (p *apiFakeProvider) Health(ctx context.Context) (ai.Health, error) {
@@ -319,7 +329,7 @@ func TestAIAnalystApproveAndDismiss(t *testing.T) {
 		t.Fatalf("approve %d: %s", w.Code, w.Body.String())
 	}
 	data = dataOf(t, w)
-	if data["status"] != "approved" || data["decision"] != "approve" {
+	if row, _ := data["analysis"].(map[string]any); row == nil || row["status"] != "approved" || row["decision"] != "approve" {
 		t.Errorf("approved: %#v", data)
 	}
 
@@ -581,4 +591,171 @@ func (p *healthFailProvider) Health(ctx context.Context) (ai.Health, error) {
 }
 func (p *healthFailProvider) Models(ctx context.Context) ([]string, bool, error) {
 	return nil, false, nil
+}
+
+// TestAIAnalystV2InstructionAndRoles drives the v2 surface: analyst
+// instruction layering, model-role routing, audit columns and the
+// config-driven action mapping on approval.
+func TestAIAnalystV2InstructionAndRoles(t *testing.T) {
+	fake := &apiFakeProvider{out: validAnalysisJSON()}
+	e := newAIEnv(t, fake)
+	tok := "test-api-token"
+
+	// Route the reasoning role to a different model (config, not code).
+	if err := e.svc.UpdateConfig(context.Background(), config.AIAnalyst{
+		Enabled:              e.svc.Config().Enabled,
+		Provider:             "openai-compatible",
+		Endpoint:             "http://fake-model.local/v1",
+		Username:             "",
+		Model:                "fake-model",
+		MinimumSeverity:      "medium",
+		MaxRequestsPerMinute: 100,
+		TimeoutSeconds:       30,
+		MaxContextEvents:     100,
+		RetryCount:           0,
+		ModelRoles: config.ModelRoles{
+			Reasoning: config.ModelRole{Endpoint: "http://reasoning.local/v1", Model: "deep-model"},
+		},
+		ActionMappings: map[string]string{"investigate": "investigation.open"},
+	}); err != nil {
+		t.Fatalf("update config: %v", err)
+	}
+
+	findingID := e.seedFinding(t, "high")
+	w := e.req("POST", "/api/v1/ai-analyst/analyze", tok, map[string]any{
+		"finding_id":  findingID,
+		"instruction": "prioritize the lateral-movement indicators",
+	})
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("analyze %d: %s", w.Code, w.Body.String())
+	}
+	data := e.pollAnalysis(t, tok, findingID)
+	analysis, _ := data["analysis"].(map[string]any)
+
+	// Audit columns: which model decided on which evidence snapshot.
+	if analysis["model_version"] != "deep-model" {
+		t.Errorf("model_version: %v (reasoning role should route)", analysis["model_version"])
+	}
+	if analysis["context_hash"] == "" || analysis["context_hash"] == nil {
+		t.Errorf("context_hash missing: %v", analysis)
+	}
+	// Prompt layering reached the provider: instruction in the prompt,
+	// marked advisory.
+	fake.mu.Lock()
+	prompt := fake.lastPrompt
+	model := fake.lastModel
+	fake.mu.Unlock()
+	if !strings.Contains(prompt, "prioritize the lateral-movement indicators") {
+		t.Errorf("analyst instruction not in prompt: %s", prompt)
+	}
+	if !strings.Contains(prompt, "lower priority than the system policy") {
+		t.Error("instruction layer not marked lower priority")
+	}
+	if !strings.Contains(prompt, "[DATA]") {
+		t.Error("data layer missing from prompt")
+	}
+	if model != "deep-model" {
+		t.Errorf("provider used model %q, want reasoning role", model)
+	}
+
+	// Approval maps the action through the operator's configuration.
+	id, _ := analysis["id"].(string)
+	w = e.req("POST", "/api/v1/ai-analyst/"+id+"/approve", tok, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("approve %d: %s", w.Code, w.Body.String())
+	}
+	data = dataOf(t, w)
+	if data["mapped_action"] != "investigation.open" {
+		t.Errorf("mapped_action: %v (config override expected)", data["mapped_action"])
+	}
+}
+
+// TestAIAnalystV2InvestigationListsAnalyses verifies that an investigation's
+// detail view exposes the linked findings' AI analyses (spec §6).
+func TestAIAnalystV2InvestigationListsAnalyses(t *testing.T) {
+	fake := &apiFakeProvider{out: validAnalysisJSON()}
+	e := newAIEnv(t, fake)
+	tok := "test-api-token"
+
+	findingID := e.seedFinding(t, "high")
+	w := e.req("POST", "/api/v1/ai-analyst/analyze", tok, map[string]any{"finding_id": findingID})
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("analyze %d: %s", w.Code, w.Body.String())
+	}
+	e.pollAnalysis(t, tok, findingID)
+
+	// Link the finding to a new investigation.
+	w = e.req("POST", "/api/v1/investigations", tok, map[string]any{
+		"title":       "v2 investigation",
+		"description": "test",
+		"severity":    "high",
+		"finding_ids": []string{findingID},
+	})
+	if w.Code != http.StatusCreated && w.Code != http.StatusOK {
+		t.Fatalf("create investigation %d: %s", w.Code, w.Body.String())
+	}
+	data := dataOf(t, w)
+	in, _ := data["investigation"].(map[string]any)
+	if in == nil {
+		in = data
+	}
+	investigationID, _ := in["id"].(string)
+
+	w = e.req("GET", "/api/v1/investigations/"+investigationID, tok, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("get investigation %d: %s", w.Code, w.Body.String())
+	}
+	data = dataOf(t, w)
+	analyses, _ := data["ai_analyses"].([]any)
+	if len(analyses) != 1 {
+		t.Fatalf("ai_analyses: %d, want 1", len(analyses))
+	}
+	row, _ := analyses[0].(map[string]any)
+	if row["finding_id"] != findingID || row["status"] != "analyzed" {
+		t.Errorf("ai analysis row: %#v", row)
+	}
+}
+
+// TestAIAnalystV2SettingsView exposes model_roles and action_mappings in the
+// redacted settings view.
+func TestAIAnalystV2SettingsView(t *testing.T) {
+	e := newAIEnv(t, nil)
+	if err := e.svc.UpdateConfig(context.Background(), config.AIAnalyst{
+		Enabled:              e.svc.Config().Enabled,
+		Provider:             "openai-compatible",
+		Endpoint:             "http://fake-model.local/v1",
+		Model:                "fake-model",
+		MinimumSeverity:      "medium",
+		MaxRequestsPerMinute: 100,
+		TimeoutSeconds:       30,
+		MaxContextEvents:     100,
+		RetryCount:           0,
+		ModelRoles: config.ModelRoles{
+			Fast:      config.ModelRole{Endpoint: "http://fast.local/v1", Model: "small-model"},
+			Embedding: config.ModelRole{Endpoint: "http://emb.local/v1", Model: "emb-model"},
+		},
+		ActionMappings: map[string]string{"block": "firewall.block"},
+	}); err != nil {
+		t.Fatalf("update config: %v", err)
+	}
+	w := e.req("GET", "/api/v1/settings/ai-analyst", "test-api-token", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("settings %d: %s", w.Code, w.Body.String())
+	}
+	data := dataOf(t, w)
+	roles, _ := data["model_roles"].(map[string]any)
+	if roles == nil {
+		t.Fatalf("model_roles missing: %#v", data)
+	}
+	fast, _ := roles["fast"].(map[string]any)
+	if fast["model"] != "small-model" {
+		t.Errorf("fast role: %#v", fast)
+	}
+	maps, _ := data["action_mappings"].(map[string]any)
+	if maps["block"] != "firewall.block" {
+		t.Errorf("action_mappings: %#v", maps)
+	}
+	if data["api_key_set"] != false {
+		t.Error("api_key_set should be false")
+	}
 }

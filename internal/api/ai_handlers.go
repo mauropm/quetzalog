@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"quetzalog/internal/ai"
+	"quetzalog/internal/config"
 	"quetzalog/pkg/api"
 )
 
@@ -94,17 +95,18 @@ func (h *Handler) GetAIAnalystByFinding(w http.ResponseWriter, r *http.Request) 
 
 // AnalyzeAIFinding starts (or restarts) an analysis for a finding in the
 // background and returns immediately.
-// POST /api/v1/ai-analyst/analyze  body: {"finding_id": "..."}
+// POST /api/v1/ai-analyst/analyze  body: {"finding_id": "...", "instruction": "..."}
 func (h *Handler) AnalyzeAIFinding(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var body struct {
-		FindingID string `json:"finding_id"`
+		FindingID   string `json:"finding_id"`
+		Instruction string `json:"instruction"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.FindingID == "" {
 		api.WriteJSON(w, http.StatusBadRequest, api.BadRequest("finding_id is required"))
 		return
 	}
-	row, err := h.aiService.StartAnalysis(ctx, body.FindingID)
+	row, err := h.aiService.StartAnalysis(ctx, body.FindingID, body.Instruction)
 	if err != nil {
 		if errors.Is(err, ai.ErrInProgress) {
 			api.WriteJSON(w, http.StatusAccepted, api.Success(map[string]any{
@@ -149,7 +151,10 @@ func (h *Handler) ApproveAIAnalysis(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.logAudit(h.auditActor(r), "ai_analyst.approve", "ai-analyst:"+id, "Approved recommendation: "+row.RecommendationType)
-	api.WriteJSON(w, http.StatusOK, api.Success(row))
+	api.WriteJSON(w, http.StatusOK, api.Success(map[string]any{
+		"analysis":      row,
+		"mapped_action": ai.ActionMapping(h.aiService.Config(), row.RecommendationType),
+	}))
 }
 
 // DismissAIAnalysis records the human dismissal with an optional reason.
@@ -177,18 +182,20 @@ func (h *Handler) DismissAIAnalysis(w http.ResponseWriter, r *http.Request) {
 // aiConfigView is the redacted AI configuration returned to the UI. The API
 // key is never returned — only whether one is set.
 type aiConfigView struct {
-	Enabled              bool   `json:"enabled"`
-	Provider             string `json:"provider"`
-	Endpoint             string `json:"endpoint"`
-	APIKeySet            bool   `json:"api_key_set"`
-	Username             string `json:"username"`
-	Model                string `json:"model"`
-	MinimumSeverity      string `json:"minimum_severity"`
-	MaxRequestsPerMinute int    `json:"max_requests_per_minute"`
-	TimeoutSeconds       int    `json:"timeout_seconds"`
-	MaxContextEvents     int    `json:"max_context_events"`
-	RetryCount           int    `json:"retry_count"`
-	Persisted            bool   `json:"persisted"`
+	Enabled              bool              `json:"enabled"`
+	Provider             string            `json:"provider"`
+	Endpoint             string            `json:"endpoint"`
+	APIKeySet            bool              `json:"api_key_set"`
+	Username             string            `json:"username"`
+	Model                string            `json:"model"`
+	MinimumSeverity      string            `json:"minimum_severity"`
+	MaxRequestsPerMinute int               `json:"max_requests_per_minute"`
+	TimeoutSeconds       int               `json:"timeout_seconds"`
+	MaxContextEvents     int               `json:"max_context_events"`
+	RetryCount           int               `json:"retry_count"`
+	ModelRoles           config.ModelRoles `json:"model_roles,omitempty"`
+	ActionMappings       map[string]string `json:"action_mappings,omitempty"`
+	Persisted            bool              `json:"persisted"`
 }
 
 // GetAIConfig returns the current AI configuration with the key redacted.
@@ -263,6 +270,8 @@ func (h *Handler) writeAIConfig(w http.ResponseWriter, status int) {
 		TimeoutSeconds:       cfg.TimeoutSeconds,
 		MaxContextEvents:     cfg.MaxContextEvents,
 		RetryCount:           cfg.RetryCount,
+		ModelRoles:           cfg.ModelRoles,
+		ActionMappings:       cfg.ActionMappings,
 		Persisted:            h.aiService.Persisted(),
 	}))
 }

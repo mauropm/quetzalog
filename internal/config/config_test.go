@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -114,7 +115,7 @@ func TestAIAnalystRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if back.AIAnalyst != orig.AIAnalyst {
+	if !reflect.DeepEqual(back.AIAnalyst, orig.AIAnalyst) {
 		t.Errorf("ai_analyst lost in round trip:\n got %+v\nwant %+v", back.AIAnalyst, orig.AIAnalyst)
 	}
 }

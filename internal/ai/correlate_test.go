@@ -51,7 +51,7 @@ func TestCorrelateQueryEntities(t *testing.T) {
 	svc, fs, _ := newServiceEnv(t, fake)
 	f := seedFinding(t, fs, "high")
 
-	row, err := svc.AnalyzeFinding(context.Background(), f.ID, false)
+	row, err := svc.AnalyzeFinding(context.Background(), f.ID, "", false)
 	if err != nil {
 		t.Fatalf("analyze: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestCorrelateQueryWindowFromText(t *testing.T) {
 	svc, fs, _ := newServiceEnv(t, fake)
 	f := seedFinding(t, fs, "high")
 
-	row, err := svc.AnalyzeFinding(context.Background(), f.ID, false)
+	row, err := svc.AnalyzeFinding(context.Background(), f.ID, "", false)
 	if err != nil {
 		t.Fatalf("analyze: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestCorrelateQueryWindowFallbackToEvents(t *testing.T) {
 	svc, fs, _ := newServiceEnv(t, fake)
 	f := seedFinding(t, fs, "high")
 
-	row, err := svc.AnalyzeFinding(context.Background(), f.ID, false)
+	row, err := svc.AnalyzeFinding(context.Background(), f.ID, "", false)
 	if err != nil {
 		t.Fatalf("analyze: %v", err)
 	}

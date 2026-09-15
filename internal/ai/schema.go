@@ -26,9 +26,52 @@ type Analysis struct {
 	Evidence                []string          `json:"evidence"`
 	AlternativeExplanations []string          `json:"alternative_explanations"`
 	RecommendedAction       RecommendedAction `json:"recommended_action"`
+	// Statements is the structured, classified superset of Evidence
+	// (spec §32): every statement carries a classification and the refs
+	// it came from.
+	Statements []Statement `json:"statements,omitempty"`
+	// AttackChain is the observed/expected ATT&CK progression.
+	AttackChain AttackChain `json:"attack_chain,omitempty"`
+	// MitreMapping ties techniques to their evidence.
+	MitreMapping []MitreMapEntry `json:"mitre_mapping,omitempty"`
+	// Gaps is the explicit "what we do not know" section (spec §78).
+	Gaps []string `json:"gaps,omitempty"`
+	// RiskAssessment is the optional numeric risk view.
+	RiskAssessment *RiskAssessment `json:"risk_assessment,omitempty"`
 	// RequiresHumanApproval is a safety invariant: it is forced to true by
 	// the validator regardless of what the model returned.
 	RequiresHumanApproval bool `json:"requires_human_approval"`
+}
+
+// Classifications is the closed set of statement classifications (spec §32).
+var Classifications = []string{"OBSERVED", "INFERRED", "HYPOTHESIS", "UNKNOWN"}
+
+// Statement is one classified claim with its provenance refs.
+type Statement struct {
+	Text           string   `json:"text"`
+	Classification string   `json:"classification"`
+	EvidenceRefs   []string `json:"evidence_refs,omitempty"`
+}
+
+// AttackChain is the model's view of the ATT&CK progression.
+type AttackChain struct {
+	Observed     []string `json:"observed,omitempty"`
+	ExpectedNext []string `json:"expected_next,omitempty"`
+	Gaps         []string `json:"gaps,omitempty"`
+}
+
+// MitreMapEntry ties one technique/tactic to its evidence refs.
+type MitreMapEntry struct {
+	Technique   string   `json:"technique"`
+	Tactic      string   `json:"tactic,omitempty"`
+	EvidenceRefs []string `json:"evidence_refs,omitempty"`
+}
+
+// RiskAssessment is the optional numeric risk view with a ref to the
+// supporting assessment.
+type RiskAssessment struct {
+	Score       int    `json:"score"`
+	ReasonsRef  string `json:"reasons_ref,omitempty"`
 }
 
 // RecommendedAction is the safest useful next step proposed by the analyst.
@@ -76,6 +119,11 @@ const (
 	maxAlternatives = 5
 	maxAltLen       = 300
 	maxActionDesc   = 600
+	maxStatements   = 20
+	maxStatementLen = 500
+	maxRefs         = 8
+	maxRefLen       = 160
+	maxGaps         = 10
 )
 
 // ErrInvalidResponse marks model output that failed schema validation.
@@ -99,14 +147,36 @@ type rawAnalysis struct {
 	Evidence                any `json:"evidence"`
 	AlternativeExplanations any `json:"alternative_explanations"`
 	RecommendedAction       any `json:"recommended_action"`
+	Statements              any `json:"statements"`
+	AttackChain             any `json:"attack_chain"`
+	MitreMapping            any `json:"mitre_mapping"`
+	Gaps                    any `json:"gaps"`
+	RiskAssessment          any `json:"risk_assessment"`
 }
 
-// ValidateAnalysis parses and validates raw model output. It tolerates a
-// single ```json code fence around the payload and mild type drift from
-// real models (string confidences, percent values, word levels). On success
-// the returned analysis has normalized severity, clamped confidence and a
-// forced RequiresHumanApproval=true.
+// ValidateAnalysis parses and validates raw model output without an evidence
+// context. It is a convenience wrapper around ValidateAnalysisWithContext:
+// statement classifications are still enforced, but provenance cross-checks
+// are skipped when no context is supplied.
 func ValidateAnalysis(raw []byte) (*Analysis, error) {
+	return ValidateAnalysisWithContext(raw, nil)
+}
+
+// ValidateAnalysisWithContext parses and validates raw model output against
+// the supplied evidence context. It tolerates a single ```json code fence
+// around the payload and mild type drift from real models (string
+// confidences, percent values, word levels). Statement provenance is
+// checked against the context:
+//   - every statement must carry a valid classification;
+//   - OBSERVED statements must cite ≥1 event id present in the context
+//     (or the finding's event ids) — otherwise the analysis is rejected as
+//     unsupported_observed_claim;
+//   - INFERRED/HYPOTHESIS statements must cite ≥1 known context ref
+//     (event, indicator, asset, finding or coverage ref).
+//
+// On success the returned analysis has normalized severity, clamped
+// confidence and a forced RequiresHumanApproval=true.
+func ValidateAnalysisWithContext(raw []byte, ctx *FindingContext) (*Analysis, error) {
 	txt := strings.TrimSpace(string(raw))
 	if i := strings.Index(txt, "```"); i >= 0 {
 		// Strip a leading code fence: ```json ... ``` or ``` ... ```
@@ -167,9 +237,190 @@ func ValidateAnalysis(raw []byte) (*Analysis, error) {
 	}
 	a.RecommendedAction = action
 
+	// Structured v2 sections (additive: absent sections stay nil).
+	a.Statements, err = asStatements(r.Statements)
+	if err != nil {
+		return nil, err
+	}
+	a.AttackChain = asAttackChain(r.AttackChain)
+	a.MitreMapping = asMitreMapping(r.MitreMapping)
+	a.Gaps = cleanList(asStringList(r.Gaps), maxGaps, maxAltLen)
+	if ra := asRiskAssessment(r.RiskAssessment); ra != nil {
+		a.RiskAssessment = ra
+	}
+
+	// Provenance cross-check (spec §32, §35): classified claims must cite
+	// evidence that exists in the supplied context.
+	if ctx != nil {
+		if err := checkStatementProvenance(a.Statements, ctx); err != nil {
+			return nil, err
+		}
+	}
+
 	// Safety invariant, regardless of model output.
 	a.RequiresHumanApproval = true
 	return a, nil
+}
+
+// asStatements normalizes the statement list; every statement must carry a
+// valid classification (spec §32 — classification is mandatory).
+func asStatements(v any) ([]Statement, error) {
+	if v == nil {
+		return nil, nil
+	}
+	items, ok := v.([]any)
+	if !ok {
+		return nil, ErrInvalidResponse{"statements must be a JSON array"}
+	}
+	out := make([]Statement, 0, len(items))
+	for i, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			return nil, ErrInvalidResponse{fmt.Sprintf("statement %d is not an object", i)}
+		}
+		text := truncate(strings.TrimSpace(asString(m["text"])), maxStatementLen)
+		if text == "" {
+			return nil, ErrInvalidResponse{fmt.Sprintf("statement %d has no text", i)}
+		}
+		class := strings.ToUpper(strings.TrimSpace(asString(m["classification"])))
+		if !contains(Classifications, class) {
+			return nil, ErrInvalidResponse{fmt.Sprintf("statement %d classification %q is not one of %s", i, asString(m["classification"]), strings.Join(Classifications, ", "))}
+		}
+		refs := cleanList(asStringList(m["evidence_refs"]), maxRefs, maxRefLen)
+		out = append(out, Statement{Text: text, Classification: class, EvidenceRefs: refs})
+		if len(out) == maxStatements {
+			break
+		}
+	}
+	return out, nil
+}
+
+// asAttackChain normalizes the attack chain; unknown shapes are dropped
+// rather than rejected (additive field).
+func asAttackChain(v any) AttackChain {
+	var chain AttackChain
+	m, ok := v.(map[string]any)
+	if !ok {
+		return chain
+	}
+	chain.Observed = cleanList(asStringList(m["observed"]), 20, 60)
+	chain.ExpectedNext = cleanList(asStringList(m["expected_next"]), 20, 60)
+	chain.Gaps = cleanList(asStringList(m["gaps"]), maxGaps, maxAltLen)
+	return chain
+}
+
+// asMitreMapping normalizes the technique→evidence ties.
+func asMitreMapping(v any) []MitreMapEntry {
+	if v == nil {
+		return nil
+	}
+	items, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := []MitreMapEntry{}
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		tech := strings.TrimSpace(asString(m["technique"]))
+		if tech == "" {
+			continue
+		}
+		out = append(out, MitreMapEntry{
+			Technique:    tech,
+			Tactic:       strings.TrimSpace(asString(m["tactic"])),
+			EvidenceRefs: cleanList(asStringList(m["evidence_refs"]), maxRefs, maxRefLen),
+		})
+		if len(out) == 20 {
+			break
+		}
+	}
+	return out
+}
+
+// asRiskAssessment normalizes the risk assessment; score is clamped to 0-100.
+func asRiskAssessment(v any) *RiskAssessment {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+	var score int
+	switch t := m["score"].(type) {
+	case float64:
+		score = int(t)
+	case string:
+		score, _ = strconv.Atoi(strings.TrimSpace(t))
+	default:
+		return nil
+	}
+	if score < 0 {
+		score = 0
+	}
+	if score > 100 {
+		score = 100
+	}
+	return &RiskAssessment{Score: score, ReasonsRef: truncate(asString(m["reasons_ref"]), 200)}
+}
+
+// checkStatementProvenance enforces the §32 provenance rules against the
+// evidence context.
+func checkStatementProvenance(statements []Statement, ctx *FindingContext) error {
+	if len(statements) == 0 {
+		return nil
+	}
+	knownEvents := map[string]bool{}
+	knownRefs := map[string]bool{}
+	for _, ev := range ctx.Events {
+		knownEvents[ev.ID] = true
+		knownRefs[ev.ID] = true
+	}
+	knownRefs[ctx.Finding.ID] = true
+	for _, r := range ctx.Related {
+		knownRefs[r.ID] = true
+	}
+	for _, ti := range ctx.ThreatIntel {
+		knownRefs[ti.Value] = true
+	}
+	if ctx.AssetContext != nil {
+		for _, h := range ctx.AssetContext.Hosts {
+			knownRefs[h.Name] = true
+		}
+	}
+	for _, g := range ctx.TelemetryGaps {
+		knownRefs["coverage:"+g] = true
+		knownRefs[g] = true
+	}
+
+	for i, st := range statements {
+		switch st.Classification {
+		case "OBSERVED":
+			ok := false
+			for _, ref := range st.EvidenceRefs {
+				if knownEvents[ref] {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				return ErrInvalidResponse{"unsupported_observed_claim: statement " +
+					fmt.Sprintf("%d", i+1) + " cites no event id present in the context"}
+			}
+		case "INFERRED", "HYPOTHESIS":
+			if len(st.EvidenceRefs) == 0 {
+				return ErrInvalidResponse{fmt.Sprintf("statement %d (%s) must cite at least one context ref", i+1, st.Classification)}
+			}
+			for _, ref := range st.EvidenceRefs {
+				if !knownRefs[ref] {
+					return ErrInvalidResponse{fmt.Sprintf("statement %d cites unknown ref %q", i+1, ref)}
+				}
+			}
+		case "UNKNOWN":
+			// Explicit unknowns need no provenance.
+		}
+	}
+	return nil
 }
 
 // asString tolerates scalar type drift and never fails.

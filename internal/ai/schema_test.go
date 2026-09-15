@@ -237,3 +237,130 @@ func TestValidateAnalysisLengthCaps(t *testing.T) {
 		t.Errorf("title not capped: %d", len(a.Title))
 	}
 }
+
+// ─────────────────────────────────────────────
+// Output schema v2: classified statements + provenance (spec §32)
+// ─────────────────────────────────────────────
+
+func v2AnalysisJSON() string {
+	return `{
+		"title": "PowerShell execution on WORKSTATION-42",
+		"summary": "Encoded PowerShell executed on WORKSTATION-42 and contacted a known-bad IP.",
+		"severity": "critical",
+		"confidence": 0.82,
+		"what_is_happening": "Encoded PowerShell ran and made outbound contact.",
+		"why_it_matters": "Possible C2 beaconing from a production workstation.",
+		"evidence": ["Encoded PowerShell on WORKSTATION-42"],
+		"alternative_explanations": ["Admin scripting"],
+		"recommended_action": {"type": "investigate", "description": "Pivot on the destination IP.", "risk": "low"},
+		"statements": [
+			{"text": "Encoded PowerShell executed on WORKSTATION-42", "classification": "OBSERVED", "evidence_refs": ["e-98421"]},
+			{"text": "PowerShell contacted 203.0.113.50", "classification": "OBSERVED", "evidence_refs": ["e-98422"]},
+			{"text": "The destination is associated with suspicious infrastructure", "classification": "INFERRED", "evidence_refs": ["203.0.113.50"]},
+			{"text": "The activity may represent command-and-control", "classification": "HYPOTHESIS", "evidence_refs": ["e-98422", "203.0.113.50"]},
+			{"text": "Whether credentials were accessed", "classification": "UNKNOWN", "evidence_refs": []}
+		],
+		"attack_chain": {"observed": ["T1059.001"], "expected_next": ["T1041"], "gaps": ["T1021 unknown — no SMB telemetry"]},
+		"mitre_mapping": [{"technique": "T1059.001", "tactic": "TA0002", "evidence_refs": ["e-98421"]}],
+		"gaps": ["No DNS telemetry for WORKSTATION-42; C2 via DNS cannot be excluded"],
+		"risk_assessment": {"score": 87, "reasons_ref": "finding:f-1/risk"},
+		"requires_human_approval": true
+	}`
+}
+
+func v2Context() *FindingContext {
+	return &FindingContext{
+		Finding: FindingInfo{ID: "f-1", Title: "PS exec", Severity: "critical", Status: "new"},
+		Events: []EventInfo{
+			{ID: "e-98421", Host: "WORKSTATION-42"},
+			{ID: "e-98422", Host: "WORKSTATION-42"},
+		},
+		ThreatIntel: []TIHit{{Value: "203.0.113.50", Type: "ip"}},
+		TelemetryGaps: []string{"os.windows.dns on WORKSTATION-42 — no telemetry; activity of this kind: unknown"},
+	}
+}
+
+func TestValidateStatementsValid(t *testing.T) {
+	a, err := ValidateAnalysisWithContext([]byte(v2AnalysisJSON()), v2Context())
+	if err != nil {
+		t.Fatalf("v2 analysis rejected: %v", err)
+	}
+	if len(a.Statements) != 5 {
+		t.Errorf("statements: %d", len(a.Statements))
+	}
+	if a.Statements[0].Classification != "OBSERVED" || a.Statements[2].Classification != "INFERRED" ||
+		a.Statements[3].Classification != "HYPOTHESIS" || a.Statements[4].Classification != "UNKNOWN" {
+		t.Errorf("classifications: %+v", a.Statements)
+	}
+	if len(a.AttackChain.Observed) != 1 || len(a.AttackChain.ExpectedNext) != 1 {
+		t.Errorf("attack_chain: %+v", a.AttackChain)
+	}
+	if len(a.MitreMapping) != 1 || a.MitreMapping[0].Technique != "T1059.001" {
+		t.Errorf("mitre_mapping: %+v", a.MitreMapping)
+	}
+	if len(a.Gaps) != 1 {
+		t.Errorf("gaps: %v", a.Gaps)
+	}
+	if a.RiskAssessment == nil || a.RiskAssessment.Score != 87 {
+		t.Errorf("risk_assessment: %+v", a.RiskAssessment)
+	}
+}
+
+func TestValidateStatementMissingClassification(t *testing.T) {
+	in := strings.Replace(v2AnalysisJSON(),
+		`{"text": "The destination is associated with suspicious infrastructure", "classification": "INFERRED", "evidence_refs": ["203.0.113.50"]}`,
+		`{"text": "The destination is associated with suspicious infrastructure", "evidence_refs": ["203.0.113.50"]}`, 1)
+	_, err := ValidateAnalysisWithContext([]byte(in), v2Context())
+	if err == nil {
+		t.Fatal("statement without classification accepted")
+	}
+}
+
+func TestValidateStatementBadClassification(t *testing.T) {
+	in := strings.Replace(v2AnalysisJSON(), `"classification": "HYPOTHESIS"`, `"classification": "CERTAIN"`, 1)
+	_, err := ValidateAnalysisWithContext([]byte(in), v2Context())
+	if err == nil {
+		t.Fatal("invalid classification accepted")
+	}
+}
+
+func TestValidateUnsupportedObservedClaim(t *testing.T) {
+	// OBSERVED citing an event that is not in the context must be rejected.
+	in := strings.Replace(v2AnalysisJSON(), `"evidence_refs": ["e-98421"]},`, `"evidence_refs": ["e-nope"]},`, 1)
+	_, err := ValidateAnalysisWithContext([]byte(in), v2Context())
+	if err == nil {
+		t.Fatal("OBSERVED citing a nonexistent event accepted")
+	}
+	if !strings.Contains(err.Error(), "unsupported_observed_claim") {
+		t.Errorf("expected unsupported_observed_claim, got: %v", err)
+	}
+}
+
+func TestValidateInferredNeedsKnownRef(t *testing.T) {
+	// INFERRED citing a ref absent from the context must be rejected.
+	in := strings.Replace(v2AnalysisJSON(),
+		`"classification": "INFERRED", "evidence_refs": ["203.0.113.50"]`,
+		`"classification": "INFERRED", "evidence_refs": ["999.999.999.999"]`, 1)
+	_, err := ValidateAnalysisWithContext([]byte(in), v2Context())
+	if err == nil {
+		t.Fatal("INFERRED with unknown ref accepted")
+	}
+}
+
+func TestValidateLegacyOutputStillAccepted(t *testing.T) {
+	// v1 output (no statements) remains valid — the additions are additive.
+	if _, err := ValidateAnalysisWithContext([]byte(validAnalysisJSON()), v2Context()); err != nil {
+		t.Fatalf("legacy output rejected: %v", err)
+	}
+}
+
+func TestValidateRiskAssessmentClamped(t *testing.T) {
+	in := strings.Replace(v2AnalysisJSON(), `"score": 87`, `"score": 140`, 1)
+	a, err := ValidateAnalysisWithContext([]byte(in), v2Context())
+	if err != nil {
+		t.Fatalf("rejected: %v", err)
+	}
+	if a.RiskAssessment.Score != 100 {
+		t.Errorf("score not clamped: %d", a.RiskAssessment.Score)
+	}
+}

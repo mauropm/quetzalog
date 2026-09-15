@@ -2,6 +2,8 @@ package ai
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -106,7 +108,8 @@ type AIAnalystView struct {
 }
 
 // ToConfig merges the view onto the current configuration (key handling as
-// documented on AIAnalystView).
+// documented on AIAnalystView). ModelRoles and ActionMappings are carried
+// over from the current configuration — they are file-managed.
 func (v AIAnalystView) ToConfig(current config.AIAnalyst) config.AIAnalyst {
 	out := config.AIAnalyst{
 		Enabled:              v.Enabled,
@@ -120,6 +123,8 @@ func (v AIAnalystView) ToConfig(current config.AIAnalyst) config.AIAnalyst {
 		TimeoutSeconds:       v.TimeoutSeconds,
 		MaxContextEvents:     v.MaxContextEvents,
 		RetryCount:           v.RetryCount,
+		ModelRoles:           current.ModelRoles,
+		ActionMappings:       current.ActionMappings,
 	}
 	if v.APIKey == "$CLEAR" {
 		out.APIKey = ""
@@ -131,7 +136,8 @@ func (v AIAnalystView) ToConfig(current config.AIAnalyst) config.AIAnalyst {
 
 // UpdateConfig validates and applies a new AIAnalyst configuration. The
 // shared config is updated in place; when a config file is in use the change
-// is persisted there.
+// is persisted there. ModelRoles and ActionMappings are preserved from the
+// current configuration (file-managed, not part of the settings view).
 func (s *Service) UpdateConfig(ctx context.Context, in config.AIAnalyst) error {
 	if err := validateAIConfig(in); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
@@ -206,8 +212,9 @@ func validateAIConfig(in config.AIAnalyst) error {
 
 // AnalyzeFinding runs the full pipeline for one finding and stores the
 // result. manual=true (explicit operator request) bypasses the enabled flag,
-// the severity floor and the "already analyzed" guard.
-func (s *Service) AnalyzeFinding(ctx context.Context, findingID string, manual bool) (*Row, error) {
+// the severity floor and the "already analyzed" guard. instruction is the
+// optional analyst guidance text (layered below the system policy).
+func (s *Service) AnalyzeFinding(ctx context.Context, findingID, instruction string, manual bool) (*Row, error) {
 	cfg := s.aiConfig()
 
 	f, err := s.findings.GetByID(ctx, findingID)
@@ -239,7 +246,10 @@ func (s *Service) AnalyzeFinding(ctx context.Context, findingID string, manual b
 		return nil, fmt.Errorf("%w: max requests per minute reached — try again shortly", ErrRateLimited)
 	}
 
-	provider, err := s.providerFor(cfg)
+	// The reasoning role (when configured) handles finding generation and
+	// attack-chain analysis; otherwise the main endpoint is used (spec §61).
+	roleCfg := s.roleConfig(cfg, "reasoning")
+	provider, err := s.providerFor(roleCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +258,7 @@ func (s *Service) AnalyzeFinding(ctx context.Context, findingID string, manual b
 	if err != nil {
 		return nil, fmt.Errorf("build context: %w", err)
 	}
-	prompt, err := BuildUserPrompt(fctx)
+	prompt, err := BuildUserPrompt(fctx, instruction)
 	if err != nil {
 		return nil, err
 	}
@@ -256,11 +266,15 @@ func (s *Service) AnalyzeFinding(ctx context.Context, findingID string, manual b
 	if err != nil {
 		return nil, err
 	}
+	sum := sha256.Sum256([]byte(ctxJSON))
+	contextHash := hex.EncodeToString(sum[:])
 
 	row, err := s.store.CreateOrReset(ctx, CreateArgs{
 		FindingID:     f.ID,
 		Provider:      provider.Name(),
-		Model:         cfg.Model,
+		Model:         roleCfg.Model,
+		ModelVersion:  roleCfg.Model,
+		ContextHash:   contextHash,
 		PromptVersion: PromptVersion,
 		PromptHash:    PromptHash(),
 		ContextJSON:   ctxJSON,
@@ -269,7 +283,7 @@ func (s *Service) AnalyzeFinding(ctx context.Context, findingID string, manual b
 		return nil, err
 	}
 
-	out, aerr := s.runProvider(ctx, provider, cfg, prompt)
+	out, aerr := s.runProvider(ctx, provider, roleCfg, prompt)
 	if aerr != nil {
 		_ = s.store.Fail(ctx, row.ID, aerr.Error())
 		s.logger.Warn("ai analysis failed", "finding", f.ID, "analysis", row.ID, "error", aerr)
@@ -279,7 +293,7 @@ func (s *Service) AnalyzeFinding(ctx context.Context, findingID string, manual b
 		return row, aerr
 	}
 
-	a, verr := ValidateAnalysis([]byte(out))
+	a, verr := ValidateAnalysisWithContext([]byte(out), fctx)
 	if verr != nil {
 		_ = s.store.Fail(ctx, row.ID, verr.Error())
 		s.logger.Warn("ai analysis rejected (invalid model output)", "finding", f.ID, "analysis", row.ID, "reason", verr.Error())
@@ -294,8 +308,43 @@ func (s *Service) AnalyzeFinding(ctx context.Context, findingID string, manual b
 	}
 	s.logger.Info("ai analysis completed", "finding", f.ID, "analysis", row.ID,
 		"severity", a.Severity, "confidence", a.Confidence,
-		"recommended_action", a.RecommendedAction.Type, "model", cfg.Model)
+		"recommended_action", a.RecommendedAction.Type, "model", roleCfg.Model,
+		"context_hash", contextHash[:12])
 	return s.store.ActiveByFinding(ctx, findingID)
+}
+
+// roleConfig returns the effective provider configuration for one model
+// role: the role's endpoint/model when configured, falling back to the main
+// endpoint/model otherwise. Credentials come from the main configuration.
+func (s *Service) roleConfig(cfg config.AIAnalyst, role string) config.AIAnalyst {
+	out := cfg
+	switch role {
+	case "fast":
+		r := cfg.ModelRoles.Fast
+		if strings.TrimSpace(r.Endpoint) != "" {
+			out.Endpoint = r.Endpoint
+		}
+		if strings.TrimSpace(r.Model) != "" {
+			out.Model = r.Model
+		}
+	case "reasoning":
+		r := cfg.ModelRoles.Reasoning
+		if strings.TrimSpace(r.Endpoint) != "" {
+			out.Endpoint = r.Endpoint
+		}
+		if strings.TrimSpace(r.Model) != "" {
+			out.Model = r.Model
+		}
+	case "embedding":
+		r := cfg.ModelRoles.Embedding
+		if strings.TrimSpace(r.Endpoint) != "" {
+			out.Endpoint = r.Endpoint
+		}
+		if strings.TrimSpace(r.Model) != "" {
+			out.Model = r.Model
+		}
+	}
+	return out
 }
 
 // runProvider calls the model with retries for transient failures.
@@ -332,8 +381,9 @@ func (s *Service) runProvider(ctx context.Context, provider Provider, cfg config
 // StartAnalysis validates the request and starts an analysis in the
 // background. It returns immediately so the HTTP layer is never blocked by
 // model latency; the result is observable via the analysis record
-// (status: analyzing -> analyzed | failed).
-func (s *Service) StartAnalysis(ctx context.Context, findingID string) (*Row, error) {
+// (status: analyzing -> analyzed | failed). instruction is optional analyst
+// guidance, layered below the system policy (spec §64).
+func (s *Service) StartAnalysis(ctx context.Context, findingID, instruction string) (*Row, error) {
 	f, err := s.findings.GetByID(ctx, findingID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrNoFinding, findingID)
@@ -345,10 +395,16 @@ func (s *Service) StartAnalysis(ctx context.Context, findingID string) (*Row, er
 	if existing, err := s.store.ActiveByFinding(ctx, findingID); err == nil && existing != nil && existing.Status == "analyzing" {
 		return existing, ErrInProgress
 	}
+	// Analyst guidance is advisory text, not data; bound it so a long pasted
+	// block cannot blow out the prompt budget.
+	instruction = strings.TrimSpace(instruction)
+	if len(instruction) > 4000 {
+		instruction = instruction[:4000]
+	}
 	go func() {
 		cctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		if _, err := s.AnalyzeFinding(cctx, f.ID, true); err != nil {
+		if _, err := s.AnalyzeFinding(cctx, f.ID, instruction, true); err != nil {
 			s.logger.Warn("ai analysis did not complete", "finding", f.ID, "error", err)
 		}
 	}()
@@ -365,7 +421,7 @@ func (s *Service) OnFindingCreated(ctx context.Context, f *findings.Finding) {
 	go func() {
 		cctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		if _, err := s.AnalyzeFinding(cctx, f.ID, false); err != nil {
+		if _, err := s.AnalyzeFinding(cctx, f.ID, "", false); err != nil {
 			if errors.Is(err, ErrDisabled) || errors.Is(err, ErrBelowSeverity) || errors.Is(err, ErrInProgress) {
 				return // expected skips, not errors
 			}
@@ -415,6 +471,37 @@ func (s *Service) row(ctx context.Context, analysisID string) (*Row, error) {
 		return nil, err
 	}
 	return r, nil
+}
+
+// defaultActionMappings maps the closed recommended_action vocabulary to
+// response-registry keys. Mappings are configuration, not code (spec §33):
+// operators can re-point types at new integrations without app changes.
+var defaultActionMappings = map[string]string{
+	"investigate":        "investigation.create",
+	"create_incident":    "incident.create",
+	"run_query":          "search.run",
+	"collect_evidence":   "finding.annotate",
+	"escalate":           "webhook.execute",
+	"remediate":          "webhook.execute",
+	"block":              "webhook.execute",
+	"quarantine":         "webhook.execute",
+	"disable_account":    "webhook.execute",
+	"rotate_credentials": "webhook.execute",
+}
+
+// ActionMapping resolves a recommended action type to a response-registry
+// key, preferring operator configuration (ai_analyst.action_mappings) over
+// the built-in defaults.
+func ActionMapping(cfg config.AIAnalyst, actionType string) string {
+	if cfg.ActionMappings != nil {
+		if m, ok := cfg.ActionMappings[actionType]; ok && m != "" {
+			return m
+		}
+	}
+	if m, ok := defaultActionMappings[actionType]; ok {
+		return m
+	}
+	return "webhook.execute"
 }
 
 // noteFinding attaches the decision to the finding as a note (audit link).

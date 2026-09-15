@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,6 +31,11 @@ type Row struct {
 	Status             string    `json:"status"`
 	Provider           string    `json:"provider,omitempty"`
 	Model              string    `json:"model,omitempty"`
+	// ModelVersion is the model identifier the decision was made with
+	// (ai-security-analysis.md §5): a decision states which model.
+	ModelVersion       string    `json:"model_version,omitempty"`
+	// ContextHash fingerprints the exact evidence snapshot decided on.
+	ContextHash        string    `json:"context_hash,omitempty"`
 	PromptVersion      string    `json:"prompt_version,omitempty"`
 	PromptHash         string    `json:"prompt_hash,omitempty"`
 	Error              string    `json:"error,omitempty"`
@@ -74,6 +80,8 @@ type CreateArgs struct {
 	FindingID     string
 	Provider      string
 	Model         string
+	ModelVersion  string
+	ContextHash   string
 	PromptVersion string
 	PromptHash    string
 	ContextJSON   string
@@ -91,14 +99,16 @@ func (s *Store) CreateOrReset(ctx context.Context, args CreateArgs) (*Row, error
 
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO ai_analyses (
-			id, finding_id, status, provider, model,
+			id, finding_id, status, provider, model, model_version, context_hash,
 			prompt_version, prompt_hash, context,
 			created_at, updated_at
-		) VALUES (?, ?, 'analyzing', ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, 'analyzing', ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(finding_id) DO UPDATE SET
 			status = 'analyzing',
 			provider = excluded.provider,
 			model = excluded.model,
+			model_version = excluded.model_version,
+			context_hash = excluded.context_hash,
 			prompt_version = excluded.prompt_version,
 			prompt_hash = excluded.prompt_hash,
 			context = excluded.context,
@@ -114,6 +124,7 @@ func (s *Store) CreateOrReset(ctx context.Context, args CreateArgs) (*Row, error
 			updated_at = excluded.updated_at
 	`,
 		id, args.FindingID, args.Provider, args.Model,
+		args.ModelVersion, args.ContextHash,
 		args.PromptVersion, args.PromptHash, args.ContextJSON,
 		now, now,
 	)
@@ -195,6 +206,7 @@ func (s *Store) Decide(ctx context.Context, id, decision, reason, actor string) 
 func (s *Store) ActiveByFinding(ctx context.Context, findingID string) (*Row, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, finding_id, status, COALESCE(provider,''), COALESCE(model,''),
+		       COALESCE(model_version,''), COALESCE(context_hash,''),
 		       COALESCE(prompt_version,''), COALESCE(prompt_hash,''),
 		       COALESCE(error,''), COALESCE(confidence,0),
 		       COALESCE(severity,''), COALESCE(recommendation_type,''),
@@ -217,6 +229,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Row, *Analysis, *FindingCo
 	)
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, finding_id, status, COALESCE(provider,''), COALESCE(model,''),
+		       COALESCE(model_version,''), COALESCE(context_hash,''),
 		       COALESCE(prompt_version,''), COALESCE(prompt_hash,''),
 		       COALESCE(error,''), COALESCE(confidence,0),
 		       COALESCE(severity,''), COALESCE(recommendation_type,''),
@@ -226,6 +239,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Row, *Analysis, *FindingCo
 		FROM ai_analyses WHERE id = ?
 	`, id).Scan(
 		&r.ID, &r.FindingID, &r.Status, &r.Provider, &r.Model,
+		&r.ModelVersion, &r.ContextHash,
 		&r.PromptVersion, &r.PromptHash, &r.Error, &r.Confidence,
 		&r.Severity, &r.RecommendationType, &r.Decision, &r.DecisionReason,
 		&r.DecidedBy, &decidedAt, &r.CreatedAt, &r.UpdatedAt,
@@ -289,6 +303,7 @@ func (s *Store) List(ctx context.Context, f ListFilter) ([]*Row, int, error) {
 	q := `
 		SELECT a.id, a.finding_id, a.status,
 		       COALESCE(a.provider,''), COALESCE(a.model,''),
+		       COALESCE(a.model_version,''), COALESCE(a.context_hash,''),
 		       COALESCE(a.prompt_version,''), COALESCE(a.prompt_hash,''),
 		       COALESCE(a.error,''), COALESCE(a.confidence,0),
 		       COALESCE(a.severity,''), COALESCE(a.recommendation_type,''),
@@ -313,6 +328,7 @@ func (s *Store) List(ctx context.Context, f ListFilter) ([]*Row, int, error) {
 		var decidedAt sql.NullTime
 		if err := rows.Scan(
 			&r.ID, &r.FindingID, &r.Status, &r.Provider, &r.Model,
+			&r.ModelVersion, &r.ContextHash,
 			&r.PromptVersion, &r.PromptHash, &r.Error, &r.Confidence,
 			&r.Severity, &r.RecommendationType, &r.Decision, &r.DecisionReason,
 			&r.DecidedBy, &decidedAt, &r.CreatedAt, &r.UpdatedAt,
@@ -328,6 +344,50 @@ func (s *Store) List(ctx context.Context, f ListFilter) ([]*Row, int, error) {
 		out = append(out, &r)
 	}
 	return out, total, rows.Err()
+}
+
+// PriorAnalyses returns the decided analyses for the given findings, newest
+// decision first (bounded). Decided analyses — including false-positive
+// dismissals with reasons — are the operator-feedback loop the analyst sees
+// in its context (spec §33, §6).
+func (s *Store) PriorAnalyses(ctx context.Context, findingIDs []string, limit int) ([]PriorAnalysis, error) {
+	if limit <= 0 || limit > 10 {
+		limit = 5
+	}
+	if len(findingIDs) == 0 {
+		return nil, nil
+	}
+	placeholders := strings.Repeat("?,", len(findingIDs))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, len(findingIDs))
+	for i, id := range findingIDs {
+		args[i] = id
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, finding_id, decision, COALESCE(decision_reason,''), COALESCE(severity,''), analysis
+		 FROM ai_analyses WHERE finding_id IN (`+placeholders+`) AND decision != ''
+		 ORDER BY COALESCE(decided_at, updated_at) DESC LIMIT ?`,
+		append(args, limit)...)
+	if err != nil {
+		return nil, fmt.Errorf("list prior analyses: %w", err)
+	}
+	defer rows.Close()
+	out := []PriorAnalysis{}
+	for rows.Next() {
+		var p PriorAnalysis
+		var analysisJSON sql.NullString
+		if err := rows.Scan(&p.ID, &p.FindingID, &p.Decision, &p.Reason, &p.Severity, &analysisJSON); err != nil {
+			return nil, err
+		}
+		if analysisJSON.Valid && analysisJSON.String != "" {
+			var a Analysis
+			if json.Unmarshal([]byte(analysisJSON.String), &a) == nil {
+				p.Summary = a.Summary
+			}
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 // Stats counts rows per status (for badges / overview).
@@ -357,6 +417,7 @@ func scanAIAnalysis(row *sql.Row) (*Row, error) {
 	var decidedAt sql.NullTime
 	err := row.Scan(
 		&r.ID, &r.FindingID, &r.Status, &r.Provider, &r.Model,
+		&r.ModelVersion, &r.ContextHash,
 		&r.PromptVersion, &r.PromptHash, &r.Error, &r.Confidence,
 		&r.Severity, &r.RecommendationType, &r.Decision, &r.DecisionReason,
 		&r.DecidedBy, &decidedAt, &r.CreatedAt, &r.UpdatedAt,

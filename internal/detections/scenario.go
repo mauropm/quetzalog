@@ -485,6 +485,33 @@ func (e *ScenarioEvaluator) eventsByIDs(ctx context.Context, ids []string, limit
 	return out
 }
 
+// ActiveRunsByHost lists the active scenario runs scoped to one host,
+// newest first (bounded). Used by the AI context and what-next views.
+func (e *ScenarioEvaluator) ActiveRunsByHost(ctx context.Context, host string) ([]ScenarioRun, error) {
+	if host == "" {
+		return []ScenarioRun{}, nil
+	}
+	rows, err := e.db.QueryContext(ctx,
+		`SELECT id, definition, scope, status, confidence, risk, opened_at, closed_at
+		 FROM scenario_runs WHERE status = 'active' AND scope = ?
+		 ORDER BY opened_at DESC LIMIT 5`, "host:"+host)
+	if err != nil {
+		return nil, fmt.Errorf("list active scenario runs: %w", err)
+	}
+	defer rows.Close()
+	out := []ScenarioRun{}
+	for rows.Next() {
+		var r ScenarioRun
+		var def []byte
+		if err := rows.Scan(&r.ID, &def, &r.Scope, &r.Status, &r.Confidence, &r.Risk, &r.OpenedAt, &r.ClosedAt); err != nil {
+			return nil, fmt.Errorf("scan scenario run: %w", err)
+		}
+		r.Definition = json.RawMessage(def)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // ListRuns lists scenario runs (most recent first).
 func (e *ScenarioEvaluator) ListRuns(ctx context.Context, limit int) ([]ScenarioRun, error) {
 	if limit <= 0 || limit > 200 {

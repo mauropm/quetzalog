@@ -156,6 +156,34 @@ type AIAnalyst struct {
 	// RetryCount is the number of retries after a transient provider
 	// failure (timeout / unavailable / rate limited).
 	RetryCount int `yaml:"retry_count"`
+	// ModelRoles optionally routes different jobs to different model
+	// endpoints (spec §61-62). Any unset role falls back to the main
+	// endpoint/model. The embedding role is declared for future similarity
+	// search and is unused by the v1 analyst.
+	ModelRoles ModelRoles `yaml:"model_roles,omitempty"`
+	// ActionMappings maps the closed recommended_action vocabulary to
+	// response-registry keys. Mappings are configuration, not code (spec §33):
+	// new integrations appear without app changes. Unmapped types fall back
+	// to the built-in defaults.
+	ActionMappings map[string]string `yaml:"action_mappings,omitempty"`
+}
+
+// ModelRole points one analyst job at its own endpoint/model. APIKey and
+// Username are inherited from the main ai_analyst configuration.
+type ModelRole struct {
+	Endpoint string `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
+	Model    string `yaml:"model,omitempty" json:"model,omitempty"`
+}
+
+// ModelRoles groups the optional per-role model configuration.
+type ModelRoles struct {
+	// Fast is intended for cheap classification/triage jobs.
+	Fast ModelRole `yaml:"fast,omitempty" json:"fast,omitempty"`
+	// Reasoning is used for finding generation and attack-chain analysis
+	// (the main analysis pipeline).
+	Reasoning ModelRole `yaml:"reasoning,omitempty" json:"reasoning,omitempty"`
+	// Embedding is declared for future similarity search (unused in v1).
+	Embedding ModelRole `yaml:"embedding,omitempty" json:"embedding,omitempty"`
 }
 
 // Detections configures scheduled evaluation of detection rules. When

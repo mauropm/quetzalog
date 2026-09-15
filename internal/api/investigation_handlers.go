@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"quetzalog/internal/ai"
 	"quetzalog/internal/findings"
 	"quetzalog/internal/investigations"
 	"quetzalog/pkg/api"
@@ -124,7 +125,30 @@ func (h *Handler) GetInvestigation(w http.ResponseWriter, r *http.Request) {
 		api.WriteJSON(w, http.StatusInternalServerError, api.InternalServerError("failed to get investigation"))
 		return
 	}
-	api.WriteJSON(w, http.StatusOK, api.Success(in))
+	api.WriteJSON(w, http.StatusOK, api.Success(map[string]any{
+		"investigation": in,
+		// AI analyses are readable entities in the investigation
+		// (ai-security-analysis.md §6): the linked analyses, with their
+		// classified statements and human decisions.
+		"ai_analyses": h.investigationAIAnalyses(r, in),
+	}))
+}
+
+// investigationAIAnalyses resolves the linked findings' AI analyses
+// (compact rows). Absent analyses are omitted, never fatal.
+func (h *Handler) investigationAIAnalyses(r *http.Request, in *investigations.Investigation) []*ai.Row {
+	if in == nil || len(in.FindingIDs) == 0 {
+		return []*ai.Row{}
+	}
+	out := []*ai.Row{}
+	for _, fid := range in.FindingIDs {
+		row, err := h.aiStore.ActiveByFinding(r.Context(), fid)
+		if err != nil || row == nil {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 // UpdateInvestigationRequest carries mutable investigation fields.
