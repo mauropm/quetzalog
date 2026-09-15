@@ -6,22 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
 	"quetzalog/internal/ingestion"
+	"quetzalog/internal/parsers"
 	"quetzalog/pkg/event"
-)
-
-// RFC3164 and RFC5424 syslog parsers.
-var rfc3164Regex = regexp.MustCompile(
-	`^<(\d{1,3})>(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+(\S+?)(?:\[(\d+)\])?:\s*(.*)`,
-)
-
-var rfc5424Regex = regexp.MustCompile(
-	`^<(\d{1,3})>(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+?)\s*(?:\[(\d+)\])?\s*(?:<(\d+)>)?\s*(.*)`,
 )
 
 // Config holds configuration for the syslog receiver.
@@ -168,6 +158,8 @@ func (r *Receiver) handleUDP(ctx context.Context) error {
 }
 
 // processMessage parses a syslog message string and returns an event.Event.
+// Format parsing (RFC 3164 / 5424 incl. structured data, CEF-over-syslog)
+// lives in the parsers package; the receiver only handles transport.
 func (r *Receiver) processMessage(msg string) *event.Event {
 	msg = strings.TrimSpace(msg)
 	if msg == "" {
@@ -178,125 +170,20 @@ func (r *Receiver) processMessage(msg string) *event.Event {
 	ev.SourceType = "syslog"
 	ev.ReceivedAt = time.Now()
 
-	// Try RFC5424 first
-	if m := rfc5424Regex.FindStringSubmatch(msg); m != nil {
-		r.fillFromSyslog(ev, m, 2)
-		event.Provenance(ev, []byte(msg), "syslog", "syslog5424", "1", "syslog")
-		return ev
+	parsed, name := parsers.Default.Auto([]byte(msg))
+	parsers.Fill(ev, parsed)
+
+	// CEF-over-syslog: a CEF body nested in the syslog message field.
+	// Re-parse the body so its structured fields reach the event.
+	if strings.HasPrefix(strings.TrimSpace(parsed.Message), "CEF:") {
+		if p, ok := parsers.Default.Get("cef"); ok {
+			if cef, matched := p.Parse([]byte(parsed.Message)); matched {
+				parsers.Fill(ev, cef)
+				name = name + "+cef"
+			}
+		}
 	}
 
-	// Fall back to RFC3164
-	if m := rfc3164Regex.FindStringSubmatch(msg); m != nil {
-		r.fillFromSyslog(ev, m, 1)
-		event.Provenance(ev, []byte(msg), "syslog", "syslog3164", "1", "syslog")
-		return ev
-	}
-
-	// Unparseable syslog: use raw message
-	ev.Message = msg
-	event.Provenance(ev, []byte(msg), "syslog", "generic", "1", "syslog")
+	event.Provenance(ev, []byte(msg), "syslog", name, "1", "syslog")
 	return ev
-}
-
-// fillFromSyslog populates an event from parsed syslog capture groups.
-func (r *Receiver) fillFromSyslog(ev *event.Event, m []string, version int) {
-	// Priority (facility * 8 + severity)
-	priority, err := strconv.Atoi(m[1])
-	if err == nil {
-		facility := priority / 8
-		severity := priority % 8
-		ev.Attributes["priority"] = priority
-		ev.Attributes["facility"] = facilityName(facility)
-		ev.Severity = severityName(severity)
-	}
-
-	timestampGroup, hostGroup, appGroup, pidGroup, msgGroup := 3, 4, 5, 6, len(m)-1
-	if version == 1 {
-		timestampGroup, hostGroup, appGroup, pidGroup, msgGroup = 2, 3, 4, 5, len(m)-1
-	}
-
-	// Timestamp
-	if version == 2 {
-		// RFC5424 timestamp
-		ev.Timestamp = event.ParseTimestamp(m[timestampGroup])
-	} else {
-		// RFC3164 timestamp (no year)
-		t := event.ParseTimestamp(m[timestampGroup])
-		if !t.IsZero() && t.Year() == time.Now().Year() {
-			ev.Timestamp = t
-		} else if !t.IsZero() {
-			ev.Timestamp = t.Add(time.Date(time.Now().Year(), 1, 1, 0, 0, 0, 0, t.Location()).Sub(time.Date(1, 1, 1, 0, 0, 0, 0, t.Location())))
-		}
-	}
-
-	// Hostname
-	if hostGroup < len(m) {
-		if hostname := m[hostGroup]; hostname != "" && hostname != "-" {
-			ev.Host = hostname
-		}
-	}
-
-	// App name / source
-	if appGroup < len(m) {
-		if appName := m[appGroup]; appName != "" && appName != "-" {
-			ev.Source = appName
-		}
-	}
-
-	// PID
-	if pidGroup < len(m) {
-		if pid := m[pidGroup]; pid != "" {
-			ev.ProcessID = pid
-			if ev.Attributes == nil {
-				ev.Attributes = make(map[string]any)
-			}
-			ev.Attributes["pid"] = pid
-		}
-	}
-
-	// Message
-	if msgGroup < len(m) {
-		msg := m[msgGroup]
-		if msg != "" && msg != "-" {
-			ev.Message = msg
-		}
-	}
-
-	// RFC5424 structured data (m[8] is SDID, m[9] is message)
-	if version == 2 && len(m) > 8 {
-		if sdid := m[8]; sdid != "" {
-			if ev.Attributes == nil {
-				ev.Attributes = make(map[string]any)
-			}
-			ev.Attributes["sdid"] = sdid
-		}
-	}
-}
-
-// facilityName returns the textual name of a syslog facility code.
-func facilityName(code int) string {
-	facilities := []string{
-		"kernel", "user-level", "mail", "daemon",
-		"auth", "syslog", "line printer", "news",
-		"uucp", "cron", "authpriv", "ftp",
-		"ntp", "audit", "alert", "clock",
-		"local0", "local1", "local2", "local3",
-		"local4", "local5", "local6", "local7",
-	}
-	if code < 0 || code > 23 {
-		return fmt.Sprintf("unknown(%d)", code)
-	}
-	return facilities[code]
-}
-
-// severityName returns the textual name of a syslog severity level.
-func severityName(code int) string {
-	severities := []string{
-		"emergency", "alert", "critical", "error",
-		"warning", "notice", "informational", "debug",
-	}
-	if code < 0 || code > 7 {
-		return fmt.Sprintf("unknown(%d)", code)
-	}
-	return severities[code]
 }

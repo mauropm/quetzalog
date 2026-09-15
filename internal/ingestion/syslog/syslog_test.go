@@ -157,6 +157,32 @@ func TestSyslogTCP_MultipleLines(t *testing.T) {
 	}
 }
 
+func TestSyslogCEFOverSyslog(t *testing.T) {
+	_, store, cleanup := startReceiver(t, 0, 17518)
+	defer cleanup()
+	conn, _ := net.Dial("tcp", "127.0.0.1:17518")
+	defer conn.Close()
+	msg := `<134>Oct  5 09:00:00 fw01 fw: CEF:8|Quetzalog|FW|1.0|210|Blocked TCP|7|src=10.1.2.3 dst=8.8.8.8 dpt=22 suser=alice msg=blocked by policy`
+	conn.Write([]byte(msg + "\n"))
+	got := waitForEvents(t, store, 1, 5*time.Second)
+	ev := got[0]
+	if ev.Attributes["parser"] != "syslog3164+cef" {
+		t.Errorf("cef-over-syslog parser provenance: %v", ev.Attributes["parser"])
+	}
+	if ev.Message != "Blocked TCP" {
+		t.Errorf("cef message: %q", ev.Message)
+	}
+	if ev.SourceIP != "10.1.2.3" || ev.DestinationIP != "8.8.8.8" || ev.DestinationPort != 22 {
+		t.Errorf("cef fields: %q %q %d", ev.SourceIP, ev.DestinationIP, ev.DestinationPort)
+	}
+	if ev.User != "alice" {
+		t.Errorf("cef user: %q", ev.User)
+	}
+	if ev.Host != "fw01" {
+		t.Errorf("syslog envelope host should remain: %q", ev.Host)
+	}
+}
+
 func TestSyslogGarbageStillIngested(t *testing.T) {
 	_, store, cleanup := startReceiver(t, 0, 17517)
 	defer cleanup()

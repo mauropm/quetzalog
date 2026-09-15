@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"quetzalog/internal/ingestion"
+	"quetzalog/internal/parsers"
 	"quetzalog/pkg/event"
 	"strings"
 	"time"
@@ -257,13 +258,18 @@ func (h *Handler) handleRaw(w http.ResponseWriter, r *http.Request, token string
 	}
 
 	ev := event.NewEvent()
-	ev.Message = string(body)
 	ev.Raw = body
-	ev.RawFormat = "raw"
 	ev.SourceType = "hec_raw"
 	ev.Source = "hec_raw_ingest"
 	ev.ReceivedAt = time.Now()
-	event.Provenance(ev, nil, "", "plain", "1", "hec")
+
+	// Raw payloads may be CEF/LEEF/GELF/syslog lines: detect and unpack
+	// them, falling back to the whole body as the message.
+	parsed, name := parsers.Default.Auto(body)
+	ev.RawFormat = rawFormatFor(name)
+	ev.Message = string(body)
+	parsers.Fill(ev, parsed)
+	event.Provenance(ev, nil, "", name, "1", "hec")
 
 	ctx := r.Context()
 	if err := h.pipeline.Ingest(ctx, ev); err != nil {
@@ -336,6 +342,23 @@ func hhecToEvent(hec HECEvent, raw []byte) *event.Event {
 	event.Provenance(ev, raw, "json", "hec", "1", "hec")
 
 	return ev
+}
+
+// rawFormatFor labels the raw payload of a /raw event by the parser that
+// recognized it.
+func rawFormatFor(parser string) string {
+	switch parser {
+	case "cef":
+		return "cef"
+	case "leef":
+		return "leef"
+	case "gelf":
+		return "json"
+	case "syslog5424", "syslog3164":
+		return "syslog"
+	default:
+		return "raw"
+	}
 }
 
 // isHECBatch checks if the body is a HEC batch (has "events" key with array value).

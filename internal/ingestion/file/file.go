@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"quetzalog/internal/ingestion"
+	"quetzalog/internal/parsers"
 	"quetzalog/pkg/event"
 )
 
@@ -220,11 +221,34 @@ func (i *Ingestor) processLine(line string, source Source) *event.Event {
 		return i.parseJSONLine(line, ev)
 	case "syslog":
 		return i.parseSyslogLine(line, ev)
+	case "cef":
+		return i.parseSpecialLine(line, "cef", ev)
+	case "leef":
+		return i.parseSpecialLine(line, "leef", ev)
+	case "gelf":
+		return i.parseSpecialLine(line, "gelf", ev)
 	case "regex":
 		return i.parseRegexLine(line, source, ev)
 	default:
 		return i.parsePlainLine(line, ev)
 	}
+}
+
+// parseSpecialLine parses a line with the named registry parser
+// (cef/leef/gelf). Lines that do not match the format fall back to
+// plain-text handling so malformed lines still get ingested.
+func (i *Ingestor) parseSpecialLine(line, format string, ev *event.Event) *event.Event {
+	p, ok := parsers.Default.Get(format)
+	if !ok {
+		return i.parsePlainLine(line, ev)
+	}
+	parsed, matched := p.Parse([]byte(line))
+	if !matched {
+		ev.Message = line
+		return ev
+	}
+	parsers.Fill(ev, parsed)
+	return ev
 }
 
 // parseJSONLine attempts to parse the line as JSON and map fields to the event.
@@ -369,8 +393,16 @@ func (i *Ingestor) parseRegexLine(line string, source Source, ev *event.Event) *
 	return ev
 }
 
-// parsePlainLine uses the raw line as the message.
+// parsePlainLine uses the raw line as the message, after trying the
+// unambiguous special formats (CEF/LEEF/GELF), which commonly arrive in
+// plain-text files. Behavior for anything that is not one of those is
+// unchanged.
 func (i *Ingestor) parsePlainLine(line string, ev *event.Event) *event.Event {
+	if parsed, name, ok := parsers.Default.DetectSpecial([]byte(line)); ok {
+		parsers.Fill(ev, parsed)
+		ev.Attributes["parsed_as"] = name
+		return ev
+	}
 	ev.Message = line
 	return ev
 }
@@ -382,6 +414,12 @@ func fileProvenance(format string) string {
 		return "ndjson"
 	case "syslog":
 		return "syslog"
+	case "cef":
+		return "cef"
+	case "leef":
+		return "leef"
+	case "gelf":
+		return "json"
 	default:
 		return "text"
 	}

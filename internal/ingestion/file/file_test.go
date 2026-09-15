@@ -184,6 +184,72 @@ func TestTail_SyslogLineMessageNotEmpty(t *testing.T) {
 	}
 }
 
+func TestTail_CEFFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fw.cef")
+	os.WriteFile(path, []byte(""), 0o644)
+
+	in, store, cleanup := setupTail(t, dir, []ingestfile.Source{{Name: "fw", Path: path, Format: "cef"}})
+	defer cleanup()
+	if err := in.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	f, _ := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o644)
+	fmt.Fprintf(f, "CEF:8|Quetzalog|FW|1.0|210|Blocked TCP|7|src=10.1.2.3 dst=8.8.8.8 dpt=22 suser=alice\n")
+	f.Close()
+
+	got := waitFor(t, store, 1, 10*time.Second)
+	ev := got[0]
+	if ev.Message != "Blocked TCP" {
+		t.Errorf("cef message: %q", ev.Message)
+	}
+	if ev.SourceIP != "10.1.2.3" || ev.DestinationIP != "8.8.8.8" || ev.DestinationPort != 22 {
+		t.Errorf("cef fields: %q %q %d", ev.SourceIP, ev.DestinationIP, ev.DestinationPort)
+	}
+	if ev.RawFormat != "cef" {
+		t.Errorf("raw_format: %q", ev.RawFormat)
+	}
+	if ev.Attributes["parser"] != "file-cef" {
+		t.Errorf("parser provenance: %v", ev.Attributes["parser"])
+	}
+}
+
+func TestTail_PlainAutoDetectsSpecialFormats(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mixed.log")
+	os.WriteFile(path, []byte(""), 0o644)
+
+	in, store, cleanup := setupTail(t, dir, []ingestfile.Source{{Name: "m", Path: path, Format: "plain"}})
+	defer cleanup()
+	if err := in.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	f, _ := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o644)
+	fmt.Fprintf(f, "CEF:8|Quetzalog|FW|1.0|210|Blocked TCP|7|src=10.1.2.3\n")
+	fmt.Fprintf(f, "just a plain line\n")
+	f.Close()
+
+	got := waitFor(t, store, 2, 10*time.Second)
+	byMsg := map[string]*event.Event{}
+	for _, ev := range got {
+		byMsg[ev.Message] = ev
+	}
+	cef := byMsg["Blocked TCP"]
+	if cef == nil {
+		t.Fatalf("cef line not auto-detected: %#v", got)
+	}
+	if cef.Attributes["parsed_as"] != "cef" {
+		t.Errorf("parsed_as: %v", cef.Attributes["parsed_as"])
+	}
+	if cef.SourceIP != "10.1.2.3" {
+		t.Errorf("cef src: %q", cef.SourceIP)
+	}
+	plain := byMsg["just a plain line"]
+	if plain == nil || plain.Attributes["parsed_as"] != nil {
+		t.Errorf("plain line mishandled: %#v", plain)
+	}
+}
+
 func TestTail_MissingFileDoesNotCrash(t *testing.T) {
 	dir := t.TempDir()
 	in, _, cleanup := setupTail(t, dir, []ingestfile.Source{{Name: "nope", Path: filepath.Join(dir, "nope.log"), Format: "plain"}})

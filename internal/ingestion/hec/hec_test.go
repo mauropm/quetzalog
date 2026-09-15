@@ -150,6 +150,31 @@ func TestHECRaw(t *testing.T) {
 	}
 }
 
+func TestHECRawCEFAutoDetect(t *testing.T) {
+	h, store, cleanup := setupHec(t)
+	defer cleanup()
+	cef := "CEF:8|Quetzalog|FW|1.0|210|Blocked TCP|7|src=10.1.2.3 dst=8.8.8.8 dpt=22 suser=alice"
+	w := post(t, h, "/services/collector/raw", "Splunk good-token", cef)
+	if w.Code != 200 {
+		t.Fatalf("raw %d %s", w.Code, w.Body.String())
+	}
+	waitCount(t, store, 1)
+	list, _ := store.Search(context.Background(), events.Query{Limit: 2})
+	ev := list[0]
+	if ev.Message != "Blocked TCP" {
+		t.Errorf("cef message: %q", ev.Message)
+	}
+	if ev.SourceIP != "10.1.2.3" || ev.DestinationIP != "8.8.8.8" || ev.DestinationPort != 22 {
+		t.Errorf("cef fields: %q %q %d", ev.SourceIP, ev.DestinationIP, ev.DestinationPort)
+	}
+	if ev.RawFormat != "cef" {
+		t.Errorf("raw_format: %q", ev.RawFormat)
+	}
+	if ev.Attributes["parser"] != "cef" {
+		t.Errorf("parser provenance: %v", ev.Attributes["parser"])
+	}
+}
+
 func TestHECInvalidJSON(t *testing.T) {
 	h, _, cleanup := setupHec(t)
 	defer cleanup()
