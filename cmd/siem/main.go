@@ -116,6 +116,8 @@ func run() int {
 		return cmdDB(subArgs())
 	case "user":
 		return cmdUser(subArgs())
+	case "token":
+		return cmdToken(subArgs())
 	case "config":
 		return cmdConfig(subArgs())
 	default:
@@ -2086,6 +2088,96 @@ func cmdUser(args []string) int {
 		fmt.Println("Reset the password of admin user 'admin'. Sign in as admin.")
 	}
 	return 0
+}
+
+// cmdToken manages shareable event-injection keys on the quetzalog machine:
+//
+//	quetzalog token create [--config path] [--name N] [--tag T] [--group G]
+//	quetzalog token list   [--config path]
+//
+// The created token may only POST /api/v1/events and /api/v1/events/batch;
+// it is printed once to stdout so it can be shared with the sender.
+func cmdToken(args []string) int {
+	var configFile, name, tag, group string
+	fs := flag.NewFlagSet("token", flag.ExitOnError)
+	fs.StringVar(&configFile, "config", "", "path to config file")
+	fs.StringVar(&name, "name", "", "token name (create)")
+	fs.StringVar(&tag, "tag", "", "token tag (create)")
+	fs.StringVar(&group, "group", "", "token group (create)")
+	positional := parseMixed(fs, args)
+	if len(positional) != 1 || (positional[0] != "create" && positional[0] != "list") {
+		fmt.Fprintln(os.Stderr, "Usage: quetzalog token create [--config path] [--name N] [--tag T] [--group G]")
+		fmt.Fprintln(os.Stderr, "       quetzalog token list [--config path]")
+		return 1
+	}
+
+	cfg := config.DefaultConfig()
+	if configFile != "" {
+		loaded, err := config.LoadConfig(configFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			return 1
+		}
+		cfg = loaded
+	}
+	dbPath := cfg.Database.Path
+	if dbPath == "" {
+		dbPath = "./data/siem.db"
+	}
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating data directory: %v\n", err)
+		return 1
+	}
+	db, err := database.Open(dbPath, cfg.Database.MaxOpenConns, cfg.Database.MaxIdleConns, cfg.Database.MaxIdleTime)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
+		return 1
+	}
+	defer database.Shutdown(db)
+	if err := database.Migrate(db); err != nil {
+		fmt.Fprintf(os.Stderr, "Error running migrations: %v\n", err)
+		return 1
+	}
+
+	tokens, err := auth.NewEventTokenStore(db, filepath.Dir(dbPath))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error preparing event token store: %v\n", err)
+		return 1
+	}
+	ctx := context.Background()
+
+	switch positional[0] {
+	case "create":
+		tok, err := tokens.Create(ctx, name, tag, group, "cli")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating event token: %v\n", err)
+			return 1
+		}
+		fmt.Printf("Event token created (name=%q tag=%q group=%q id=%s)\n", tok.Name, tok.Tag, tok.Group, tok.ID)
+		fmt.Println("Token — use it as:  Authorization: Bearer <token>  on POST /api/v1/events")
+		fmt.Println(tok.Token)
+		return 0
+	default: // list
+		list, err := tokens.List(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error listing event tokens: %v\n", err)
+			return 1
+		}
+		if len(list) == 0 {
+			fmt.Println("No event tokens.")
+			return 0
+		}
+		fmt.Printf("%-28s %-10s %-10s %-8s %-20s %s\n", "NAME", "TAG", "GROUP", "STATUS", "PREFIX", "CREATED")
+		for _, t := range list {
+			status := "active"
+			if !t.Enabled {
+				status = "expired"
+			}
+			fmt.Printf("%-28s %-10s %-10s %-8s %-20s %s\n",
+				t.Name, t.Tag, t.Group, status, t.TokenPrefix+"…", t.CreatedAt.Format("2006-01-02 15:04"))
+		}
+		return 0
+	}
 }
 
 func cmdConfig(args []string) int {

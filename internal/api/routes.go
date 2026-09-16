@@ -229,6 +229,14 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 	mux.Handle("POST /api/v1/logout", authAuth(handler.Logout))
 	mux.Handle("GET /api/v1/users/me", authAuth(handler.GetMe))
 	mux.Handle("PUT /api/v1/users/me/password", authAuth(handler.UpdateMyPassword))
+	// Event tokens (shareable ingest API keys; admin-managed)
+	mux.Handle("GET /api/v1/event-tokens", adminAuth(handler.ListEventTokens))
+	mux.Handle("POST /api/v1/event-tokens", adminAuth(handler.CreateEventToken))
+	mux.Handle("PATCH /api/v1/event-tokens/{id}", adminAuth(handler.UpdateEventToken))
+	mux.Handle("GET /api/v1/event-tokens/{id}/reveal", adminAuth(handler.RevealEventToken))
+	mux.Handle("POST /api/v1/event-tokens/{id}/expire", adminAuth(handler.ExpireEventToken))
+	mux.Handle("DELETE /api/v1/event-tokens/{id}", adminAuth(handler.DeleteEventToken))
+
 	mux.Handle("GET /api/v1/users", adminAuth(handler.ListUsers))
 	mux.Handle("POST /api/v1/users", adminAuth(handler.CreateUser))
 	mux.Handle("PUT /api/v1/users/{id}", adminAuth(handler.UpdateUser))
@@ -237,7 +245,7 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 
 	// Wrap with middleware (order matters: outermost first)
 	var h http.Handler = mux
-	h = apiTokenAuth(h, cfg, authStore)
+	h = apiTokenAuth(h, cfg, authStore, handler.eventTokens)
 	h = loginRateLimit(h)
 	h = securityHeaders(h)
 	h = bodyLimit(h, maxAPIBodyBytes)
@@ -272,7 +280,7 @@ var ingestOnlyPaths = map[string]bool{
 // apiTokenAuth enforces the trust boundary for the management API. It never
 // opens the API implicitly: when Auth is enabled (the default) a credential
 // is always required, except for health and login.
-func apiTokenAuth(next http.Handler, cfg config.Config, authStore *auth.Store) http.Handler {
+func apiTokenAuth(next http.Handler, cfg config.Config, authStore *auth.Store, eventTokens *auth.EventTokenStore) http.Handler {
 	// The HEC credential list comes from static configuration, so it is
 	// flattened once here rather than rebuilt on every authenticated request.
 	hecTokens := make([]config.HECToken, 0, len(cfg.Auth.HECTokens)+len(cfg.Splunk.HECTokens))
@@ -311,6 +319,20 @@ func apiTokenAuth(next http.Handler, cfg config.Config, authStore *auth.Store) h
 			if subtle.ConstantTimeCompare([]byte(token.Token), provided) == 1 {
 				if r.Method != http.MethodPost || !ingestOnlyPaths[cleanPath] {
 					api.WriteJSON(w, http.StatusForbidden, api.Forbidden("HEC tokens may only post events"))
+					return
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
+		// Event tokens (shareable ingest keys, DB-backed): same ingest-only
+		// boundary as HEC tokens.
+		if eventTokens != nil {
+			ok, verr := eventTokens.Validate(r.Context(), string(provided))
+			if verr == nil && ok {
+				if r.Method != http.MethodPost || !ingestOnlyPaths[cleanPath] {
+					api.WriteJSON(w, http.StatusForbidden, api.Forbidden("event tokens may only post events"))
 					return
 				}
 				next.ServeHTTP(w, r)

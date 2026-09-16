@@ -799,9 +799,15 @@
        '<div class="card-body" id="set-ingest"></div></div>' +
        '<div class="card"><div class="card-header"><div class="card-title">' + QL.icon("spark") + " AI Analyst</div></div>" +
        '<div class="card-body" id="set-ai">' + QL.loading("Loading…") + "</div></div>" +
-       '<div class="card"><div class="card-header"><div class="card-title">' + QL.icon("users") + " Users</div></div>" +
-      '<div class="card-body card-flush" id="set-users"></div></div>' +
-      "</div>" +
+        '<div class="card"><div class="card-header"><div class="card-title">' + QL.icon("users") + " Users</div></div>" +
+       '<div class="card-body card-flush" id="set-users"></div></div>' +
+       (S.user && S.user.role === "admin"
+         ? '<div class="card"><div class="card-header"><div class="card-title">' + QL.icon("key") + " Event Tokens</div>" +
+           '<button class="btn btn-sm btn-primary" id="et-new">' + QL.icon("plus") + " New Token</button></div>" +
+           '<div class="small muted" style="padding:10px 14px 0">Shareable ingest keys — each token may only <span class="mono small">POST /api/v1/events</span> (or batch). Store is encrypted on this machine; only admins can create or re-copy tokens.</div>' +
+           '<div class="card-body card-flush" id="set-etokens">' + QL.loading("Loading…") + "</div></div>"
+         : "") +
+       "</div>" +
       '<div class="card" style="margin-top:14px"><div class="card-header"><div class="card-title">' + QL.icon("terminal") + " Audit Log</div></div>" +
       '<div class="card-body card-flush" id="set-audit">' + QL.loading("Loading…") + "</div></div>";
 
@@ -831,6 +837,169 @@
     loadUsers();
     loadAudit();
     loadAI();
+    if (S.user && S.user.role === "admin") loadEventTokens();
+
+    function copyText(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text);
+      }
+      return new Promise(function (resolve, reject) {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.cssText = "position:fixed;opacity:0";
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand("copy");
+        ta.remove();
+        ok ? resolve() : reject(new Error("copy failed"));
+      });
+    }
+
+    function loadEventTokens() {
+      api("/event-tokens").then(function (tokens) {
+        var el = $("#set-etokens");
+        if (!el) return;
+        tokens = tokens || [];
+        if (!tokens.length) {
+          el.innerHTML = QL.emptyState({ icon: "key", title: "No event tokens",
+            sub: "Create one to share with a log sender. The token is shown once — you can re-copy it from this list later." });
+          return;
+        }
+        el.innerHTML = '<div class="table-wrap"><table class="ql-table"><thead><tr>' +
+          "<th>Token</th><th>Masked</th><th>Group</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody>" +
+          tokens.map(function (t) {
+            var status = t.enabled
+              ? '<span class="badge badge-sev success"><span class="dot"></span>active</span>'
+              : '<span class="badge badge-sev muted"><span class="dot"></span>expired</span>';
+            return '<tr data-et="' + t.id + '">' +
+              '<td class="cell-title">' + QL.esc(t.name) +
+              (t.tag ? '<div class="cell-muted small">#' + QL.esc(t.tag) + "</div>" : "") + "</td>" +
+              '<td class="cell-mono small">' + QL.esc(t.token_prefix) + "••••</td>" +
+              '<td class="cell-muted">' + QL.esc(t.group || "—") + "</td>" +
+              "<td>" + status + "</td>" +
+              '<td class="cell-muted nowrap">' + QL.fmtAgo(t.created_at) + "</td>" +
+              '<td><div class="flex" style="gap:6px">' +
+              '<button class="btn btn-sm" data-et-copy="' + t.id + '" title="Copy the full token">' + QL.icon("copy") + " Copy</button>" +
+              '<button class="btn btn-sm" data-et-edit="' + t.id + '" title="Rename / tag / group">' + QL.icon("edit") + "</button>" +
+              (t.enabled ? '<button class="btn btn-sm" data-et-expire="' + t.id + '">' + QL.icon("clock") + " Expire</button>" : "") +
+              '<button class="btn btn-sm" data-et-del="' + t.id + '" aria-label="Delete token" data-tip="Delete">' + QL.icon("trash") + "</button>" +
+              "</div></td></tr>";
+          }).join("") + "</tbody></table></div>";
+
+        $$("[data-et-copy]").forEach(function (b) {
+          b.addEventListener("click", function () {
+            api("/event-tokens/" + b.dataset.etCopy + "/reveal").then(function (d) {
+              copyText(d.token).then(function () { QL.toast("Token copied to clipboard"); })
+                .catch(function () { showTokenModal(d.token); });
+            }).catch(function (e) { QL.toast(e.message, "error"); });
+          });
+        });
+        $$("[data-et-edit]").forEach(function (b) {
+          b.addEventListener("click", function () {
+            var tr = b.closest("tr");
+            var name = tr.cells[0].firstChild.textContent.trim();
+            var tagEl = tr.cells[0].querySelector(".cell-muted");
+            var tag = tagEl ? tagEl.textContent.replace(/^#/, "") : "";
+            var group = tr.cells[2].textContent.trim();
+            etEditModal(b.dataset.etEdit, name, tag, group === "—" ? "" : group);
+          });
+        });
+        $$("[data-et-expire]").forEach(function (b) {
+          b.addEventListener("click", function () {
+            QL.confirmDialog("Expire this token?", "Senders using it will be rejected immediately. This cannot be undone (delete and create a new one instead).", {
+              danger: true, okLabel: "Expire",
+              onOk: function () {
+                api("/event-tokens/" + b.dataset.etExpire + "/expire", { method: "POST" }).then(function () {
+                  QL.toast("Token expired");
+                  loadEventTokens();
+                }).catch(function (e) { QL.toast(e.message, "error"); });
+              },
+            });
+          });
+        });
+        $$("[data-et-del]").forEach(function (b) {
+          b.addEventListener("click", function () {
+            QL.confirmDialog("Delete this token?", "The key is removed permanently — senders using it will be rejected.", {
+              danger: true, okLabel: "Delete",
+              onOk: function () {
+                api("/event-tokens/" + b.dataset.etDel, { method: "DELETE" }).then(function () {
+                  QL.toast("Token deleted");
+                  loadEventTokens();
+                }).catch(function (e) { QL.toast(e.message, "error"); });
+              },
+            });
+          });
+        });
+      }).catch(function (e) {
+        var el = $("#set-etokens");
+        if (el) el.innerHTML = QL.emptyState({ icon: "warning", title: "Failed to load event tokens", sub: e.message });
+      });
+    }
+
+    function showTokenModal(token) {
+      var close = QL.modal({
+        title: "Event token",
+        body:
+          '<div class="small muted" style="margin:0 0 10px">Store this key with the sender — it is shown here and can be re-copied from the list later.</div>' +
+          '<div class="field"><label>Token</label>' +
+          '<input class="input input-mono" id="et-new-token" readonly value="' + QL.esc(token) + '"></div>',
+        footer: '<button class="btn" data-x>Close</button><button class="btn btn-primary" data-ok>' + QL.icon("copy") + " Copy</button>",
+      });
+      close.el.addEventListener("click", function (e) {
+        if (e.target.dataset.x) close();
+        if (e.target.dataset.ok) {
+          copyText(token).then(function () { QL.toast("Token copied to clipboard"); close(); });
+        }
+      });
+    }
+
+    function etEditModal(id, name, tag, group) {
+      var close = QL.modal({
+        title: "Edit event token",
+        body:
+          '<div class="field"><label for="et-e-name">Name</label><input class="input" id="et-e-name" value="' + QL.esc(name) + '"></div>' +
+          '<div class="field"><label for="et-e-tag">Tag</label><input class="input" id="et-e-tag" value="' + QL.esc(tag) + '"></div>' +
+          '<div class="field"><label for="et-e-group">Group</label><input class="input" id="et-e-group" value="' + QL.esc(group) + '"></div>',
+        footer: '<button class="btn" data-x>Cancel</button><button class="btn btn-primary" data-ok>Save</button>',
+      });
+      close.el.addEventListener("click", function (e) {
+        if (e.target.dataset.x) close();
+        if (e.target.dataset.ok) {
+          var n = $("#et-e-name").value.trim();
+          if (!n) { QL.toast("Name is required", "error"); return; }
+          api("/event-tokens/" + id, { method: "PATCH", body: { name: n, tag: $("#et-e-tag").value.trim(), group: $("#et-e-group").value.trim() } })
+            .then(function () { close(); QL.toast("Token updated"); loadEventTokens(); })
+            .catch(function (er) { QL.toast(er.message, "error"); });
+        }
+      });
+    }
+
+    var etNew = $("#et-new");
+    if (etNew) etNew.addEventListener("click", function () {
+      var close = QL.modal({
+        title: "New event token",
+        body:
+          '<div class="small muted" style="margin:0 0 10px">Creates a key that can only post events (POST /api/v1/events and /events/batch). No control-plane access.</div>' +
+          '<div class="field"><label for="et-n-name">Name</label><input class="input" id="et-n-name" placeholder="e.g. Splunk forwarder — DC1"></div>' +
+          '<div class="field"><label for="et-n-tag">Tag</label><input class="input" id="et-n-tag" placeholder="e.g. splunk, syslog, app-logs"></div>' +
+          '<div class="field"><label for="et-n-group">Group</label><input class="input" id="et-n-group" placeholder="e.g. production, dc1, senders"></div>',
+        footer: '<button class="btn" data-x>Cancel</button><button class="btn btn-primary" data-ok>' + QL.icon("plus") + " Create</button>",
+      });
+      close.el.addEventListener("click", function (e) {
+        if (e.target.dataset.x) close();
+        if (e.target.dataset.ok) {
+          var name = $("#et-n-name").value.trim();
+          if (!name) { QL.toast("Name is required", "error"); return; }
+          api("/event-tokens", { method: "POST", body: { name: name, tag: $("#et-n-tag").value.trim(), group: $("#et-n-group").value.trim() } })
+            .then(function (t) {
+              close();
+              showTokenModal(t.token);
+              loadEventTokens();
+            })
+            .catch(function (er) { QL.toast(er.message, "error"); });
+        }
+      });
+    });
 
     function loadAI() {
       api("/settings/ai-analyst").then(function (c) {

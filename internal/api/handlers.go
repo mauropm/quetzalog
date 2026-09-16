@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -76,6 +77,7 @@ type Handler struct {
 	attackGraph        *attackgraph.Builder
 	tmStore            *threatmodel.Store
 	tmCoverage         *coverage.Store
+	eventTokens        *auth.EventTokenStore
 	config             config.Config
 	logger             *slog.Logger
 }
@@ -109,6 +111,18 @@ func NewHandler(cfg config.Config, store *events.Store, searchSvc *query.Service
 		tmCoverage:         coverage.NewStore(store.DB()),
 		config:             cfg,
 		logger:             logger,
+	}
+	// Event tokens use a machine-local encryption key next to the database so
+	// admins can re-copy tokens; the store degrades to unavailable if the
+	// key file cannot be created (read-only mount, tests, ...).
+	keyDir := filepath.Dir(cfg.Database.Path)
+	if keyDir == "" {
+		keyDir = "."
+	}
+	if ets, err := auth.NewEventTokenStore(store.DB(), keyDir); err != nil {
+		logger.Warn("event token store unavailable", "error", err)
+	} else {
+		h.eventTokens = ets
 	}
 	// Seed the embedded control catalog (idempotent).
 	if cw, err := threatmodel.LoadCrosswalk(); err == nil {
