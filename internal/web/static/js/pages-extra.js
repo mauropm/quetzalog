@@ -357,9 +357,14 @@
     var page = $("#page");
     page.innerHTML = QL_.pageHeader("Detections", "Detection rules that turn raw events into findings",
       '<button class="btn btn-primary" id="d-new">' + QL.icon("plus") + " New Rule</button>") +
-      '<div class="card card-flush" id="d-table">' + QL.loading("Loading…") + "</div>";
+      '<div class="card card-flush" id="d-table">' + QL.loading("Loading…") + "</div>" +
+      '<div class="card" style="margin-top:14px"><div class="card-header"><div class="card-title">' +
+      QL.icon("shield") + " Catalog — detections & hunting queries</div>" +
+      '<span class="cell-muted small">Install ready-made rules from the catalog; hunting queries stay enabled but generate no findings until reviewed</span></div>' +
+      '<div class="card-body" id="d-catalog">' + QL.loading("Loading catalog…") + "</div></div>";
 
     load();
+    loadCatalog();
     function load() {
       api("/detections").then(function (rules) {
         var list = rules || [];
@@ -368,17 +373,23 @@
           return;
         }
         $("#d-table").innerHTML = '<div class="table-wrap"><table class="ql-table"><thead><tr>' +
-          "<th>Rule</th><th>Severity</th><th>Query</th><th>Enabled</th><th>Actions</th></tr></thead><tbody>" +
+          "<th>Rule</th><th>Kind</th><th>Severity</th><th>Query</th><th>Enabled</th><th>Actions</th></tr></thead><tbody>" +
           list.map(function (r) {
+            var state = r.suppressed
+              ? '<span class="badge badge-sev muted" title="' + QL.esc(r.suppress_reason || "") + '"><span class="dot"></span>suppressed</span>'
+              : (r.enabled
+                ? '<span class="badge badge-sev success"><span class="dot"></span>On</span>'
+                : '<span class="badge badge-sev muted"><span class="dot"></span>Off</span>');
             return "<tr>" +
               '<td class="cell-title">' + QL.esc(r.name) + "</td>" +
+              '<td class="cell-muted">' + QL.esc(r.kind || "threshold") + "</td>" +
               "<td>" + QL.sevBadge(r.severity) + "</td>" +
               '<td class="cell-mono" style="max-width:380px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;max-width:100%" title="' + QL.esc(r.query) + '">' + QL.esc(r.query) + "</span></td>" +
-              "<td>" + (r.enabled
-                ? '<span class="badge badge-sev success"><span class="dot"></span>On</span>'
-                : '<span class="badge badge-sev muted"><span class="dot"></span>Off</span>') + "</td>" +
+              "<td>" + state + "</td>" +
               '<td><div class="flex" style="gap:6px">' +
               '<button class="btn btn-sm" data-run="' + r.id + '">' + QL.icon("play") + " Run</button>" +
+              '<button class="btn btn-sm" data-sup="' + r.id + '" data-on="' + (r.suppressed ? "1" : "0") + '">' +
+              (r.suppressed ? "Unsuppress" : "Suppress") + "</button>" +
               '<button class="btn btn-sm" data-tgl="' + r.id + '" data-on="' + (r.enabled ? "1" : "0") + '">' + (r.enabled ? "Disable" : "Enable") + "</button>" +
               '<button class="btn btn-sm" data-del="' + r.id + '" aria-label="Delete rule" data-tip="Delete">' + QL.icon("trash") + "</button>" +
               "</div></td></tr>";
@@ -391,6 +402,35 @@
               QL.toast("Rule executed · " + JSON.stringify(m));
               load();
             }).catch(function (e) { QL.toast(e.message, "error"); });
+          });
+        });
+        $$("[data-sup]").forEach(function (b) {
+          b.addEventListener("click", function () {
+            var suppressed = b.dataset.on === "1";
+            if (suppressed) {
+              api("/detections/" + b.dataset.sup + "/suppression", { method: "POST", body: { suppressed: false } })
+                .then(function () { QL.toast("Rule unsuppressed"); load(); })
+                .catch(function (e) { QL.toast(e.message, "error"); });
+              return;
+            }
+            var close = QL.modal({
+              title: "Suppress detection rule",
+              body:
+                '<div class="small muted" style="margin:0 0 10px">Suppressed rules are skipped by the scheduler and manual runs. A reason is required — suppression is audited.</div>' +
+                '<div class="field"><label for="d-sup-reason">Reason</label>' +
+                '<input class="input" id="d-sup-reason" placeholder="e.g. expected noisy source during the change window"></div>',
+              footer: '<button class="btn" data-x>Cancel</button><button class="btn" data-ok>Suppress</button>',
+            });
+            close.el.addEventListener("click", function (e) {
+              if (e.target.dataset.x) close();
+              if (e.target.dataset.ok) {
+                var reason = $("#d-sup-reason").value.trim();
+                if (!reason) { QL.toast("A suppression reason is required", "error"); return; }
+                api("/detections/" + b.dataset.sup + "/suppression", { method: "POST", body: { suppressed: true, reason: reason } })
+                  .then(function () { close(); QL.toast("Rule suppressed"); load(); })
+                  .catch(function (er) { QL.toast(er.message, "error"); });
+              }
+            });
           });
         });
         $$("[data-tgl]").forEach(function (b) {
@@ -417,6 +457,53 @@
         });
       }).catch(function (e) {
         $("#d-table").innerHTML = QL.emptyState({ icon: "warning", title: "Failed to load detections", sub: e.message });
+      });
+    }
+
+    function loadCatalog() {
+      Promise.all([
+        api("/detections/catalog"),
+        api("/detections").catch(function () { return []; }),
+      ]).then(function (res) {
+        var entries = res[0] || [];
+        var installed = {};
+        (res[1] || []).forEach(function (r) { if (r.name) installed[r.name] = true; });
+        if (!entries.length) {
+          $("#d-catalog").innerHTML = QL.emptyState({ icon: "shield", title: "Catalog empty", sub: "Nothing bundled with this build." });
+          return;
+        }
+        $("#d-catalog").innerHTML = '<div class="table-wrap"><table class="ql-table"><thead><tr>' +
+          "<th>Entry</th><th>Category</th><th>Severity</th><th>Description</th><th>Tags</th><th></th></tr></thead><tbody>" +
+          entries.map(function (e) {
+            var has = installed[e.title] || installed[e.name];
+            return '<tr data-inst="' + QL.esc(e.name) + '">' +
+              '<td class="cell-title">' + QL.esc(e.title || e.name) +
+              '<div class="cell-muted small mono">' + QL.esc(e.name) + " · v" + (e.version || 1) + "</div></td>" +
+              '<td>' + (e.hunting || e.category === "hunting"
+                ? '<span class="badge badge-sev info"><span class="dot"></span>hunting</span>'
+                : '<span class="badge badge-sev success"><span class="dot"></span>detection</span>') + "</td>" +
+              "<td>" + (e.severity ? QL.sevBadge(e.severity) : '<span class="faint">—</span>') + "</td>" +
+              '<td class="cell-muted" style="max-width:380px">' + QL.esc(e.description || "") + "</td>" +
+              '<td class="cell-muted small">' + QL.esc((e.tags || []).slice(0, 4).join(", ")) + "</td>" +
+              '<td>' + (has
+                ? '<button class="btn btn-sm" data-inst-btn="' + QL.esc(e.name) + '">' + QL.icon("check") + " Installed</button>"
+                : '<button class="btn btn-sm" data-inst-btn="' + QL.esc(e.name) + '">' + QL.icon("plus") + " Install</button>") + "</td>" +
+              "</tr>";
+          }).join("") + "</tbody></table></div>";
+        $$("[data-inst-btn]").forEach(function (b) {
+          b.addEventListener("click", function () {
+            b.disabled = true;
+            api("/detections/catalog/" + encodeURIComponent(b.dataset.instBtn) + "/install", { method: "POST" })
+              .then(function (rule) {
+                QL.toast("Installed “" + (rule.name || b.dataset.instBtn) + "”");
+                load();
+                loadCatalog();
+              })
+              .catch(function (e) { QL.toast(e.message, "error"); b.disabled = false; });
+          });
+        });
+      }).catch(function (e) {
+        $("#d-catalog").innerHTML = QL.emptyState({ icon: "warning", title: "Failed to load catalog", sub: e.message });
       });
     }
 

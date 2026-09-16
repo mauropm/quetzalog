@@ -311,7 +311,7 @@
         QL.kv("layers", "Matching Events", f.match_count) +
         "</div></div></div>" +
         '<div id="f-tabs" class="tabs" role="tablist">' +
-        ["Timeline", "Risk", "Notes", "Raw"].map(function (t, i) {
+        ["Timeline", "Risk", "Feedback", "Notes", "Raw"].map(function (t, i) {
           return '<button class="tab' + (i === 0 ? " active" : "") + '" data-tab="' + t.toLowerCase() + '">' + t + "</button>";
         }).join("") + "</div>" +
         '<div class="card" style="margin-top:14px"><div class="card-body" id="f-panel">' + QL.loading("Loading…") + "</div></div>";
@@ -352,6 +352,8 @@
                 }).join("") + "</div>" : "") + "</div>";
             }).join("");
           }).catch(function (e) { panel.innerHTML = QL.emptyState({ icon: "warning", title: e.message }); });
+        } else if (name === "feedback") {
+          loadFeedback(panel);
         } else if (name === "notes") {
           panel.innerHTML = '<div class="field" style="margin-bottom:12px"><label>Analyst note</label>' +
             '<textarea class="textarea" id="f-note-input" placeholder="Add an analyst note…"></textarea></div>' +
@@ -377,6 +379,72 @@
             }, null, 2)) + "</pre>";
         }
       }
+      var FEEDBACK_LABELS = [
+        ["true_positive", "True positive"],
+        ["false_positive", "False positive"],
+        ["benign", "Benign"],
+        ["expected_behavior", "Expected behavior"],
+        ["accepted_risk", "Accepted risk"],
+      ];
+
+      function loadFeedback(panel) {
+        panel.innerHTML = QL.loading("Loading feedback…");
+        api("/findings/" + id + "/feedback").then(function (fbs) {
+          fbs = fbs || [];
+          var mine = {};
+          fbs.forEach(function (x) { if (!mine[x.label] || new Date(x.created_at) > new Date(mine[x.label].created_at)) mine[x.label] = x; });
+          panel.innerHTML =
+            '<div class="small muted" style="margin-bottom:10px">Labels feed the detection tuning loop — false positives and accepted risks require a reason. One label per analyst per finding (latest wins).</div>' +
+            '<div class="flex" style="gap:8px;flex-wrap:wrap;margin-bottom:14px">' +
+            FEEDBACK_LABELS.map(function (l) {
+              var cur = mine[l[0]];
+              return '<button class="btn btn-sm fb-label' + (cur ? " fb-on" : "") + '" data-label="' + l[0] + '">' +
+                (cur ? QL.icon("check") + " " : "") + l[1] + "</button>";
+            }).join("") + "</div>" +
+            (fbs.length
+              ? '<div class="table-wrap"><table class="ql-table"><thead><tr><th>Label</th><th>Reason</th><th>Analyst</th><th>When</th></tr></thead><tbody>' +
+                fbs.slice().reverse().map(function (x) {
+                  return "<tr><td>" + QL.esc(x.label) + "</td>" +
+                    '<td class="cell-muted">' + QL.esc(x.reason || "—") + "</td>" +
+                    '<td class="cell-muted">' + QL.esc(x.analyst) + "</td>" +
+                    '<td class="cell-muted nowrap">' + QL.fmtDateTime(x.created_at) + "</td></tr>";
+                }).join("") + "</tbody></table></div>"
+              : '<div class="small muted">No feedback recorded yet.</div>');
+          $$(".fb-label", panel).forEach(function (b) {
+            b.addEventListener("click", function () {
+              var label = b.dataset.label;
+              var needsReason = label === "false_positive" || label === "accepted_risk";
+              var reason = "";
+              if (needsReason) {
+                var close = QL.modal({
+                  title: "Reason required",
+                  body: '<div class="small muted" style="margin:0 0 10px">Labeling this as <b>' + label.replace(/_/g, " ") + "</b> changes how the detection is tuned — explain why.</div>" +
+                    '<div class="field"><label for="fb-reason">Reason</label><input class="input" id="fb-reason" placeholder="e.g. internal scan by the vulnerability tool"></div>',
+                  footer: '<button class="btn" data-x>Cancel</button><button class="btn btn-primary" data-ok>Save label</button>',
+                });
+                close.el.addEventListener("click", function (e) {
+                  if (e.target.dataset.x) close();
+                  if (e.target.dataset.ok) {
+                    reason = $("#fb-reason").value.trim();
+                    if (!reason) { QL.toast("Reason is required", "error"); return; }
+                    submit();
+                  }
+                });
+              } else {
+                submit();
+              }
+              function submit() {
+                api("/findings/" + id + "/feedback", { method: "POST", body: { label: label, reason: reason } })
+                  .then(function () { QL.toast("Feedback recorded"); loadFeedback(panel); })
+                  .catch(function (e) { QL.toast(e.message, "error"); });
+              }
+            });
+          });
+        }).catch(function (e) {
+          panel.innerHTML = QL.emptyState({ icon: "warning", title: "Failed to load feedback", sub: e.message });
+        });
+      }
+
       switchTab("timeline");
 
       $("#f-assign").addEventListener("click", function () {
@@ -525,7 +593,9 @@
   /* ═══ Investigation detail ═════════════════════════════════ */
   window.QLP.investigation = function (id) {
     var page = $("#page");
-    api("/investigations/" + encodeURIComponent(id)).then(function (iv) {
+    api("/investigations/" + encodeURIComponent(id)).then(function (d) {
+      var iv = d.investigation || d;
+      var aiAnalyses = d.ai_analyses || [];
       page.innerHTML =
         '<div class="flex" style="margin-bottom:12px"><a class="btn btn-ghost btn-sm" href="#/investigations">' + QL.icon("arrow-left") + " All investigations</a></div>" +
         '<div class="page-header"><div style="min-width:0">' +
@@ -550,7 +620,7 @@
         QL.kv("clock", "Created", QL.fmtDateTime(iv.created_at)) +
         "</div></div></div>" +
         '<div id="i-tabs" class="tabs" role="tablist">' +
-        ["Timeline", "Findings", "Entities", "MITRE", "Notes", "Activity"].map(function (t, i) {
+        ["Timeline", "Findings", "AI Findings", "Entities", "MITRE", "Notes", "Activity"].map(function (t, i) {
           return '<button class="tab' + (i === 0 ? " active" : "") + '" data-tab="' + t.toLowerCase() + '">' + t + "</button>";
         }).join("") + "</div>" +
         '<div class="card" style="margin-top:14px"><div class="card-body" id="i-panel">' + QL.loading("Loading…") + "</div></div>";
@@ -613,6 +683,38 @@
               c.addEventListener("click", function () { location.hash = "#/finding/" + c.dataset.f; });
             });
           }).catch(function (e) { panel.innerHTML = QL.emptyState({ icon: "warning", title: e.message }); });
+        } else if (name === "ai findings") {
+          if (!aiAnalyses.length) {
+            panel.innerHTML = QL.emptyState({
+              icon: "spark",
+              title: "No AI analyses linked",
+              sub: "Analyses of this investigation's linked findings appear here. Run one from a finding or from the AI Analyst page.",
+              action: '<a class="btn" href="#/aianalyst">Open AI Analyst</a>',
+            });
+            return;
+          }
+          panel.innerHTML = '<div class="table-wrap"><table class="ql-table"><thead><tr>' +
+            "<th>Status</th><th>Finding</th><th>AI Severity</th><th>Recommended</th><th>Decision</th><th>Updated</th></tr></thead><tbody>" +
+            aiAnalyses.map(function (a) {
+              var decision = a.decision
+                ? '<span class="small">' + QL.icon(a.decision === "approve" ? "check" : "x") + " " +
+                  QL.esc(a.decision) + (a.decided_by ? " · " + QL.esc(a.decided_by) : "") + "</span>"
+                : '<span class="faint">—</span>';
+              return '<tr data-ai="' + a.id + '" class="clickable">' +
+                "<td>" + aiStatusBadge(a.status) + "</td>" +
+                '<td class="cell-title"><a href="#/finding/' + a.finding_id + '" style="color:inherit;text-decoration:none">' +
+                  QL.esc(a.finding_title || a.finding_id) + "</a></td>" +
+                "<td>" + (a.severity ? QL.sevBadge(a.severity) : '<span class="faint">—</span>') + "</td>" +
+                '<td class="cell-muted">' + QL.esc(a.recommended_action_type || "—") + "</td>" +
+                "<td>" + decision + "</td>" +
+                '<td class="cell-muted nowrap">' + QL.fmtAgo(a.updated_at) + "</td></tr>";
+            }).join("") + "</tbody></table></div>";
+          $$("#i-panel tr[data-ai]").forEach(function (tr) {
+            tr.addEventListener("click", function (e) {
+              if (e.target.closest("a")) return;
+              location.hash = "#/aianalyst/" + tr.dataset.ai;
+            });
+          });
         } else if (name === "entities") {
           var ents = iv.entities || [];
           if (!ents.length) {
@@ -678,7 +780,7 @@
             if (!v) return;
             api("/investigations/" + id + "/notes", { method: "POST", body: { body: v } }).then(function () {
               QL.toast("Note added to timeline");
-              api("/investigations/" + id).then(function (u) { iv = u; switchTab("notes"); });
+              api("/investigations/" + id).then(function (u) { iv = u.investigation || u; switchTab("notes"); });
             }).catch(function (e) { QL.toast(e.message, "error"); });
           });
         } else {
@@ -921,7 +1023,7 @@
             ? '<div class="card" style="margin-bottom:14px"><div class="card-header"><div class="card-title">' +
               QL.icon("spark") + " Analysis</div>" +
               (ai.requires_human_approval ? '<span class="badge badge-sev info"><span class="dot"></span>human approval required</span>' : "") +
-              "</div><div class='card-body'>" + analysisSections(ai) + "</div></div>"
+              "</div><div class='card-body'>" + analysisSections(ai, ctx) + "</div></div>"
             : "") +
 
           (ctx
@@ -941,7 +1043,9 @@
           '<div class="card-body"><div class="kv-grid">' +
           QL.kv("cpu", "Provider", row.provider, true) +
           QL.kv("cpu", "Model", row.model, true) +
+          (row.model_version ? QL.kv("cpu", "Model version", row.model_version, true) : "") +
           QL.kv("terminal", "Prompt version", row.prompt_version || "", true) +
+          (row.context_hash ? QL.kv("terminal", "Context hash", '<span title="' + QL.esc(row.context_hash) + '">' + QL.esc(String(row.context_hash).slice(0, 12)) + "…</span>", true) : "") +
           QL.kv("clock", "Started", row.created_at ? QL.fmtDateTime(row.created_at) : "") +
           QL.kv("clock", "Updated", row.updated_at ? QL.fmtDateTime(row.updated_at) : "") +
           (finding ? QL.kv("queue", "Finding", '<a href="#/finding/' + finding.id + '">' + QL.esc(finding.title) + "</a>") : "") +
@@ -1011,12 +1115,27 @@
 
         function reanalyze() {
           if (!row.finding_id) return;
-          api("/ai-analyst/analyze", { method: "POST", body: { finding_id: row.finding_id } })
-            .then(function () {
-              QL.toast("Re-analysis started");
-              renderDetail(id);
-            })
-            .catch(function (e) { QL.toast(e.message, "error"); });
+          var close = QL.modal({
+            title: "Re-analyze this finding",
+            body:
+              '<div class="small muted" style="margin:0 0 10px">The analyst instruction is given lower priority than the standing analysis contract — use it to focus the review, not to override it.</div>' +
+              '<div class="field"><label for="ai-instruction">Instruction (optional)</label>' +
+              '<textarea class="input" id="ai-instruction" rows="3" placeholder="e.g. focus on whether this host is internet-exposed, and check for beaconing"></textarea></div>',
+            footer: '<button class="btn" data-x>Cancel</button><button class="btn btn-primary" data-ok>Start analysis</button>',
+          });
+          close.el.addEventListener("click", function (e) {
+            if (e.target.dataset.x) close();
+            if (e.target.dataset.ok) {
+              var instruction = $("#ai-instruction").value.trim();
+              api("/ai-analyst/analyze", { method: "POST", body: { finding_id: row.finding_id, instruction: instruction } })
+                .then(function () {
+                  close();
+                  QL.toast("Re-analysis started");
+                  renderDetail(id);
+                })
+                .catch(function (er) { close(); QL.toast(er.message, "error"); });
+            }
+          });
         }
       }).catch(function (e) {
         if (_aiSeq !== seq) return;
@@ -1054,8 +1173,113 @@
         (row.decision_reason ? " — “" + QL.esc(row.decision_reason) + "”" : "") + "</span></div>";
     }
 
-    function analysisSections(ai) {
+    var CLASS_COLOR = {
+      OBSERVED: "success", INFERRED: "info", HYPOTHESIS: "medium", UNKNOWN: "muted",
+    };
+
+    function statementsSection(ai, ctx) {
+      if (!ai.statements || !ai.statements.length) return "";
+      var eventIds = {};
+      (ctx && ctx.events || []).forEach(function (e) {
+        if (e.id) eventIds[String(e.id)] = true;
+        if (e.ID) eventIds[String(e.ID)] = true;
+      });
+      return '<div class="ai-section"><h3>' + QL.icon("spark") + " Statements" +
+        '<span class="faint small" style="text-transform:none;letter-spacing:0"> — every claim is classified and cited; observed claims must point at an event</span></h3>' +
+        '<div class="ai-body">' + ai.statements.map(function (s) {
+          var cls = CLASS_COLOR[String(s.classification || "").toUpperCase()] || "muted";
+          var refs = (s.evidence_refs || []).map(function (ref) {
+            var clickable = eventIds[String(ref)];
+            return clickable
+              ? '<span class="ev-chip clickable" data-ref="' + QL.esc(ref) + '" title="Open the underlying event">' + QL.icon("layers") + " " + QL.esc(ref) + "</span>"
+              : '<span class="ev-chip" title="Cited reference">' + QL.esc(ref) + "</span>";
+          }).join("");
+          return '<div class="ai-statement">' +
+            '<div class="flex-between" style="gap:8px;flex-wrap:wrap">' +
+            '<span class="badge badge-sev ' + cls + '"><span class="dot"></span>' + QL.esc(s.classification || "UNKNOWN") + "</span>" +
+            "</div>" +
+            '<div class="ai-body" style="margin-top:5px">' + QL.esc(s.text) + "</div>" +
+            (refs ? '<div class="ev-chips" style="margin-top:6px">' + refs + "</div>" : "") +
+            "</div>";
+        }).join("") + "</div></div>";
+    }
+
+    function openEventModal(ref) {
+      var close = QL.modal({
+        title: "Event " + ref,
+        large: true,
+        body: QL.loading("Loading event…"),
+      });
+      api("/events/" + encodeURIComponent(ref)).then(function (ev) {
+        if (!close.el) return;
+        var rows = [
+          ["Time", ev.timestamp ? QL.fmtDateTime(ev.timestamp) + " · " + QL.fmtAgo(ev.timestamp) : ""],
+          ["Severity", ev.severity ? QL.sevBadge(ev.severity) : ""],
+          ["Source", ev.source || ev.source_type || ""],
+          ["Host", ev.host || ""],
+          ["User", ev.user || ""],
+          ["Event type", ev.event_type || ""],
+          ["Outcome", ev.outcome || ""],
+          ["Source IP", ev.source_ip || ""],
+          ["Dest IP", ev.destination_ip || ""],
+          ["Process", ev.process || ""],
+        ].filter(function (r) { return r[1]; });
+        var html = rows.length
+          ? '<dl class="tl-kv">' + rows.map(function (r) {
+              return "<dt>" + r[0] + "</dt><dd>" + (typeof r[1] === "string" && r[1].indexOf("<") > -1 ? r[1] : QL.esc(r[1])) + "</dd>";
+            }).join("") + "</dl>"
+          : "";
+        close.el.querySelector(".modal-body").innerHTML =
+          html +
+          (ev.message ? '<div class="small" style="margin-top:10px;color:var(--ql-text-2)">' + QL.esc(ev.message) + "</div>" : "") +
+          '<div class="small muted" style="margin-top:10px">Raw attributes</div>' +
+          '<pre class="ev-raw">' + QL.esc(JSON.stringify(ev.attributes || ev.raw || {}, null, 2).slice(0, 4000)) + "</pre>";
+      }).catch(function (e) {
+        if (!close.el) return;
+        close.el.querySelector(".modal-body").innerHTML = QL.emptyState({ icon: "warning", title: "Event not found", sub: e.message });
+      });
+    }
+
+    function analysisSections(ai, ctx) {
       var parts = "";
+      parts += statementsSection(ai, ctx);
+      // evidence refs are resolved after render
+      if (ai.statements && ai.statements.length) {
+        $$("[data-ref]", page).forEach(function (chip) {
+          chip.addEventListener("click", function () { openEventModal(chip.dataset.ref); });
+        });
+      }
+      if (ai.attack_chain && (ai.attack_chain.observed || ai.attack_chain.expected_next || ai.attack_chain.gaps)) {
+        var c = ai.attack_chain;
+        parts += '<div class="ai-section"><h3>' + QL.icon("route") + " Attack Chain</h3>" +
+          '<div class="ai-body">' +
+          (c.observed && c.observed.length
+            ? '<div class="small" style="margin-bottom:6px"><b>Observed:</b><ul class="evidence" style="margin-top:4px">' +
+              c.observed.map(function (x) { return "<li>" + QL.esc(x) + "</li>"; }).join("") + "</ul></div>" : "") +
+          (c.expected_next && c.expected_next.length
+            ? '<div class="small" style="margin-bottom:6px"><b>Expected next:</b><ul class="alt" style="margin-top:4px">' +
+              c.expected_next.map(function (x) { return "<li>" + QL.esc(x) + "</li>"; }).join("") + "</ul></div>" : "") +
+          (c.gaps && c.gaps.length
+            ? '<div class="small"><b style="color:var(--ql-warning)">Gaps:</b> ' +
+              c.gaps.map(function (x) { return QL.esc(x); }).join(" · ") + "</div>" : "") +
+          "</div></div>";
+      }
+      if (ai.mitre_mapping && ai.mitre_mapping.length) {
+        parts += '<div class="ai-section"><h3>' + QL.icon("target") + " MITRE Mapping</h3>" +
+          '<div class="ai-body">' + ai.mitre_mapping.map(function (m) {
+            return '<div class="mono small" style="padding:3px 0">' + QL.esc(m.technique) +
+              (m.tactic ? ' <span class="faint">' + QL.esc(m.tactic) + "</span>" : "") + "</div>";
+          }).join("") + "</div></div>";
+      }
+      if (ai.gaps && ai.gaps.length) {
+        parts += '<div class="ai-section"><h3>' + QL.icon("eye") + " Gaps</h3>" +
+          '<ul class="alt">' + ai.gaps.map(function (x) { return "<li>" + QL.esc(x) + "</li>"; }).join("") + "</ul></div>";
+      }
+      if (ai.risk_assessment && ai.risk_assessment.score != null) {
+        parts += '<div class="ai-section"><h3>' + QL.icon("gauge") + " Risk Assessment</h3>" +
+          '<div class="ai-body flex" style="gap:10px;align-items:center">' +
+          QL.riskBadge(ai.risk_assessment.score) + QL.riskBar(ai.risk_assessment.score, 140) + "</div></div>";
+      }
       if (ai.what_is_happening) {
         parts += '<div class="ai-section"><h3>' + QL.icon("activity") + " What's Happening</h3>" +
           '<div class="ai-body">' + QL.esc(ai.what_is_happening) + "</div></div>";

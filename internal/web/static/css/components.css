@@ -624,3 +624,21 @@ table.ql-table { width: 100%; border-collapse: collapse; font-size: var(--ql-t-s
 .ag-wrap svg { display: block; }
 .ag-label { font-size: 11px; font-weight: 700; fill: var(--ql-text); font-family: var(--ql-font-mono, ui-monospace, monospace); }
 .ag-sub { font-size: 9px; fill: var(--ql-text-muted); }
+
+/* ── AI analyst v2: classified statements + evidence chips ── */
+.ai-statement { padding: 10px 0; border-bottom: 1px dashed var(--ql-border-soft); }
+.ai-statement:last-child { border-bottom: 0; padding-bottom: 0; }
+.ev-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ev-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border: 1px solid var(--ql-border); border-radius: 999px; font-size: 11px; font-family: var(--ql-font-mono, ui-monospace, monospace); color: var(--ql-text-muted); background: var(--ql-row-hover); }
+.ev-chip .ic { width: 11px; height: 11px; }
+.ev-chip.clickable { cursor: pointer; color: var(--ql-accent); border-color: var(--ql-accent); }
+.ev-raw { background: var(--ql-surface-2, var(--ql-row-hover)); border: 1px solid var(--ql-border-soft); border-radius: var(--ql-r-md); padding: 10px 12px; font-size: 11.5px; line-height: 1.5; overflow: auto; max-height: 320px; white-space: pre-wrap; word-break: break-word; }
+
+/* ── finding feedback labels ── */
+.fb-label.fb-on { color: var(--ql-sev-success); border-color: var(--ql-sev-success); background: var(--ql-sev-success-bg); }
+
+/* ── telemetry coverage badges ── */
+.cov-ok { color: var(--ql-sev-success); background: var(--ql-sev-success-bg); }
+.cov-stale { color: var(--ql-sev-warning, #f59e0b); background: var(--ql-sev-warning-bg, rgba(245, 158, 11, 0.12)); }
+.cov-missing { color: var(--ql-sev-high); background: var(--ql-sev-high-bg); }
+.cov-ok .dot, .cov-stale .dot, .cov-missing .dot { background: currentColor; }

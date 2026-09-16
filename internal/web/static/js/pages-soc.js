@@ -354,6 +354,110 @@
     }
   };
 
+  /* ═══ Telemetry Coverage ═══════════════════════════════════ */
+  window.QLP.coverage = function (assetId) {
+    var page = $("#page");
+    page.innerHTML =
+      '<div class="page-header"><div><h1>Telemetry Coverage</h1>' +
+      '<div class="page-sub">What is actually observed per asset — “no evidence” is not the same as “no activity”; gaps are highlighted, stale feeds marked</div></div></div>' +
+      '<div class="card card-flush" id="cov-list">' + QL.loading("Computing coverage…") + "</div>";
+
+    if (assetId) { loadDetail(assetId); return; }
+    loadList();
+
+    function loadList() {
+      api("/coverage/summary").then(function (d) {
+        var assets = (d && d.assets) || [];
+        if (!assets.length) {
+          $("#cov-list").innerHTML = QL.emptyState({
+            icon: "eye",
+            title: "No assets yet",
+            sub: "Coverage is computed for registered assets (Assets are created via the API/UI). Add assets to see their telemetry matrix.",
+          });
+          return;
+        }
+        $("#cov-list").innerHTML = '<div class="table-wrap"><table class="ql-table"><thead><tr>' +
+          "<th>Asset</th><th>Type</th><th>Coverage</th><th>Available</th><th class='gap-col'>Missing (gaps)</th><th>Stale</th></tr></thead><tbody>" +
+          assets.map(function (a) {
+            var chips = function (list, cls, empty) {
+              if (!list || !list.length) return '<span class="faint">' + (empty || "—") + "</span>";
+              return list.map(function (s) {
+                return '<span class="badge ' + cls + '"><span class="dot"></span>' + QL.esc(s) + "</span>";
+              }).join(" ");
+            };
+            return '<tr class="clickable" data-asset="' + a.asset_id + '">' +
+              '<td class="cell-title">' + QL.esc(a.asset_name) + "</td>" +
+              '<td class="cell-muted">' + QL.esc(a.entity_type) + "</td>" +
+              '<td>' + QL.riskBar(a.coverage_pct, 90) + ' <span class="mono small">' + Math.round(a.coverage_pct || 0) + "%</span></td>" +
+              '<td><div class="ev-chips">' + chips(a.available, "cov-ok", "none") + "</div></td>" +
+              '<td><div class="ev-chips">' + chips(a.missing, "cov-missing") + "</div></td>" +
+              '<td><div class="ev-chips">' + chips(a.stale, "cov-stale") + "</div></td>" +
+              "</tr>";
+          }).join("") + "</tbody></table></div>";
+        $$("#cov-list tr[data-asset]").forEach(function (tr) {
+          tr.addEventListener("click", function () { location.hash = "#/coverage/" + tr.dataset.asset; });
+        });
+      }).catch(function (e) {
+        $("#cov-list").innerHTML = QL.emptyState({ icon: "warning", title: "Failed to load coverage", sub: e.message });
+      });
+    }
+
+    function loadDetail(assetId) {
+      api("/coverage/assets/" + encodeURIComponent(assetId)).then(function (d) {
+        var cov = d.coverage || {};
+        var rows = d.rows || [];
+        var staleSet = {};
+        (cov.stale || []).forEach(function (s) { staleSet[s] = true; });
+        var chips = function (list, cls) {
+          if (!list || !list.length) return "";
+          return list.map(function (s) {
+            return '<span class="badge ' + cls + '"><span class="dot"></span>' + QL.esc(s) + "</span>";
+          }).join(" ");
+        };
+        page.innerHTML =
+          '<div class="flex" style="margin-bottom:12px"><a class="btn btn-ghost btn-sm" href="#/coverage">' +
+          QL.icon("arrow-left") + " All assets</a></div>" +
+          '<div class="page-header"><div style="min-width:0">' +
+          "<h1>" + QL.esc(cov.asset_name || "Asset") + "</h1>" +
+          '<div class="page-sub">' + QL.esc(cov.entity_type || "") +
+          (cov.os ? " · " + QL.esc(cov.os) : "") + " · computed " + QL.fmtDateTime(cov.computed_at) + "</div></div>" +
+          '<div class="page-actions"><span style="display:inline-flex;align-items:center;gap:8px">' +
+          QL.riskBar(cov.coverage_pct, 120) + ' <span class="mono">' + Math.round(cov.coverage_pct || 0) + "%</span></span></div></div>" +
+          '<div class="card" style="margin-bottom:14px"><div class="card-body"><div class="kv-grid">' +
+          QL.kv("check", "Available", chips(cov.available, "cov-ok") || "—") +
+          QL.kv("warning", "Missing", chips(cov.missing, "cov-missing") || "—") +
+          QL.kv("clock", "Stale", chips(cov.stale, "cov-stale") || "—") +
+          (cov.unexpected && cov.unexpected.length ? QL.kv("help", "Unexpected", chips(cov.unexpected, "cov-ok")) : "") +
+          "</div></div></div>" +
+          '<div class="card"><div class="card-header"><div class="card-title">' +
+          QL.icon("layers") + " Source matrix</div></div><div class='card-body'>" +
+          (rows.length
+            ? '<div class="table-wrap"><table class="ql-table"><thead><tr>' +
+              "<th>Source class</th><th>Status</th><th>Expected</th><th>Collector</th><th>Last event</th><th>30d volume</th></tr></thead><tbody>" +
+              rows.map(function (r) {
+                var st = r.available
+                  ? '<span class="badge cov-ok"><span class="dot"></span>available</span>'
+                  : (staleSet[r.source_class]
+                    ? '<span class="badge cov-stale"><span class="dot"></span>stale</span>'
+                    : '<span class="badge cov-missing"><span class="dot"></span>missing</span>');
+                return "<tr>" +
+                  '<td class="cell-title">' + QL.esc(r.source_class) + "</td>" +
+                  "<td>" + st + "</td>" +
+                  '<td class="cell-muted">' + (r.expected ? "yes" : "no") + "</td>" +
+                  '<td class="cell-mono small">' + QL.esc(r.collector || "—") + "</td>" +
+                  '<td class="cell-muted nowrap">' + (r.last_event ? QL.fmtAgo(r.last_event) : "—") + "</td>" +
+                  '<td class="cell-mono">' + (r.event_count_30d || 0) + "</td>" +
+                  "</tr>";
+              }).join("") + "</tbody></table></div>"
+            : '<div class="small muted">No source classes declared for this asset.</div>') +
+          "</div></div>";
+      }).catch(function (e) {
+        page.innerHTML = QL.emptyState({ icon: "warning", title: "Coverage not available", sub: e.message,
+          action: '<a class="btn" href="#/coverage">All assets</a>' });
+      });
+    }
+  };
+
   /* ═══ Threat Models ════════════════════════════════════════ */
   window.QLP.threatmodels = function () {
     var page = $("#page");

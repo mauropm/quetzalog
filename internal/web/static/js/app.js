@@ -172,6 +172,7 @@
     investigations: "investigations",
     investigation: "investigation",
     detections: "detections",
+    coverage: "coverage",
     scenarios: "scenarios",
     attackgraph: "attackgraph",
     threatmodels: "threatmodels",
