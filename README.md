@@ -12,6 +12,7 @@ alerting, and incident management -- all in a single binary with no external dep
 ## Features
 
 - **Multi-source ingestion** -- HTTP/JSON, Splunk HEC, Syslog (UDP/TCP), OTLP, file tailing, stdin
+- **Event tokens** -- Shareable, ingest-only API keys (CLI or admin UI), stored encrypted, instantly revocable
 - **SPL-like search** -- Familiar query language with `search`, `stats`, `sort`, `where`, and more
 - **Visual SPL Builder** -- Splunk-style drag/point query builder with live preview, unified into the search pipeline
 - **SQLite storage** -- Embedded database with FTS5 full-text search and WAL mode
@@ -180,6 +181,56 @@ Reads newline-delimited JSON events from stdin (finish with Ctrl+D):
 ```bash
 cat events.jsonl | ./quetzalog ingest
 ```
+
+---
+
+## Event Tokens
+
+Event tokens are shareable, **ingest-only API keys** for sending logs to Quetzalog over HTTP. Unlike static HEC tokens (pinned in the config file) or user login tokens, they are created on demand, managed from the database, and encrypted at rest (AES-256-GCM under a machine-local key stored next to the database file) so an admin can re-copy a token later without regenerating it.
+
+Security model:
+
+- A token may **only** `POST /api/v1/events` and `POST /api/v1/events/batch`; every other endpoint answers `403`.
+- Only an **admin** (Web UI) or someone **on the machine running quetzalog** (CLI, which talks to the database directly) can create or manage tokens.
+- Expiring or deleting a token stops it from authorizing ingestion immediately.
+- Tokens are shown masked everywhere (first characters + `••••`); the full value is only returned at creation and on an explicit, audited "reveal".
+
+### Create from the CLI (on the quetzalog machine)
+
+```bash
+# Create a token — printed once to stdout, ready to share with the sender
+quetzalog token create [--config path] [--name "Splunk forwarder"] [--tag splunk] [--group prod]
+
+# List all tokens (masked)
+quetzalog token list [--config path]
+```
+
+### Create from the Web UI (admin → Settings → Event Tokens)
+
+- **New Token** — give it a name, a tag (e.g. `splunk`, `syslog`, `app-logs`) and a group (e.g. `production`, `dc1`); the full token is shown with a copy button.
+- Each token row offers **Copy** (re-reveals the full value), **Edit** (rename / retag / regroup), **Expire** and **Delete**.
+
+### API (admin only)
+
+| Method & path | Notes |
+|---------------|-------|
+| `POST /api/v1/event-tokens` | `{name, tag, group}` → returns the full token once |
+| `GET /api/v1/event-tokens` | masked list (no token values) |
+| `PATCH /api/v1/event-tokens/{id}` | `{name, tag, group}` — rename / retag / regroup |
+| `GET /api/v1/event-tokens/{id}/reveal` | full token value (audited) |
+| `POST /api/v1/event-tokens/{id}/expire` | token stops working immediately |
+| `DELETE /api/v1/event-tokens/{id}` | remove permanently |
+
+### Use a token to inject logs
+
+```bash
+curl -X POST http://localhost:8080/api/v1/events \
+  -H "Authorization: Bearer qev_…" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Disk usage at 90%", "host": "db01", "severity": "warning"}'
+```
+
+Batch: `POST /api/v1/events/batch` with `{"events": [ … ]}` (max 10000 events).
 
 ---
 

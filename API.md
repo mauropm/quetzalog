@@ -17,6 +17,7 @@ Authentication is handled via API tokens where applicable.
 - [Incidents](#incidents)
 - [Detections](#detections)
 - [SOC Platform](#soc-platform)
+- [Event Tokens](#event-tokens)
 - [Splunk HEC Compatibility](#splunk-hec-compatibility)
 - [Splunk Search Compatibility](#splunk-search-compatibility)
 - [OpenTelemetry Compatibility](#opentelemetry-compatibility)
@@ -1054,6 +1055,38 @@ top entities.
 | `POST /response-actions/execute` | `{action, target, owner, tag, points, title, query, url, event, payload}`; built-in keys: `finding.mark_false_positive`, `finding.assign`, `finding.add_tag`, `finding.increase_risk`, `investigation.create`, `search.run`, `url.open`, `webhook.execute` (SSRF-guarded: http(s) only, private/loopback/link-local denied, no redirects) |
 | `GET /response-actions/history?limit=50` | execution ledger `{id, action, target, details, user, status, created_at}` |
 | `GET /audit?limit=50&user=&action=` | analyst audit trail (403 for the `viewer` role) |
+
+---
+
+## Event Tokens
+
+Event tokens are shareable, **ingest-only** API keys. A token authorizes
+`POST /api/v1/events` and `POST /api/v1/events/batch` only — every other
+endpoint answers `403`. Management is admin-only (`viewer`/`analyst` get
+`403`); creation is also possible from the CLI on the quetzalog machine
+(`quetzalog token create|list`). Full token values are stored encrypted in
+the database and are only returned at creation and on explicit reveal.
+
+| Method & path | Body / notes |
+|---------------|--------------|
+| `POST /event-tokens` | `{name, tag, group}` → `201` with `{id, name, tag, group, token_prefix, token}` (the full `token` is shown here and on reveal only) |
+| `GET /event-tokens` | masked list — `token_prefix` + metadata, never the token value |
+| `PATCH /event-tokens/{id}` | `{name, tag, group}` — rename / retag / regroup |
+| `GET /event-tokens/{id}/reveal` | `{token}` — full value for re-copying (audited) |
+| `POST /event-tokens/{id}/expire` | token stops authorizing ingest immediately |
+| `DELETE /event-tokens/{id}` | remove permanently |
+
+**Ingesting with a token:**
+
+```bash
+curl -X POST http://localhost:8080/api/v1/events \
+  -H "Authorization: Bearer qev_…" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Disk usage at 90%", "host": "db01", "severity": "warning"}'
+```
+
+Errors: `401` unknown/revoked token, `403` token presented on a
+non-ingest endpoint, `403`/`401` non-admin management calls.
 
 ---
 
