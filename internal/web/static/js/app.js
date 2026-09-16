@@ -172,6 +172,10 @@
     investigations: "investigations",
     investigation: "investigation",
     detections: "detections",
+    scenarios: "scenarios",
+    attackgraph: "attackgraph",
+    threatmodels: "threatmodels",
+    threatmodel: "threatmodel",
     risk: "risk",
     entities: "entities",
     entity: "entity",
@@ -202,6 +206,7 @@
         n.dataset.route === name ||
         (name === "finding" && n.dataset.route === "queue") ||
         (name === "investigation" && n.dataset.route === "investigations") ||
+        (name === "threatmodel" && n.dataset.route === "threatmodels") ||
         (name === "entity" && n.dataset.route === "entities") ||
         (name === "builder" && n.dataset.route === "builder"));
     });

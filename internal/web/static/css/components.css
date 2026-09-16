@@ -614,3 +614,13 @@ table.ql-table { width: 100%; border-collapse: collapse; font-size: var(--ql-t-s
 .ai-decision { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; border-radius: var(--ql-r-md); font-size: 13px; }
 .ai-decision.approved { background: var(--ql-sev-success-bg); color: var(--ql-sev-success); }
 .ai-decision.dismissed { background: var(--ql-row-hover); color: var(--ql-text-muted); }
+
+/* ── scenario chain steps ── */
+.scenario-steps { display: flex; flex-direction: column; gap: 8px; }
+.scenario-step { padding: 10px 12px; border: 1px solid var(--ql-border-soft); border-left: 3px solid var(--ql-border); border-radius: var(--ql-r-md); background: var(--ql-surface-2, transparent); }
+
+/* ── attack graph canvas ── */
+.ag-wrap { display: flex; justify-content: center; overflow-x: auto; }
+.ag-wrap svg { display: block; }
+.ag-label { font-size: 11px; font-weight: 700; fill: var(--ql-text); font-family: var(--ql-font-mono, ui-monospace, monospace); }
+.ag-sub { font-size: 9px; fill: var(--ql-text-muted); }
