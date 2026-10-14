@@ -41,6 +41,7 @@ import (
 	"quetzalog/internal/ingestion/otlp"
 	"quetzalog/internal/ingestion/syslog"
 	"quetzalog/internal/investigations"
+	"quetzalog/internal/logging"
 	"quetzalog/internal/mitre"
 	"quetzalog/internal/query"
 	"quetzalog/internal/response"
@@ -165,15 +166,10 @@ func writeUsage(fs *flag.FlagSet) {
 }
 
 func cmdServe(cfgFile string, debug bool) int {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: func() slog.Level {
-			if debug {
-				return slog.LevelDebug
-			}
-			return slog.LevelInfo
-		}(),
-	}))
+	logLevel := new(slog.LevelVar) // flipped at runtime via Settings → Logging
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel}))
 	slog.SetDefault(logger)
+	logLevel.Set(slog.LevelInfo)
 
 	cfg := config.DefaultConfig()
 	if cfgFile != "" {
@@ -184,6 +180,18 @@ func cmdServe(cfgFile string, debug bool) int {
 		}
 		cfg = loaded
 	}
+
+	// logging.level in the config takes effect; --debug always amplifies.
+	if lvl, err := logging.ParseLevel(cfg.Logging.Level); err == nil {
+		logLevel.Set(lvl)
+	} else if cfg.Logging.Level != "" {
+		logger.Warn("unknown logging.level, defaulting to info", "value", cfg.Logging.Level, "error", err)
+	}
+	if debug {
+		logLevel.Set(slog.LevelDebug)
+	}
+	logCtl := logging.NewController(logLevel, &cfg, cfgFile)
+	logger.Info("logging level set", "level", logCtl.Level())
 	if tok, ok := os.LookupEnv("QUETZALOG_API_TOKEN"); ok && tok != "" {
 		cfg.Auth.APIToken = tok
 	}
@@ -706,7 +714,7 @@ func cmdServe(cfgFile string, debug bool) int {
 	}
 
 	mux := http.NewServeMux()
-	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, tiStore, tiRegistry, mitreMapper, correlationEngine, scenarioEvaluator, logger, api.WithOTLPManager(otlpManager))
+	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, tiStore, tiRegistry, mitreMapper, correlationEngine, scenarioEvaluator, logger, api.WithOTLPManager(otlpManager), api.WithLoggingController(logCtl))
 	if err != nil {
 		logger.Error("API setup failed", "error", err)
 		if debug {

@@ -29,6 +29,7 @@ import (
 	"quetzalog/internal/incidents"
 	"quetzalog/internal/ingestion/otlp"
 	"quetzalog/internal/investigations"
+	"quetzalog/internal/logging"
 	"quetzalog/internal/mitre"
 	"quetzalog/internal/query"
 	"quetzalog/internal/response"
@@ -79,7 +80,8 @@ type Handler struct {
 	tmStore            *threatmodel.Store
 	tmCoverage         *coverage.Store
 	eventTokens        *auth.EventTokenStore
-	otlpManager        *otlp.Manager // runtime control of the OTLP receivers (nil = not wired)
+	otlpManager        *otlp.Manager       // runtime control of the OTLP receivers (nil = not wired)
+	logCtl             *logging.Controller // runtime log-level switching (nil = not wired)
 	config             config.Config
 	logger             *slog.Logger
 }

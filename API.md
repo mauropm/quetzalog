@@ -949,6 +949,44 @@ port bind returns `409 Conflict` and leaves both the running state and the
 config file untouched. The switch is persisted to the `otel` section of the
 config file, so it survives restarts.
 
+### Log Verbosity
+
+Read the current log verbosity. `info` (shown as "Events" in the UI) is the
+normal operating mode; `debug` adds per-request, per-OTLP-export and other
+internal detail.
+
+```
+GET /api/v1/settings/logging
+```
+
+**Response:**
+
+```json
+{
+  "status": 200,
+  "message": "OK",
+  "data": {
+    "level": "info",
+    "available": ["error", "warn", "info", "debug"],
+    "managed": true
+  }
+}
+```
+
+Change the verbosity at runtime without restarting. Admin only. The new level
+applies to every logger immediately and is persisted to the `logging.level`
+config key, so it survives restarts.
+
+```
+PUT /api/v1/settings/logging
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+
+{"level": "debug"}
+```
+
+An unknown level name returns `400` and changes nothing.
+
 ---
 
 ## Metrics

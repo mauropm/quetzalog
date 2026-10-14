@@ -435,6 +435,12 @@ func (c Config) SaveOTel(path string) error {
 	return c.saveSection(path, "otel", &c.OTel)
 }
 
+// SaveLogging persists the logging section into the config file at path
+// with the same section-preserving contract as SaveAIAnalyst.
+func (c Config) SaveLogging(path string) error {
+	return c.saveSection(path, "logging", &c.Logging)
+}
+
 // saveSection replaces (or appends) the top-level YAML section `key` in the
 // file at path, keeping every other section and all comments verbatim.
 func (c Config) saveSection(path, key string, section any) error {

@@ -58,6 +58,17 @@ func (h *Handler) handleJSON(w http.ResponseWriter, r *http.Request) error {
 		return errorOTLP(w, http.StatusBadRequest, "invalid OTLP JSON: "+err.Error())
 	}
 
+	records := 0
+	for _, rl := range logsData.ResourceLogs {
+		for _, sl := range rl.ScopeLogs {
+			records += len(sl.LogRecords)
+		}
+	}
+	// Verbose mode answers "is anything actually arriving on this port?"
+	// without waiting for the (possibly empty) ingest result.
+	h.logger.Debug("OTLP export received over HTTP", "endpoint", r.URL.Path,
+		"remote", r.RemoteAddr, "bytes", len(body), "records", records)
+
 	var ingested int64
 	var errored int64
 
@@ -90,7 +101,7 @@ func (h *Handler) handleJSON(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	h.logger.Info("OTLP logs ingested", "count", ingested, "errors", errored)
+	h.logger.Info("OTLP logs ingested", "protocol", "http", "count", ingested, "errors", errored)
 	// Surface partial failures to the producer: an unconditional 200 with a
 	// body full of records we failed to accept is silent data loss for
 	// SDKs that trust the response.

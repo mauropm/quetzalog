@@ -73,8 +73,17 @@ func (s *GRPCServer) Stop(ctx context.Context) error {
 }
 
 func (s *GRPCServer) Export(ctx context.Context, req *v1.ExportLogsServiceRequest) (*v1.ExportLogsServiceResponse, error) {
-	var rejected int64
+	var received, rejected int64
 	var lastErr string
+
+	for _, rl := range req.GetResourceLogs() {
+		for _, sl := range rl.GetScopeLogs() {
+			received += int64(len(sl.GetLogRecords()))
+		}
+	}
+	// Verbose mode proves on which port the exporter is actually landing.
+	s.logger.Debug("OTLP export received over gRPC", "records", received)
+
 	for _, rl := range req.GetResourceLogs() {
 		for _, sl := range rl.GetScopeLogs() {
 			for _, logRecord := range sl.GetLogRecords() {
@@ -86,6 +95,9 @@ func (s *GRPCServer) Export(ctx context.Context, req *v1.ExportLogsServiceReques
 				}
 			}
 		}
+	}
+	if received > 0 {
+		s.logger.Info("OTLP logs ingested", "protocol", "grpc", "count", received-rejected, "errors", rejected)
 	}
 
 	// Report the rejected count via partial_success so the SDK treats the

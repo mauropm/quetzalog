@@ -797,6 +797,8 @@
       '<button class="btn" id="theme-toggle" data-theme-toggle></button></div></div></div></div>' +
        '<div class="card"><div class="card-header"><div class="card-title">' + QL.icon("database") + " Ingestion</div></div>" +
        '<div class="card-body" id="set-ingest"></div></div>' +
+       '<div class="card"><div class="card-header"><div class="card-title">' + QL.icon("note") + " Logging</div></div>" +
+       '<div class="card-body" id="set-logging">' + QL.loading("Loading…") + "</div></div>" +
        '<div class="card"><div class="card-header"><div class="card-title">' + QL.icon("spark") + " AI Analyst</div></div>" +
        '<div class="card-body" id="set-ai">' + QL.loading("Loading…") + "</div></div>" +
         '<div class="card"><div class="card-header"><div class="card-title">' + QL.icon("users") + " Users</div></div>" +
@@ -884,6 +886,48 @@
     }
 
     loadOTLP();
+
+    function renderLogging(st, managed) {
+      var el = $("#set-logging");
+      if (!el) return;
+      var labels = {
+        info: "Events — routine activity (current behaviour)",
+        debug: "Debug — verbose: per-request, OTLP per-port, detection detail",
+        warn: "Warnings only",
+        error: "Errors only",
+      };
+      var admin = S.user && S.user.role === "admin";
+      var opts = (st.available || ["info", "debug", "warn", "error"]).map(function (v) {
+        return '<option value="' + QL.esc(v) + '"' + (v === st.level ? " selected" : "") + ">" + QL.esc(labels[v] || v) + "</option>";
+      }).join("");
+      var ctl = admin
+        ? '<select class="select" id="set-log-level" style="max-width:360px">' + opts + "</select>"
+        : '<span class="badge badge-sev info"><span class="dot"></span>' + QL.esc(st.level) + "</span>";
+      el.innerHTML = '<div class="flex-between" style="gap:14px;flex-wrap:wrap;padding:4px 0">' +
+        '<div><b class="small">Verbosity</b><div class="small faint">Applies instantly — no restart. Saved to <span class="mono">logging.level</span> in the config file.</div></div>' + ctl + "</div>" +
+        (managed === false ? '<div class="small faint" style="padding-top:6px">not runtime-managed by this process — configure logging.level before startup</div>' : "");
+      var sel = $("#set-log-level");
+      if (!sel) return;
+      sel.addEventListener("change", function () {
+        var want = sel.value;
+        sel.disabled = true;
+        api("/settings/logging", { method: "PUT", body: { level: want } }).then(function (o) {
+          sel.disabled = false;
+          if (o && o.level) sel.value = o.level;
+          QL.toast("Log level: " + ((o && o.level) || want));
+          if (o && o.detail) QL.toast(o.detail, "warn");
+        }).catch(function (er) {
+          sel.disabled = false;
+          sel.value = st.level;
+          QL.toast(er.message, "error");
+        });
+      });
+    }
+
+    api("/settings/logging").then(function (o) {
+      o = o || { level: "info" };
+      renderLogging(o, o.managed !== false);
+    }).catch(function () { renderLogging({ level: "info" }, false); });
 
     loadUsers();
     loadAudit();

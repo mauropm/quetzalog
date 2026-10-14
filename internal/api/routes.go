@@ -24,6 +24,7 @@ import (
 	"quetzalog/internal/incidents"
 	"quetzalog/internal/ingestion/otlp"
 	"quetzalog/internal/investigations"
+	"quetzalog/internal/logging"
 	"quetzalog/internal/mitre"
 	"quetzalog/internal/query"
 	"quetzalog/internal/response"
@@ -49,6 +50,12 @@ type RouterOption func(*Handler)
 // settings API (Settings → Ingestion toggle).
 func WithOTLPManager(m *otlp.Manager) RouterOption {
 	return func(h *Handler) { h.otlpManager = m }
+}
+
+// WithLoggingController wires runtime log-level switching into the settings
+// API (Settings → Logging).
+func WithLoggingController(c *logging.Controller) RouterOption {
+	return func(h *Handler) { h.logCtl = c }
 }
 
 // SetupRouter wires up all HTTP API endpoints and applies middleware.
@@ -240,6 +247,10 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 	// OTLP runtime control (Settings → Ingestion toggle)
 	mux.HandleFunc("GET /api/v1/settings/otlp", handler.GetOTLPSettings)
 	mux.Handle("PUT /api/v1/settings/otlp", adminAuth(handler.PutOTLPSettings))
+
+	// Log verbosity control (Settings → Logging)
+	mux.HandleFunc("GET /api/v1/settings/logging", handler.GetLoggingSettings)
+	mux.Handle("PUT /api/v1/settings/logging", adminAuth(handler.PutLoggingSettings))
 
 	// ─────────────────────────────────────────────
 	// Authentication & User Management
