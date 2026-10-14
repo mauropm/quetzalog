@@ -31,7 +31,7 @@
           QL_.metricCard("shieldAlert", "var(--ql-sev-critical)", QL.fmtNum(posture.critical || 0), "Critical Findings", "in queue · click to view", "#/queue", "critical") +
           QL_.metricCard("warning", "var(--ql-sev-high)", QL.fmtNum(posture.high || 0), "High Findings", "in queue · click to view", "#/queue", "high") +
           QL_.metricCard("queue", "var(--ql-accent)", QL.fmtNum(posture.open || 0), "Open Findings", "all severities · click to view", "#/queue") +
-          QL_.metricCard("activity", "var(--ql-secondary)", QL.fmtNum(ev.total || 0), "Events · " + S.range, (ev.eps || 0) + " events/sec") +
+          QL_.metricCard("activity", "var(--ql-secondary)", QL.fmtNum(ev.total || 0), "Events · " + S.range, (ev.eps || 0) + " events/sec · click to list", "#/search") +
           "</div>" +
           '<div class="dash-grid">' +
           '<div class="card"><div class="card-header"><div><div class="card-title">' + QL.icon("activity") +
@@ -67,7 +67,12 @@
         loadEntities("user", top);
         $$(".metrics-row a.metric-card").forEach(function (a) {
           a.addEventListener("click", function () {
-            S.queue = { severity: a.dataset.sev || "", status: "", owner: "", range: "", q: "", offset: 0 };
+            if (a.getAttribute("href") === "#/search") {
+              // Events card: land on the search console with everything listed.
+              S.searchPreset = "*";
+            } else {
+              S.queue = { severity: a.dataset.sev || "", status: "", owner: "", range: "", q: "", offset: 0 };
+            }
           });
         });
         $$("#entity-tabs .range-pill").forEach(function (b) {
