@@ -172,7 +172,8 @@ func ValidateAnalysis(raw []byte) (*Analysis, error) {
 //     (or the finding's event ids) — otherwise the analysis is rejected as
 //     unsupported_observed_claim;
 //   - INFERRED/HYPOTHESIS statements must cite ≥1 known context ref
-//     (event, indicator, asset, finding or coverage ref).
+//     (event, indicator, asset, finding, coverage ref, entity value, or the
+//     name of a section that contains data).
 //
 // On success the returned analysis has normalized severity, clamped
 // confidence and a forced RequiresHumanApproval=true.
@@ -364,6 +365,15 @@ func asRiskAssessment(v any) *RiskAssessment {
 	return &RiskAssessment{Score: score, ReasonsRef: truncate(asString(m["reasons_ref"]), 200)}
 }
 
+// entityValues flattens the entity summary into the raw values it lists.
+func entityValues(e EntitySummary) []string {
+	var out []string
+	for _, list := range [][]string{e.IPs, e.Users, e.Hosts, e.Sources, e.Processes, e.Domains, e.Files, e.Hashes} {
+		out = append(out, list...)
+	}
+	return out
+}
+
 // checkStatementProvenance enforces the §32 provenance rules against the
 // evidence context.
 func checkStatementProvenance(statements []Statement, ctx *FindingContext) error {
@@ -391,6 +401,30 @@ func checkStatementProvenance(statements []Statement, ctx *FindingContext) error
 	for _, g := range ctx.TelemetryGaps {
 		knownRefs["coverage:"+g] = true
 		knownRefs[g] = true
+	}
+	for _, v := range entityValues(ctx.Entities) {
+		knownRefs[v] = true
+	}
+	// Section names. Models frequently cite the JSON key of a section (e.g.
+	// "related_findings") instead of a concrete id. A section that actually
+	// contains data is part of the supplied context, so its name cannot be a
+	// fabricated citation — INFERRED/HYPOTHESIS statements may cite it.
+	// Section names never satisfy the OBSERVED rule, which needs an event id.
+	for name, present := range map[string]bool{
+		"finding":          ctx.Finding.ID != "",
+		"events":           len(ctx.Events) > 0,
+		"related_findings": len(ctx.Related) > 0,
+		"entities":         len(entityValues(ctx.Entities)) > 0,
+		"asset_context":    ctx.AssetContext != nil,
+		"threat_intel":     len(ctx.ThreatIntel) > 0,
+		"mitre_context":    ctx.Mitre != nil,
+		"attack_graph":     ctx.AttackGraph != nil,
+		"telemetry_gaps":   len(ctx.TelemetryGaps) > 0,
+		"prior_analyses":   len(ctx.PriorAnalyses) > 0,
+	} {
+		if present {
+			knownRefs[name] = true
+		}
 	}
 
 	for i, st := range statements {

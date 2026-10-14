@@ -11,8 +11,10 @@ import (
 // PromptVersion identifies the analyst prompt contract. Stored with every
 // analysis so the audit trail records which prompt produced which result.
 // v3 adds the classified-statement output contract (spec §32) and the
-// SYSTEM/ANALYST/DATA prompt layering (spec §64-65).
-const PromptVersion = "quetzalog-ai-analyst-v3"
+// SYSTEM/ANALYST/DATA prompt layering (spec §64-65). v4 spells out the
+// evidence_refs vocabulary (concrete id from [DATA], or a section key the
+// claim rests on) so valid analyses are not discarded over citation drift.
+const PromptVersion = "quetzalog-ai-analyst-v4"
 
 // SystemPrompt is the core analyst policy. It is fixed for the whole
 // prompt version; model output is additionally validated against the
@@ -189,7 +191,7 @@ The JSON object must have exactly this shape:
     {
       "text": "one claim, stated precisely",
       "classification": "OBSERVED" | "INFERRED" | "HYPOTHESIS" | "UNKNOWN",
-      "evidence_refs": ["id of the event, indicator, asset or coverage ref it came from"]
+      "evidence_refs": ["the exact id from [DATA] the claim came from: event id, finding id, host name, user, indicator value, or coverage ref"]
     }
   ],
   "attack_chain": {
@@ -218,6 +220,10 @@ Classification rules (mandatory):
   contains telemetry gaps.
 - Do not claim more than the evidence supports. An unsupported OBSERVED
   claim invalidates the whole analysis.
+- evidence_refs must be values that appear verbatim in [DATA]. Never
+  invent ids. If a claim rests on a whole section of [DATA] (for example
+  "related_findings", "events" or "telemetry_gaps"), citing that section
+  name is acceptable instead of listing every id.
 
 Type rules:
 - "confidence" MUST be a JSON number between 0 and 1, never a string.

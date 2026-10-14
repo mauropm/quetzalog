@@ -73,7 +73,7 @@ func TestPromptWithoutInstructionOmitsAnalystLayer(t *testing.T) {
 }
 
 func TestPromptVersion(t *testing.T) {
-	if PromptVersion != "quetzalog-ai-analyst-v3" {
+	if PromptVersion != "quetzalog-ai-analyst-v4" {
 		t.Errorf("prompt version: %q", PromptVersion)
 	}
 	if len(PromptHash()) != 16 {

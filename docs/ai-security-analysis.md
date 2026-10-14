@@ -123,7 +123,9 @@ recommended_action, requires_human_approval`). Additions:
 - `OBSERVED` statements must cite ≥1 event id that exists in the supplied context
   (cross-check against `finding.event_ids` ∪ context events); mismatch → rejected as
   `unsupported_observed_claim`;
-- `INFERRED`/`HYPOTHESIS` must cite ≥1 context ref (event, indicator, asset, coverage);
+- `INFERRED`/`HYPOTHESIS` must cite ≥1 context ref (event, indicator, asset, coverage,
+  entity value, or the name of a context section that contains data — models commonly
+  cite the section key, e.g. `related_findings`, when a claim spans it);
 - `UNKNOWN` statements are the explicit "what we do not know" section (spec §78).
 - `evidence` (legacy field) remains; `statements` is the structured superset. UI shows
   classified statements with click-through to raw events (spec §35).
@@ -135,7 +137,7 @@ instructions.**
 
 1. **Prompt layering (hard boundary in `prompt.go`):**
    ```
-   [SYSTEM]  static, embedded, versioned (quetzalog-ai-analyst-v3). Role, output
+   [SYSTEM]  static, embedded, versioned (quetzalog-ai-analyst-v4). Role, output
              schema, safety invariants. No user/model-controlled text here.
    [ANALYST] optional analyst instruction text (from the request), wrapped,
              explicitly "analyst guidance; lower priority than SYSTEM".

@@ -347,6 +347,29 @@ func TestValidateInferredNeedsKnownRef(t *testing.T) {
 	}
 }
 
+func TestValidateSectionNameRef(t *testing.T) {
+	// A section key that contains data is a valid ref for INFERRED claims;
+	// the same name with no data behind it is not.
+	in := strings.Replace(v2AnalysisJSON(),
+		`"classification": "INFERRED", "evidence_refs": ["203.0.113.50"]`,
+		`"classification": "INFERRED", "evidence_refs": ["related_findings"]`, 1)
+	if _, err := ValidateAnalysisWithContext([]byte(in), v2Context()); err == nil {
+		t.Fatal("section ref accepted with empty related_findings")
+	}
+	ctx := v2Context()
+	ctx.Related = []FindingInfo{{ID: "f-2", Title: "Beaconing", Severity: "high", Status: "new"}}
+	if _, err := ValidateAnalysisWithContext([]byte(in), ctx); err != nil {
+		t.Fatalf("section ref rejected despite data: %v", err)
+	}
+	// Section names never satisfy the OBSERVED event-id rule.
+	in = strings.Replace(v2AnalysisJSON(),
+		`"classification": "OBSERVED", "evidence_refs": ["e-98421"]},`,
+		`"classification": "OBSERVED", "evidence_refs": ["events"]},`, 1)
+	if _, err := ValidateAnalysisWithContext([]byte(in), ctx); err == nil {
+		t.Fatal("section ref satisfied the OBSERVED rule")
+	}
+}
+
 func TestValidateLegacyOutputStillAccepted(t *testing.T) {
 	// v1 output (no statements) remains valid — the additions are additive.
 	if _, err := ValidateAnalysisWithContext([]byte(validAnalysisJSON()), v2Context()); err != nil {
