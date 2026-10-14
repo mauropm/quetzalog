@@ -426,6 +426,18 @@ func (c Config) Save(path string) error {
 // is appended; if the file does not exist at all, the full configuration
 // is written.
 func (c Config) SaveAIAnalyst(path string) error {
+	return c.saveSection(path, "ai_analyst", &c.AIAnalyst)
+}
+
+// SaveOTel persists the otel section into the config file at path with the
+// same section-preserving contract as SaveAIAnalyst.
+func (c Config) SaveOTel(path string) error {
+	return c.saveSection(path, "otel", &c.OTel)
+}
+
+// saveSection replaces (or appends) the top-level YAML section `key` in the
+// file at path, keeping every other section and all comments verbatim.
+func (c Config) saveSection(path, key string, section any) error {
 	existing, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return c.Save(path)
@@ -434,17 +446,17 @@ func (c Config) SaveAIAnalyst(path string) error {
 		return fmt.Errorf("read config file %q: %w", path, err)
 	}
 
-	section, err := yaml.Marshal(&c.AIAnalyst)
+	ser, err := yaml.Marshal(section)
 	if err != nil {
-		return fmt.Errorf("marshal ai_analyst section: %w", err)
+		return fmt.Errorf("marshal %s section: %w", key, err)
 	}
-	block := "ai_analyst:\n" + indentLines(string(section), "  ")
+	block := key + ":\n" + indentLines(string(ser), "  ")
 
 	lines := strings.Split(string(existing), "\n")
 	topKey := regexp.MustCompile(`^[A-Za-z_][\w-]*:(\s|$)`)
 	start, end := -1, len(lines)
 	for i, l := range lines {
-		if l == "ai_analyst:" || strings.HasPrefix(l, "ai_analyst:") {
+		if l == key+":" || strings.HasPrefix(l, key+":") {
 			start = i
 			continue
 		}
@@ -456,7 +468,7 @@ func (c Config) SaveAIAnalyst(path string) error {
 
 	var out []string
 	if start == -1 {
-		// No ai_analyst section yet: append it (keep one blank line apart).
+		// No section with this key yet: append it (keep one blank line apart).
 		out = append(lines, "")
 		out = append(out, strings.Split(block, "\n")...)
 	} else {

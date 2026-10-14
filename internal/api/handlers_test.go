@@ -43,7 +43,7 @@ type env struct {
 	dbName  string
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T, opts ...api.RouterOption) *env {
 	t.Helper()
 	db, err := database.Open(":memory:", 5, 2, "5m")
 	if err != nil {
@@ -94,6 +94,7 @@ func newEnv(t *testing.T) *env {
 		correlationEngineForTest(t, db),
 		scenarioEvaluatorForTest(t, db),
 		logger,
+		opts...,
 	)
 	if err != nil {
 		db.Close()

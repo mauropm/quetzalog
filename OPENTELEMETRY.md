@@ -347,6 +347,20 @@ otlp:
       enabled: true  # stub
 ```
 
+## Toggling Ingestion Without Restarting
+
+Settings → Ingestion in the web UI exposes a live switch for the OTLP receivers
+(HTTP + gRPC); the same state is available through the API (`GET/PUT
+/api/v1/settings/otlp`, see [API.md](API.md#settings)). When an admin toggles
+the switch:
+
+- the receivers bind or release their ports immediately,
+- the `enabled` flag is written back to the `otel` section of the config file,
+  so the state survives the next restart.
+
+If a configured port is already taken by another process the toggle fails with
+a clear error and the previous state is kept.
+
 ## Supported OTLP Data Models
 
 ### Resource Signals

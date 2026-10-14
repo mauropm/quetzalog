@@ -22,6 +22,7 @@ import (
 	"quetzalog/internal/findings"
 	"quetzalog/internal/graph"
 	"quetzalog/internal/incidents"
+	"quetzalog/internal/ingestion/otlp"
 	"quetzalog/internal/investigations"
 	"quetzalog/internal/mitre"
 	"quetzalog/internal/query"
@@ -40,14 +41,28 @@ const (
 	loginRateBurst     = 30.0
 )
 
+// RouterOption customizes the handler during router construction (keeps the
+// long SetupRouter signature backward compatible).
+type RouterOption func(*Handler)
+
+// WithOTLPManager wires runtime control of the OTLP receivers into the
+// settings API (Settings → Ingestion toggle).
+func WithOTLPManager(m *otlp.Manager) RouterOption {
+	return func(h *Handler) { h.otlpManager = m }
+}
+
 // SetupRouter wires up all HTTP API endpoints and applies middleware.
-func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, assetsStore *assets.Store, entitiesStore *entities.Store, graphLayer *graph.Graph, coverageRunner *coverage.Runner, tiStore *threatintel.Store, tiRegistry *threatintel.Registry, mitreMapper *mitre.Mapper, correlationEngine *detections.CorrelationEngine, scenarioEvaluator *detections.ScenarioEvaluator, logger *slog.Logger) (http.Handler, error) {
+
+func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Service, alertStore *alerts.Store, incidentStore *incidents.Store, detectionStore *detections.Store, findingStore *findings.Store, investigationStore *investigations.Store, riskStore *risk.EntityRiskStore, responseRegistry *response.Registry, authStore *auth.Store, aiStore *ai.Store, aiService *ai.Service, assetsStore *assets.Store, entitiesStore *entities.Store, graphLayer *graph.Graph, coverageRunner *coverage.Runner, tiStore *threatintel.Store, tiRegistry *threatintel.Registry, mitreMapper *mitre.Mapper, correlationEngine *detections.CorrelationEngine, scenarioEvaluator *detections.ScenarioEvaluator, logger *slog.Logger, opts ...RouterOption) (http.Handler, error) {
 	if authStore == nil {
 		authStore = auth.NewStore(nil)
 	} else if err := authStore.EnsureSchema(context.Background()); err != nil {
 		return nil, fmt.Errorf("initialize auth schema: %w", err)
 	}
 	handler := NewHandler(cfg, store, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, riskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, tiStore, tiRegistry, mitreMapper, correlationEngine, scenarioEvaluator, logger)
+	for _, opt := range opts {
+		opt(handler)
+	}
 
 	mux := http.NewServeMux()
 
@@ -221,6 +236,10 @@ func SetupRouter(cfg config.Config, store *events.Store, searchSvc *query.Servic
 	mux.Handle("PUT /api/v1/settings/ai-analyst", adminAuth(handler.PutAIConfig))
 	mux.HandleFunc("POST /api/v1/settings/ai-analyst/test", handler.TestAIConnection)
 	mux.HandleFunc("GET /api/v1/settings/ai-analyst/models", handler.ListAIModels)
+
+	// OTLP runtime control (Settings → Ingestion toggle)
+	mux.HandleFunc("GET /api/v1/settings/otlp", handler.GetOTLPSettings)
+	mux.Handle("PUT /api/v1/settings/otlp", adminAuth(handler.PutOTLPSettings))
 
 	// ─────────────────────────────────────────────
 	// Authentication & User Management

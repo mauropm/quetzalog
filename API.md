@@ -21,6 +21,7 @@ Authentication is handled via API tokens where applicable.
 - [Splunk HEC Compatibility](#splunk-hec-compatibility)
 - [Splunk Search Compatibility](#splunk-search-compatibility)
 - [OpenTelemetry Compatibility](#opentelemetry-compatibility)
+- [Settings](#settings)
 - [Metrics](#metrics)
 - [Error Responses](#error-responses)
 
@@ -899,6 +900,54 @@ ExportLogsServiceResponse {
 
 > **Note:** Protobuf encoding support is a stub. The endpoint accepts the request but requires
 > proper protobuf library integration for production use.
+
+---
+
+## Settings
+
+### OTLP Ingestion State
+
+Get the current OTLP receiver switch, live state and configured ports.
+
+```
+GET /api/v1/settings/otlp
+```
+
+**Response:**
+
+```json
+{
+  "status": 200,
+  "message": "OK",
+  "data": {
+    "enabled": true,
+    "running": true,
+    "http_port": 4318,
+    "grpc_port": 4317,
+    "detail": ""
+  }
+}
+```
+
+`detail` carries a warning (e.g. one receiver failed to bind) while the other
+keeps serving.
+
+### Toggle OTLP Ingestion
+
+Start or stop the OTLP receivers at runtime without restarting. Admin only.
+
+```
+PUT /api/v1/settings/otlp
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+
+{"enabled": false}
+```
+
+Returns the same payload as the GET above reflecting the new state. A failed
+port bind returns `409 Conflict` and leaves both the running state and the
+config file untouched. The switch is persisted to the `otel` section of the
+config file, so it survives restarts.
 
 ---
 

@@ -668,33 +668,23 @@ func cmdServe(cfgFile string, debug bool) int {
 		defer hecServer.Shutdown(context.Background())
 	}
 
+	// OTLP receivers run under a manager so the Settings page can turn them
+	// on/off at runtime; with a config file the switch is persisted there.
+	otlpManager := otlp.NewManager(&cfg, cfgFile, pipeline, logger)
 	if cfg.OTel.Enabled {
-		otlpHandler := otlp.NewHandler(pipeline, logger)
-		otlpServer := &http.Server{
-			Addr: fmt.Sprintf(":%d", cfg.OTel.HttpPort),
-			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				_ = otlpHandler.Handle(w, r)
-			}),
-			ReadTimeout:  cfg.Server.ReadTimeout,
-			WriteTimeout: cfg.Server.WriteTimeout,
+		if err := otlpManager.Start(); err != nil {
+			logger.Error("OTLP server failed", "error", err)
 		}
-		ingestors = append(ingestors, fmt.Sprintf("OTLP HTTP (port %d)", cfg.OTel.HttpPort))
-		go func() {
-			logger.Info("OTLP server starting", "addr", otlpServer.Addr)
-			if err := otlpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				logger.Error("OTLP server error", "error", err)
+		if st := otlpManager.Status(); st.Running {
+			ingestors = append(ingestors, fmt.Sprintf("OTLP HTTP (port %d)", st.HTTPPort))
+			if st.Detail == "" {
+				ingestors = append(ingestors, fmt.Sprintf("OTLP gRPC (port %d)", st.GRPCPort))
+			} else {
+				logger.Warn("OTLP running with degraded receivers", "detail", st.Detail)
 			}
-		}()
-		defer otlpServer.Shutdown(context.Background())
-
-		otelGRPC := otlp.NewGRPCReceiver(pipeline, cfg.OTel.GrpcPort, logger)
-		if err := otelGRPC.Start(context.Background()); err != nil {
-			logger.Error("OTLP gRPC server failed", "error", err)
-		} else {
-			ingestors = append(ingestors, fmt.Sprintf("OTLP gRPC (port %d)", cfg.OTel.GrpcPort))
 		}
-		defer otelGRPC.Stop(context.Background())
 	}
+	defer otlpManager.Stop()
 
 	if len(cfg.FileIngestion.Sources) > 0 {
 		fileSources := make([]file.Source, len(cfg.FileIngestion.Sources))
@@ -716,7 +706,7 @@ func cmdServe(cfgFile string, debug bool) int {
 	}
 
 	mux := http.NewServeMux()
-	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, tiStore, tiRegistry, mitreMapper, correlationEngine, scenarioEvaluator, logger)
+	apiHandler, err := api.SetupRouter(cfg, eventStore, searchSvc, alertStore, incidentStore, detectionStore, findingStore, investigationStore, entityRiskStore, responseRegistry, authStore, aiStore, aiService, assetsStore, entitiesStore, graphLayer, coverageRunner, tiStore, tiRegistry, mitreMapper, correlationEngine, scenarioEvaluator, logger, api.WithOTLPManager(otlpManager))
 	if err != nil {
 		logger.Error("API setup failed", "error", err)
 		if debug {

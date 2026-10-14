@@ -826,13 +826,64 @@
         ["JSON HTTP", "Active", "POST /api/v1/events · main port", "success"],
         ["Syslog (TCP/UDP)", "Active", "RFC 5424 & BSD · 1514 / 514", "success"],
         ["Splunk HEC", "Token-gated", "POST /api/v1/json · ingest-only tokens", "info"],
-        ["OpenTelemetry", "OTLP", "gRPC 4317 · HTTP 4318 (if enabled)", "info"],
         ["File Ingestion", "Config", "yaml-driven tail sources", "info"],
       ].map(function (r) {
         return '<div class="flex-between" style="padding:6px 0;border-bottom:1px solid var(--ql-border-soft)">' +
           '<span class="flex" style="gap:10px"><b class="small">' + r[0] + '</b><span class="small faint">' + r[2] + "</span></span>" +
           '<span class="badge badge-sev ' + (r[3] === "success" ? "success" : "info") + '"><span class="dot"></span>' + r[1] + "</span></div>";
-      }).join("") + "</div>";
+      }).join("") +
+      // OTLP row: live state from the server, toggle for admins.
+      '<div class="flex-between" style="padding:6px 0" id="set-otlp-row">' +
+      '<span class="flex" style="gap:10px"><b class="small">OpenTelemetry</b>' +
+      '<span class="small faint" id="set-otlp-sub">gRPC / HTTP · loading…</span></span>' +
+      '<span id="set-otlp-ctl"><span class="badge badge-sev muted"><span class="dot"></span>…</span></span></div>' +
+      "</div>";
+
+    function otlpToggleUI(st, busy) {
+      var el = $("#set-otlp-ctl");
+      if (!el) return;
+      var state = st.running
+        ? '<span class="badge badge-sev success"><span class="dot"></span>running</span>'
+        : (st.enabled ? '<span class="badge badge-sev high"><span class="dot"></span>stopped</span>'
+                     : '<span class="badge badge-sev muted"><span class="dot"></span>disabled</span>');
+      var admin = S.user && S.user.role === "admin";
+      if (admin) {
+        state += '<button class="btn btn-sm" id="set-otlp-toggle"' + (busy ? " disabled" : "") + '>' +
+          QL.icon("zap") + " " + (st.enabled ? "Disable" : "Enable") + "</button>";
+      }
+      el.innerHTML = '<span class="flex" style="gap:8px;align-items:center">' + state + "</span>";
+      var sub = $("#set-otlp-sub");
+      if (sub) {
+        sub.textContent = "gRPC " + (st.grpc_port || "—") + " · HTTP " + (st.http_port || "—") +
+          (st.detail ? " · " + st.detail : (st.enabled ? "" : " · enable to receive telemetry"));
+      }
+      var btn = $("#set-otlp-toggle");
+      if (btn) btn.addEventListener("click", function () { otlpSet(!st.enabled); });
+    }
+
+    function loadOTLP() {
+      api("/settings/otlp").then(function (st) {
+        st = st || {};
+        otlpToggleUI({ enabled: !!st.enabled, running: !!st.running,
+          http_port: st.http_port, grpc_port: st.grpc_port, detail: st.detail }, false);
+      }).catch(function (e) {
+        otlpToggleUI({ enabled: false, running: false, detail: "unreachable: " + e.message }, false);
+      });
+    }
+
+    function otlpSet(on) {
+      var btn = $("#set-otlp-toggle");
+      if (btn) btn.disabled = true;
+      api("/settings/otlp", { method: "PUT", body: { enabled: on } }).then(function (st) {
+        QL.toast("OTLP ingestion " + (on ? "enabled" : "disabled"));
+        otlpToggleUI(st || {}, false);
+      }).catch(function (er) {
+        QL.toast(er.message, "error");
+        loadOTLP();
+      });
+    }
+
+    loadOTLP();
 
     loadUsers();
     loadAudit();
