@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -252,6 +253,89 @@ func TestOpenAIServiceMalformedResponse(t *testing.T) {
 	_, err := p.Analyze(context.Background(), Request{Prompt: "x", Model: "m", Timeout: 5 * time.Second})
 	if !errors.Is(err, ErrBadResponse) {
 		t.Fatalf("want ErrBadResponse, got %v", err)
+	}
+}
+
+// TestOpenAIStructuredOutputFallback covers engines that reject chat
+// completions carrying response_format with a 400 ("structured output ...
+// not supported"). The request must be retried without the parameter, and
+// the endpoint must be remembered so later requests skip it entirely.
+func TestOpenAIStructuredOutputFallback(t *testing.T) {
+	var mu sync.Mutex
+	var requests int
+	var bodyWithFormat []bool
+
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_, hasFormat := body["response_format"]
+
+		mu.Lock()
+		requests++
+		bodyWithFormat = append(bodyWithFormat, hasFormat)
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		if hasFormat {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":{"message":"structured output (response_format and the guided_* fields) is not supported by this engine yet","type":"invalid_request_error"}}`)
+			return
+		}
+		fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"{\"title\":\"ok\"}"}}]}`)
+	})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	cfg := config.AIAnalyst{Provider: "openai-compatible", Endpoint: srv.URL, Model: "m"}
+	p, err := NewProvider(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := p.Analyze(context.Background(), Request{Prompt: "x", Model: "m", Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("analyze after rejection: %v", err)
+	}
+	if out != `{"title":"ok"}` {
+		t.Errorf("content: %q", out)
+	}
+	mu.Lock()
+	if requests != 2 || len(bodyWithFormat) < 2 || !bodyWithFormat[len(bodyWithFormat)-2] || bodyWithFormat[len(bodyWithFormat)-1] {
+		mu.Unlock()
+		t.Fatalf("expected reject-then-retry (with format, without), requests=%v withFormat=%v", requests, bodyWithFormat)
+	}
+	mu.Unlock()
+
+	// A freshly built provider on the same endpoint must remember the
+	// rejection and issue a single clean request.
+	p2, err := NewProvider(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p2.Analyze(context.Background(), Request{Prompt: "x", Model: "m", Timeout: 5 * time.Second}); err != nil {
+		t.Fatalf("analyze with cached rejection: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if requests != 3 || bodyWithFormat[2] {
+		t.Fatalf("expected one cached-clean request, requests=%v withFormat=%v", requests, bodyWithFormat)
+	}
+}
+
+// TestOpenAIOtherBadRequestNotRetried ensures a 400 unrelated to structured
+// output (e.g. unknown model) fails fast without a retry.
+func TestOpenAIOtherBadRequestNotRetried(t *testing.T) {
+	fake := newFakeOpenAI(t, "")
+	fake.status = 400
+	srv := httptest.NewServer(fake.handler())
+	defer srv.Close()
+
+	p, _ := NewProvider(config.AIAnalyst{Provider: "openai-compatible", Endpoint: srv.URL, Model: "m"})
+	_, err := p.Analyze(context.Background(), Request{Prompt: "x", Model: "m", Timeout: 5 * time.Second})
+	if err == nil || !strings.Contains(err.Error(), "400") {
+		t.Fatalf("want 400 error, got %v", err)
+	}
+	if atomic.LoadInt64(&fake.calls) != 1 {
+		t.Errorf("unrelated 400 must not be retried, calls=%d", fake.calls)
 	}
 }
 

@@ -91,27 +91,36 @@ func (h *Handler) handleJSON(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	h.logger.Info("OTLP logs ingested", "count", ingested, "errors", errored)
+	// Surface partial failures to the producer: an unconditional 200 with a
+	// body full of records we failed to accept is silent data loss for
+	// SDKs that trust the response.
+	if errored > 0 {
+		resp := OTLPResponse{PartialSuccess: &OTLPPartialSuccess{
+			RejectedLogRecords: errored,
+			ErrorMessage:       "one or more records were not accepted (pipeline busy or rejected)",
+		}}
+		if ingested == 0 {
+			return writeOTLPJSON(w, http.StatusServiceUnavailable, resp)
+		}
+		return writeOTLPJSON(w, http.StatusOK, resp)
+	}
 	return writeOTLPJSON(w, http.StatusOK, OTLPResponse{})
 }
 
 // handleProtobuf processes OTLP logs in protobuf format.
-// Note: Full protobuf parsing requires proto dependencies. This is a stub
-// that returns a placeholder response. A production implementation would
-// use the official protobuf generated code for traceptracepb.LogsData.
+// NOTE: protobuf decoding is not implemented. Accepting the body and
+// returning 200 would silently discard every record, so the endpoint
+// responds 501 instead — a compliant producer then falls back to JSON
+// encoding or surfaces the error, rather than losing telemetry.
 func (h *Handler) handleProtobuf(w http.ResponseWriter, r *http.Request) error {
 	_, err := io.ReadAll(r.Body)
 	if err != nil {
 		return errorOTLP(w, http.StatusBadRequest, "failed to read request body")
 	}
 
-	// TODO: Parse traceptracepb.LogsData protobuf message.
-	// This requires adding the official OTLP proto dependencies:
-	//   import "go.opentelemetry.io/proto/otlp/collector/logs/v1"
-	//   import "go.opentelemetry.io/proto/otlp/logs/v1"
-	// For now, accept the body and return success to allow instrumentation libraries.
-	h.logger.Info("OTLP protobuf body received (stub)")
-
-	return writeOTLPJSON(w, http.StatusOK, OTLPResponse{})
+	h.logger.Warn("OTLP protobuf not supported; use application/json OTLP encoding")
+	return errorOTLP(w, http.StatusNotImplemented,
+		"otlp protobuf encoding is not supported; send application/json")
 }
 
 // logRecordToEvent converts an OTLP log record to an event.Event.
@@ -278,11 +287,10 @@ func sanitizeHex(s string) string {
 	return s
 }
 
-// parseUInt64 parses a string into uint64.
+// parseUInt64 parses a string into uint64. OTLP encodes 64-bit times as
+// decimal strings, so this runs for every record — strconv instead of Sscanf.
 func parseUInt64(s string) (uint64, error) {
-	var n uint64
-	_, err := fmt.Sscanf(s, "%d", &n)
-	return n, err
+	return strconv.ParseUint(strings.TrimSpace(s), 10, 64)
 }
 
 // parseAttributes converts OTLP attributes to a map.
@@ -503,6 +511,14 @@ type OTLPLogsData struct {
 
 // OTLPResponse is the standard OTLP success response (empty body).
 type OTLPResponse struct {
+	// PartialSuccess follows the OTLP JSON wire format; rejectedLogRecords
+	// tells producers the export was incomplete instead of silently OK.
+	PartialSuccess *OTLPPartialSuccess `json:"partialSuccess,omitempty"`
+}
+
+type OTLPPartialSuccess struct {
+	RejectedLogRecords int64  `json:"rejectedLogRecords,string,omitempty"`
+	ErrorMessage       string `json:"errorMessage,omitempty"`
 }
 
 // Note: gRPC implementation stub.

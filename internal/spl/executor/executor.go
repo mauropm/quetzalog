@@ -88,6 +88,17 @@ func RunQuery(ctx context.Context, db *sql.DB, q *ast.Query, opts RunOptions) (*
 	if names := q.UnsupportedCommands(); len(names) > 0 {
 		return nil, fmt.Errorf("%w: unsupported SPL command: %s", ast.ErrInvalidQuery, strings.Join(names, ", "))
 	}
+	// bin and lookup are parsed and representable in the builder but have no
+	// execution semantics yet; previously they were silently dropped, which
+	// returned wrong (untransformed) results instead of telling the user.
+	for _, c := range q.Commands {
+		switch c.(type) {
+		case *ast.BinNode:
+			return nil, fmt.Errorf("%w: the `bin` command is not yet executed", ast.ErrInvalidQuery)
+		case *ast.LookupNode:
+			return nil, fmt.Errorf("%w: the `lookup` command is not yet executed", ast.ErrInvalidQuery)
+		}
+	}
 	start := time.Now()
 	limit := opts.Limit
 	if limit <= 0 {
@@ -125,9 +136,13 @@ func runRows(ctx context.Context, db *sql.DB, q *ast.Query, where string, args [
 	// SQL and safely push head as LIMIT; otherwise we fetch the window and sort
 	// in-process (computed/alias fields cannot be ordered by SQLite).
 	orderBy, sortInSQL := buildRowOrder(q)
-	sqlLimit := clampLimit(opts.Limit)
+	// Use the caller-clamped `limit`, not opts.Limit: the legacy Execute
+	// path passes RunOptions{Limit:0}, and clampLimit(0) emitted LIMIT 0,
+	// silently returning zero rows. head (when sorting is pushed to SQL)
+	// further narrows the window.
+	sqlLimit := clampLimit(limit)
 	if sortInSQL {
-		sqlLimit = clampLimit(headN(q, opts.Limit))
+		sqlLimit = clampLimit(headN(q, limit))
 	}
 	sqlStr := "SELECT " + cols + " FROM events"
 	if where != "" {
@@ -217,7 +232,7 @@ func runAggregate(ctx context.Context, db *sql.DB, q *ast.Query, where string, a
 		return nil, err
 	}
 	// Only post-process non-collapsing commands that run AFTER the aggregation.
-	applyPostAggPipeline(q, dataSet)
+	dataSet = applyPostAggPipeline(q, dataSet)
 	applySort(q, dataSet)
 	dataSet = applyDedup(q, dataSet)
 
@@ -309,17 +324,19 @@ func applyPipeline(q *ast.Query, rows []map[string]any) {
 	}
 }
 
-// applyPostAggPipeline applies row-level commands that operate on aggregated rows.
-func applyPostAggPipeline(q *ast.Query, rows []map[string]any) {
+// applyPostAggPipeline applies row-level commands that operate on aggregated
+// rows. It returns the possibly-reduced row set (where can filter rows).
+func applyPostAggPipeline(q *ast.Query, rows []map[string]any) []map[string]any {
 	ev := &EvalEvaluator{}
 	for _, c := range q.Commands {
 		switch x := c.(type) {
 		case *ast.EvalNode:
 			ev.TransformEval(rows, []ast.Node{x})
 		case *ast.WhereNode:
-			applyWherePost(x, rows)
+			rows = applyWherePost(x, rows)
 		}
 	}
+	return rows
 }
 
 func applyWherePost(w *ast.WhereNode, rows []map[string]any) []map[string]any {

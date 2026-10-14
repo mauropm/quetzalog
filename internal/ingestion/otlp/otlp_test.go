@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -173,5 +174,43 @@ func TestOtlpBadContentType(t *testing.T) {
 	w := sendOtlp(h, "application/xml", "<x/>")
 	if w.Code == 200 {
 		t.Errorf("unsupported media type returned 200")
+	}
+}
+
+// Protobuf decoding is not implemented; accepting the body with a 200 would
+// silently drop every record, so the endpoint must answer 501 instead.
+func TestOtlpProtobufIs501(t *testing.T) {
+	h, _, _, cleanup := setupOtlp(t)
+	defer cleanup()
+	w := sendOtlp(h, "application/x-protobuf", "\x0a\x02\x08\x01")
+	if w.Code != http.StatusNotImplemented {
+		t.Errorf("want 501 for protobuf, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// An un-started pipeline rejects every record; the response must surface the
+// failure (503) rather than a 200 that the producer would trust.
+func TestOtlpIngestFailureReportsPartialSuccess(t *testing.T) {
+	db, err := database.Open(":memory:", 5, 2, "5m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Migrate(db); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := events.NewStore(db)
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
+	p := ingestion.NewPipeline(store, 2, 50, logger)
+	h := otlp.NewHandler(p, logger)
+
+	body := `{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"timeUnixNano":"1759320000000000000","body":{"stringValue":"boom"}}]}]}]}`
+	w := sendOtlp(h, "application/json", body)
+	if w.Code == http.StatusOK {
+		t.Fatalf("ingest failure returned 200 — silent data loss")
+	}
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("want 503 when every record fails, got %d: %s", w.Code, w.Body.String())
 	}
 }

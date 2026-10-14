@@ -217,7 +217,7 @@ func (h *Handler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.logger.Info("event created", "id", ev.ID, "source", ev.Source, "severity", ev.Severity)
+	h.logger.Debug("event created", "id", ev.ID, "source", ev.Source, "severity", ev.Severity)
 
 	api.WriteJSON(w, http.StatusCreated, api.Success(ev))
 }

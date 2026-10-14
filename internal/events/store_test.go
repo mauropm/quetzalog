@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -232,6 +233,41 @@ func TestCreateBatch_AllRows(t *testing.T) {
 	}
 	if got[0].Attributes == nil {
 		t.Errorf("batched events lost attributes")
+	}
+}
+
+// CreateBatch must notify every observer for every event: the post-commit
+// loop previously bailed on the first observer error, silently skipping the
+// rest of the batch.
+func TestCreateBatch_ObserversSeeEveryEvent(t *testing.T) {
+	store, cleanup := setupStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	var mu sync.Mutex
+	var seen1, seen2 []string
+	store.AddObserver(func(ev *event.Event) {
+		mu.Lock()
+		seen1 = append(seen1, ev.ID)
+		mu.Unlock()
+	})
+	store.AddObserver(func(ev *event.Event) {
+		mu.Lock()
+		seen2 = append(seen2, ev.ID)
+		mu.Unlock()
+	})
+
+	batch := make([]*event.Event, 0, 5)
+	for i := 0; i < 5; i++ {
+		batch = append(batch, mkEvent("src", "info", "msg"))
+	}
+	if err := store.CreateBatch(ctx, batch); err != nil {
+		t.Fatalf("CreateBatch: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen1) != 5 || len(seen2) != 5 {
+		t.Fatalf("observers saw %d/%d events, want 5/5", len(seen1), len(seen2))
 	}
 }
 

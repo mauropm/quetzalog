@@ -24,7 +24,12 @@ func Open(dbPath string, maxOpenConns, maxIdleConns int, maxIdleTimeStr string) 
 	if memory {
 		dsn = ":memory:"
 	} else {
-		dsn = fmt.Sprintf("file:%s?_journal_mode=WAL&_synchronous=NORMAL&_foreign_keys=ON&_cache=shared", dbPath)
+		// busy_timeout absorbs SQLITE_BUSY from the shared pool of writers
+		// (ingest workers, API, background jobs). Shared-cache mode is not
+		// used: it turns write contention into immediate SQLITE_LOCKED
+		// errors that busy_timeout does not wait on, and with a single
+		// process/database handle it buys nothing.
+		dsn = fmt.Sprintf("file:%s?_journal_mode=WAL&_synchronous=NORMAL&_foreign_keys=ON&_busy_timeout=15000", dbPath)
 	}
 
 	db, err := sql.Open("sqlite3", dsn)
@@ -57,11 +62,17 @@ func Open(dbPath string, maxOpenConns, maxIdleConns int, maxIdleTimeStr string) 
 		db.SetConnMaxIdleTime(dur)
 	}
 
-	// Verify WAL mode is active
-	var mode any
+	// Verify WAL mode is active. A silent fallback to another journal mode
+	// (e.g. a lock held by another process forcing delete mode) would change
+	// concurrency and durability characteristics, so fail loudly.
+	var mode string
 	if err := db.QueryRow("PRAGMA journal_mode;").Scan(&mode); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("verify journal mode: %w", err)
+	}
+	if !memory && !strings.EqualFold(mode, "wal") {
+		db.Close()
+		return nil, fmt.Errorf("expected WAL journal mode, got %q", mode)
 	}
 
 	return db, nil

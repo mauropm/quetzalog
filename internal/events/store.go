@@ -8,17 +8,31 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"quetzalog/internal/correlation"
+	"quetzalog/internal/telemetry"
 	"quetzalog/pkg/event"
 )
 
 // Store persists events to a SQLite database with FTS5 full-text search support.
 type Store struct {
-	db        *sql.DB
-	graph     *correlation.Graph
-	observers []func(*event.Event)
+	db    *sql.DB
+	graph *correlation.Graph
+	// observers is published via atomic.Pointer: AddObserver runs during
+	// startup wiring, observe() runs on every write-path goroutine. The
+	// copy-on-write snapshot removes the unsynchronized append/read race.
+	observers atomic.Pointer[[]func(*event.Event)]
+	addMu     sync.Mutex // serializes observer registration
+}
+
+func (s *Store) observerList() []func(*event.Event) {
+	if p := s.observers.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // AddObserver registers a post-write observer invoked after each event is
@@ -26,16 +40,23 @@ type Store struct {
 // the write path and must be fast; failures are swallowed per observer
 // because a side-car feature must never drop event data.
 func (s *Store) AddObserver(fn func(*event.Event)) {
-	if fn != nil {
-		s.observers = append(s.observers, fn)
+	if fn == nil {
+		return
 	}
+	s.addMu.Lock()
+	defer s.addMu.Unlock()
+	old := s.observerList()
+	next := make([]func(*event.Event), len(old)+1)
+	copy(next, old)
+	next[len(old)] = fn
+	s.observers.Store(&next)
 }
 
 func (s *Store) observe(ev *event.Event) {
 	if ev == nil {
 		return
 	}
-	for _, fn := range s.observers {
+	for _, fn := range s.observerList() {
 		func() {
 			defer func() { _ = recover() }()
 			fn(ev)
@@ -84,6 +105,7 @@ func (s *Store) Create(ctx context.Context, ev *event.Event) error {
 	if err != nil {
 		return fmt.Errorf("insert event: %w", err)
 	}
+	telemetry.EventsIngested.Inc()
 
 	// Populate the entity correlation graph outside the insert so a graph
 	// write failure surfaces instead of silently leaving the feature dead.
@@ -151,20 +173,36 @@ func (s *Store) CreateBatch(ctx context.Context, events []*event.Event) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit batch transaction: %w", err)
 	}
+	n := 0
+	for _, ev := range events {
+		if ev != nil {
+			n++
+		}
+	}
+	telemetry.EventsIngested.Add(float64(n))
 
 	// Populate the entity correlation graph after the commit: the graph
 	// writes use separate statements, and doing them in the same transaction
 	// would contend with the batch writer on another connection.
+	//
+	// Continue past individual failures: the events are committed, so
+	// aborting here would leave every later event in the batch without a
+	// graph write or observer pass while still returning "success-ish".
+	// Collect errors and return the first failure so the batch failure is
+	// observable without losing the rest of the derived layer.
+	var firstErr error
 	for _, ev := range events {
 		if ev == nil {
 			continue
 		}
-		if err := s.graph.AddEntityFromEvent(ctx, ev); err != nil {
-			return fmt.Errorf("correlate event %s: %w", ev.ID, err)
+		if err := s.graph.AddEntityFromEvent(ctx, ev); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("correlate event %s: %w", ev.ID, err)
 		}
 		s.observe(ev)
 	}
-
+	if firstErr != nil {
+		return firstErr
+	}
 	return nil
 }
 

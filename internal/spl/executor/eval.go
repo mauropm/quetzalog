@@ -13,10 +13,37 @@ import (
 )
 
 // EvalEvaluator evaluates SPL eval expressions against an in-memory event.
-type EvalEvaluator struct{}
+// rexCache hoists rex regex compilation out of the per-row loop (previously
+// every row recompiled the same pattern).
+type EvalEvaluator struct {
+	rexCache map[string]*regexp.Regexp
+	rexErr   map[string]error
+}
 
 // NewEvalEvaluator constructs an evaluator.
 func NewEvalEvaluator() (*EvalEvaluator, error) { return &EvalEvaluator{}, nil }
+
+// compiledRex returns the pattern's compiled regex, caching per evaluator so a
+// rex statement compiles once per query instead of once per row.
+func (e *EvalEvaluator) compiledRex(pattern string) (*regexp.Regexp, error) {
+	if re, ok := e.rexCache[pattern]; ok {
+		return re, nil
+	}
+	if err, ok := e.rexErr[pattern]; ok {
+		return nil, err
+	}
+	re, err := regexp.Compile(pattern)
+	if e.rexCache == nil {
+		e.rexCache = map[string]*regexp.Regexp{}
+		e.rexErr = map[string]error{}
+	}
+	if err != nil {
+		e.rexErr[pattern] = err
+		return nil, err
+	}
+	e.rexCache[pattern] = re
+	return re, nil
+}
 
 // EvalExpr evaluates a single expression string.
 func (e *EvalEvaluator) EvalExpr(event map[string]any, expr string) any {
@@ -73,7 +100,7 @@ func (e *EvalEvaluator) TransformRex(event map[string]any, node *ast.RexNode) er
 	if node.Pattern == "" {
 		return nil
 	}
-	re, err := regexp.Compile(node.Pattern)
+	re, err := e.compiledRex(node.Pattern)
 	if err != nil {
 		return fmt.Errorf("compile regex: %w", err)
 	}
@@ -380,6 +407,9 @@ func callFunction(name string, args []any) any {
 	case "exp":
 		return fexp(toFloat(arg(args, 0)))
 	case "max":
+		if len(args) == 0 {
+			return nil
+		}
 		best := toFloat(args[0])
 		for _, a := range args[1:] {
 			if f := toFloat(a); f > best {
@@ -388,6 +418,9 @@ func callFunction(name string, args []any) any {
 		}
 		return best
 	case "min":
+		if len(args) == 0 {
+			return nil
+		}
 		best := toFloat(args[0])
 		for _, a := range args[1:] {
 			if f := toFloat(a); f < best {
@@ -602,7 +635,7 @@ func sign(f float64) float64 {
 	return 1
 }
 
-func fabs(f float64) float64  { return math.Abs(f) }
+func fabs(f float64) float64   { return math.Abs(f) }
 func fceil(f float64) float64  { return math.Ceil(f) }
 func ffloor(f float64) float64 { return math.Floor(f) }
 func fsqrt(f float64) float64  { return math.Sqrt(f) }

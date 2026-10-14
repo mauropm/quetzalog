@@ -102,9 +102,11 @@ func NewEventGenerator() *EventGenerator {
 }
 
 func (g *EventGenerator) Generate() *event.Event {
+	// rng access is serialized: the shared *rand.Rand is not safe for
+	// concurrent use (concurrent ingestion benchmarks panicked on it).
 	g.mu.Lock()
+	defer g.mu.Unlock()
 	id := atomic.AddInt64(&g.counter, 1)
-	g.mu.Unlock()
 
 	generator := g.rng
 	eventType := g.eventTypes[generator.Intn(len(g.eventTypes))]

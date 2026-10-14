@@ -65,22 +65,40 @@ func (s *GRPCServer) Start(ctx context.Context) error {
 }
 
 func (s *GRPCServer) Stop(ctx context.Context) error {
+	if s.server == nil {
+		return nil
+	}
 	s.server.GracefulStop()
 	return nil
 }
 
 func (s *GRPCServer) Export(ctx context.Context, req *v1.ExportLogsServiceRequest) (*v1.ExportLogsServiceResponse, error) {
+	var rejected int64
+	var lastErr string
 	for _, rl := range req.GetResourceLogs() {
 		for _, sl := range rl.GetScopeLogs() {
 			for _, logRecord := range sl.GetLogRecords() {
 				event := s.logToEvent(rl, sl, logRecord)
 				if err := s.pipeline.Ingest(ctx, event); err != nil {
 					s.logger.Warn("failed to ingest OTLP event", "error", err)
+					rejected++
+					lastErr = err.Error()
 				}
 			}
 		}
 	}
 
+	// Report the rejected count via partial_success so the SDK treats the
+	// export as incomplete instead of silently losing records (the previous
+	// behavior was an unconditional OK).
+	if rejected > 0 {
+		return &v1.ExportLogsServiceResponse{
+			PartialSuccess: &v1.ExportLogsPartialSuccess{
+				RejectedLogRecords: rejected,
+				ErrorMessage:       lastErr,
+			},
+		}, nil
+	}
 	return &v1.ExportLogsServiceResponse{}, nil
 }
 

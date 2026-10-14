@@ -321,6 +321,13 @@ func nullTest(expr string, neg bool) string {
 }
 
 func textPredicate(term string, out *[]any) (string, error) {
+	// "*" (and pure-punctuation terms) must match every event. Routing
+	// "*" through sanitizeFTS yields an empty match string that FTS
+	// resolves to zero rows — "search *" returned nothing instead of
+	// everything, a correctness trap for the search bar.
+	if strings.TrimSpace(term) == "*" || sanitizeFTS(term) == `""` {
+		return "1=1", nil
+	}
 	match := sanitizeFTS(term)
 	*out = append(*out, match)
 	return "rowid IN (SELECT rowid FROM events_fts WHERE events_fts MATCH ?)", nil
@@ -369,6 +376,14 @@ func BuildWhere(q *ast.Query, opts Options, args *[]any) (string, error) {
 	}
 	for _, c := range q.Commands {
 		if w, ok := c.(*ast.WhereNode); ok {
+			// In the aggregation path the `where` command filters AGGREGATE
+			// output (e.g. `stats count by x | where count > 3`), so it must
+			// NOT be pushed into the SQL WHERE (where the field resolves to a
+			// nonexistent attribute). The executor applies it in memory
+			// instead.
+			if HasAggregation(q) {
+				continue
+			}
 			e := w.Expr
 			if e == nil {
 				e = conditionsToExpr(w.Conditions)
@@ -446,7 +461,7 @@ func HasAggregation(q *ast.Query) bool {
 
 // AggSQL builds the SELECT + GROUP BY + ORDER BY for a stats/timechart query.
 type AggSQL struct {
-	Select string
+	Select  string
 	GroupBy string
 	OrderBy string
 	Columns []string

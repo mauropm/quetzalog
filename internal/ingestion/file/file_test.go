@@ -259,3 +259,57 @@ func TestTail_MissingFileDoesNotCrash(t *testing.T) {
 		t.Fatalf("start with missing file errored: %v", err)
 	}
 }
+
+// The rewritten watchFile must not ingest partial lines and must not
+// duplicate a completed prefix: previously the offset advanced before the
+// ingest succeeded, so a failed read lost data, and the naive tail replayed
+// incomplete lines.
+func TestTail_PartialLineConsumedOnceWhenCompleted(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "app.log")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in, store, cleanup := setupTail(t, dir, []ingestfile.Source{{Name: "app", Path: path, Format: "plain"}})
+	defer cleanup()
+	if err := in.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	// Incomplete line: the tailer polls at 1s; after two intervals it must
+	// still have ingested nothing.
+	if _, err := f.WriteString("alpha"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2200 * time.Millisecond)
+	if n, _ := store.Count(context.Background(), events.Query{}); n != 0 {
+		t.Fatalf("partial line ingested before completion: %d events", n)
+	}
+
+	// Complete the line and add one more.
+	if _, err := f.WriteString(" beta\ngamma\n"); err != nil {
+		t.Fatal(err)
+	}
+	got := waitFor(t, store, 2, 10*time.Second)
+
+	// Let a few more poll cycles pass: the same bytes must not be replayed.
+	time.Sleep(2200 * time.Millisecond)
+	n, _ := store.Count(context.Background(), events.Query{})
+	if n != 2 {
+		t.Fatalf("expected exactly 2 events, got %d (duplicate or replay?)", n)
+	}
+
+	msgs := map[string]bool{}
+	for _, ev := range got {
+		msgs[ev.Message] = true
+	}
+	if !msgs["alpha beta"] || !msgs["gamma"] {
+		t.Errorf("unexpected messages: %v", msgs)
+	}
+}

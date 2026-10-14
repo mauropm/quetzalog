@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"quetzalog/pkg/event"
+	"sync"
 	"time"
 )
 
@@ -57,48 +58,78 @@ type TraverseNode struct {
 
 type Graph struct {
 	db *sql.DB
+	// once guards the one-time schema bootstrap. Running the
+	// CREATE ... IF NOT EXISTS statements on every upsert (the previous
+	// behavior) put ~7 no-op DDL statements on the per-event write path.
+	// If the first attempt fails, once is reset so a later call retries.
+	once   *sync.Once
+	initOK bool
+	initMu sync.Mutex
 }
 
 func NewGraph(db *sql.DB) *Graph {
-	return &Graph{db: db}
+	return &Graph{db: db, once: &sync.Once{}}
 }
 
 func (g *Graph) initTables(ctx context.Context) error {
-	queries := []string{
-		`CREATE TABLE IF NOT EXISTS entities (
-			id TEXT PRIMARY KEY,
-			type TEXT NOT NULL,
-			value TEXT NOT NULL,
-			first_seen DATETIME NOT NULL DEFAULT (datetime('now')),
-			last_seen DATETIME NOT NULL DEFAULT (datetime('now')),
-			count INTEGER NOT NULL DEFAULT 1,
-			metadata TEXT,
-			UNIQUE(type, value)
-		)`,
-		`CREATE TABLE IF NOT EXISTS relationships (
-			id TEXT PRIMARY KEY,
-			from_type TEXT NOT NULL,
-			from_value TEXT NOT NULL,
-			to_type TEXT NOT NULL,
-			to_value TEXT NOT NULL,
-			relation TEXT NOT NULL,
-			weight INTEGER NOT NULL DEFAULT 1,
-			created_at DATETIME NOT NULL DEFAULT (datetime('now')),
-			UNIQUE(from_type, from_value, to_type, to_value, relation)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_entities_type_value ON entities(type, value)`,
-		`CREATE INDEX IF NOT EXISTS idx_relationships_from ON relationships(from_type, from_value)`,
-		`CREATE INDEX IF NOT EXISTS idx_relationships_to ON relationships(to_type, to_value)`,
-		`CREATE INDEX IF NOT EXISTS idx_relationships_relation ON relationships(relation)`,
-		`CREATE INDEX IF NOT EXISTS idx_relationships_created ON relationships(created_at)`,
+	g.initMu.Lock()
+	if g.initOK {
+		g.initMu.Unlock()
+		return nil
 	}
+	once := g.once
+	g.initMu.Unlock()
 
-	for _, q := range queries {
-		if _, err := g.db.ExecContext(ctx, q); err != nil {
-			return fmt.Errorf("execute migration: %w", err)
+	once.Do(func() {
+		queries := []string{
+			`CREATE TABLE IF NOT EXISTS entities (
+				id TEXT PRIMARY KEY,
+				type TEXT NOT NULL,
+				value TEXT NOT NULL,
+				first_seen DATETIME NOT NULL DEFAULT (datetime('now')),
+				last_seen DATETIME NOT NULL DEFAULT (datetime('now')),
+				count INTEGER NOT NULL DEFAULT 1,
+				metadata TEXT,
+				UNIQUE(type, value)
+			)`,
+			`CREATE TABLE IF NOT EXISTS relationships (
+				id TEXT PRIMARY KEY,
+				from_type TEXT NOT NULL,
+				from_value TEXT NOT NULL,
+				to_type TEXT NOT NULL,
+				to_value TEXT NOT NULL,
+				relation TEXT NOT NULL,
+				weight INTEGER NOT NULL DEFAULT 1,
+				created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+				UNIQUE(from_type, from_value, to_type, to_value, relation)
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_entities_type_value ON entities(type, value)`,
+			`CREATE INDEX IF NOT EXISTS idx_relationships_from ON relationships(from_type, from_value)`,
+			`CREATE INDEX IF NOT EXISTS idx_relationships_to ON relationships(to_type, to_value)`,
+			`CREATE INDEX IF NOT EXISTS idx_relationships_relation ON relationships(relation)`,
+			`CREATE INDEX IF NOT EXISTS idx_relationships_created ON relationships(created_at)`,
 		}
-	}
 
+		for _, q := range queries {
+			if _, err := g.db.ExecContext(ctx, q); err != nil {
+				return
+			}
+		}
+		g.initMu.Lock()
+		g.initOK = true
+		g.initMu.Unlock()
+	})
+
+	g.initMu.Lock()
+	ok := g.initOK
+	if !ok {
+		// allow a retry after a failed bootstrap
+		g.once = &sync.Once{}
+	}
+	g.initMu.Unlock()
+	if !ok {
+		return fmt.Errorf("init correlation schema: bootstrap failed")
+	}
 	return nil
 }
 
@@ -254,31 +285,47 @@ func (g *Graph) GetRelatedEvents(ctx context.Context, entityType EntityType, val
 	if limit <= 0 {
 		limit = 100
 	}
+	if limit > 10000 {
+		limit = 10000
+	}
 
-	// Email is not an events column; it lives in the attributes JSON.
-	// json_extract yields NULL for missing/invalid attributes, which is
-	// safe (JSON1 is compiled in via the build flags).
-	query := `SELECT DISTINCT e.id FROM events e
-		WHERE
-			(? = ? AND e.source_ip = ?) OR
-			(? = ? AND e.destination_ip = ?) OR
-			(? = ? AND e.user = ?) OR
-			(? = ? AND e.host = ?) OR
-			(? = ? AND e.trace_id = ?) OR
-			(? = ? AND e.process = ?) OR
-			(? = ? AND e.file_path = ?) OR
-			(? = ? AND json_extract(e.attributes, '$.email') = ?)`
+	// One branch per entity type, chosen up front: the previous shape OR-ed
+	// eight parameter-compare branches together with SELECT DISTINCT, which
+	// defeated the per-column indexes and forced full materialization before
+	// the Go-side break could stop the scan.
+	var clause string
+	var args []any
+	switch entityType {
+	case EntityTypeIP:
+		clause = "(source_ip = ? OR destination_ip = ?)"
+		args = []any{value, value}
+	case EntityTypeUser:
+		clause = "user = ?"
+		args = []any{value}
+	case EntityTypeHost:
+		clause = "host = ?"
+		args = []any{value}
+	case EntityTypeTraceID:
+		clause = "trace_id = ?"
+		args = []any{value}
+	case EntityTypeProcess:
+		clause = "process = ?"
+		args = []any{value}
+	case EntityTypeFile:
+		clause = "file_path = ?"
+		args = []any{value}
+	case EntityTypeEmail:
+		// Email is not an events column; it lives in the attributes JSON.
+		// json_extract yields NULL for missing/invalid attributes, which is
+		// safe (JSON1 is compiled in via the build flags).
+		clause = "json_extract(attributes, '$.email') = ?"
+		args = []any{value}
+	default:
+		return nil, nil
+	}
 
-	rows, err := g.db.QueryContext(ctx, query,
-		entityType, EntityTypeIP, value,
-		entityType, EntityTypeIP, value,
-		entityType, EntityTypeUser, value,
-		entityType, EntityTypeHost, value,
-		entityType, EntityTypeTraceID, value,
-		entityType, EntityTypeProcess, value,
-		entityType, EntityTypeFile, value,
-		entityType, EntityTypeEmail, value,
-	)
+	query := `SELECT id FROM events WHERE ` + clause + ` ORDER BY timestamp DESC LIMIT ?`
+	rows, err := g.db.QueryContext(ctx, query, append(args, limit)...)
 	if err != nil {
 		return nil, fmt.Errorf("query related events: %w", err)
 	}
@@ -291,9 +338,6 @@ func (g *Graph) GetRelatedEvents(ctx context.Context, entityType EntityType, val
 			return nil, fmt.Errorf("scan event id: %w", err)
 		}
 		ids = append(ids, id)
-		if len(ids) >= limit {
-			break
-		}
 	}
 
 	return ids, rows.Err()

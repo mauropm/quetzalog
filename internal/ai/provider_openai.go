@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"quetzalog/internal/config"
@@ -25,7 +26,14 @@ type openAIProvider struct {
 	ollama   bool
 	client   *http.Client
 	provider string
+	endpoint string // as configured: key for the format-capability cache
 }
+
+// formatUnsupported records endpoints that reject structured-output
+// parameters with a 400 ("structured output ... not supported"). Providers
+// are rebuilt per analysis run, so the decision is cached per endpoint to
+// spare every later request one guaranteed-failing round trip.
+var formatUnsupported sync.Map // endpoint key -> struct{}
 
 func newOpenAIProvider(cfg config.AIAnalyst) *openAIProvider {
 	p := &openAIProvider{
@@ -34,6 +42,7 @@ func newOpenAIProvider(cfg config.AIAnalyst) *openAIProvider {
 		model:    strings.TrimSpace(cfg.Model),
 		client:   &http.Client{}, // per-request timeout via context
 		provider: "openai-compatible",
+		endpoint: strings.TrimSpace(cfg.Endpoint),
 	}
 	if strings.ToLower(strings.TrimSpace(cfg.Provider)) == "ollama" {
 		p.ollama = true
@@ -78,6 +87,34 @@ func classifyHTTPStatus(status int, body string) error {
 		// 4xx (400 unknown model, 404 wrong API root, ...) — configuration
 		// problems where blind retries will not help.
 		return &httpStatusError{status: status, msg: msg}
+	}
+}
+
+// isStructuredOutputRejection reports a 400 whose message says the engine
+// cannot honour structured-output parameters (response_format, guided_*).
+// Such endpoints still answer plain chat completions, so the request is
+// worth retrying without the parameter.
+func isStructuredOutputRejection(err error) bool {
+	var hse *httpStatusError
+	if !errors.As(err, &hse) || hse.status != http.StatusBadRequest {
+		return false
+	}
+	msg := strings.ToLower(hse.msg)
+	return strings.Contains(msg, "response_format") ||
+		strings.Contains(msg, "guided_") ||
+		(strings.Contains(msg, "structured output") && strings.Contains(msg, "not supported"))
+}
+
+// formatUnsupportedFor reports whether the endpoint is known to reject
+// structured-output parameters.
+func formatUnsupportedFor(endpoint string) bool {
+	_, ok := formatUnsupported.Load(endpoint)
+	return ok
+}
+
+func markFormatUnsupported(endpoint string) {
+	if endpoint != "" {
+		formatUnsupported.Store(endpoint, struct{}{})
 	}
 }
 
@@ -201,16 +238,30 @@ func (p *openAIProvider) Analyze(ctx context.Context, req Request) (string, erro
 		},
 	}
 	// Ask for JSON output where the API supports it; the response validator
-	// remains the source of truth either way.
-	if p.ollama {
-		cr.Format = "json" // Ollama-native parameter, accepted by /v1 too
-	} else {
-		cr.ResponseFormat = &respFormat{Type: "json_object"}
+	// remains the source of truth either way. Some engines cannot honour the
+	// parameter and answer 400 instead ("structured output ... not
+	// supported"): those endpoints are remembered and served without it.
+	if !formatUnsupportedFor(p.endpoint) {
+		if p.ollama {
+			cr.Format = "json" // Ollama-native parameter, accepted by /v1 too
+		} else {
+			cr.ResponseFormat = &respFormat{Type: "json_object"}
+		}
 	}
 
 	var out chatResponse
 	if err := p.doJSON(ctx, http.MethodPost, "/chat/completions", &cr, &out); err != nil {
-		return "", err
+		if !isStructuredOutputRejection(err) {
+			return "", err
+		}
+		// Capability mismatch, not a bad request: drop the parameter,
+		// remember the endpoint, retry once with the same prompt.
+		markFormatUnsupported(p.endpoint)
+		cr.Format, cr.ResponseFormat = "", nil
+		out = chatResponse{}
+		if err := p.doJSON(ctx, http.MethodPost, "/chat/completions", &cr, &out); err != nil {
+			return "", err
+		}
 	}
 	if out.Error != nil && out.Error.Message != "" {
 		return "", fmt.Errorf("model error: %s", truncateBytes(out.Error.Message, 300))

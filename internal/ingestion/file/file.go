@@ -1,14 +1,16 @@
 package file
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -17,6 +19,10 @@ import (
 	"quetzalog/internal/parsers"
 	"quetzalog/pkg/event"
 )
+
+// maxTailRead caps how many bytes a single poll reads per file, so a bursty
+// log cannot make one poll loop run away.
+const maxTailRead = 8 << 20
 
 // Source defines a file to tail and how to parse its lines.
 type Source struct {
@@ -36,15 +42,20 @@ type Ingestor struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	running  bool
+
+	// reMu guards the compiled-regex cache so a regex format source does not
+	// recompile its pattern on every line.
+	reMu    sync.Mutex
+	reCache map[string]*regexp.Regexp
 }
 
 // fileTail tracks state for a single tailed file.
 type fileTail struct {
-	file    *os.File
-	inode   uint64
-	offset  int64
-	scanner *bufio.Scanner
-	source  Source
+	file   *os.File
+	inode  uint64
+	offset int64
+	buf    []byte // reused read buffer
+	source Source
 }
 
 // NewIngestor creates a new file ingestor.
@@ -54,6 +65,7 @@ func NewIngestor(pipeline *ingestion.Pipeline, sources []Source, logger *slog.Lo
 		sources:  sources,
 		logger:   logger,
 		tails:    make(map[string]*fileTail),
+		reCache:  make(map[string]*regexp.Regexp),
 	}
 }
 
@@ -170,36 +182,75 @@ func (i *Ingestor) watchFile(ctx context.Context, tail *fileTail) {
 			tail.file = newFile
 			tail.inode = newInode
 			tail.offset = 0
-			tail.scanner = nil
+			tail.buf = tail.buf[:0]
 			continue
 		}
 
-		// Check for new content
+		// Check for new content. Read exactly the bytes beyond the stored
+		// offset and advance the offset only past complete lines. (The
+		// previous per-poll bufio.Scanner read ahead past parsed lines,
+		// losing buffered-but-unparsed bytes and duplicating partial
+		// trailing lines.)
 		curInfo, _ := tail.file.Stat()
+		if curInfo == nil {
+			time.Sleep(time.Second)
+			continue
+		}
 		curSize := curInfo.Size()
 
+		if curSize < tail.offset {
+			// Truncated in place (rotation by truncate): restart from 0.
+			i.logger.Info("file truncated, restarting tail", "path", tail.source.Path)
+			tail.offset = 0
+			continue
+		}
+
 		if curSize > tail.offset {
-			// Read new content
-			tail.scanner = bufio.NewScanner(tail.file)
-			tail.scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-
-			for tail.scanner.Scan() {
-				line := tail.scanner.Text()
-				if line == "" {
-					continue
-				}
-
-				ev := i.processLine(line, tail.source)
-				if ev != nil {
-					if err := i.pipeline.Ingest(ctx, ev); err != nil {
-						i.logger.Warn("failed to ingest event from file", "source", tail.source.Name, "error", err)
-					}
-				}
+			if _, err := tail.file.Seek(tail.offset, io.SeekStart); err != nil {
+				i.logger.Error("failed to seek tail file", "source", tail.source.Name, "error", err)
+				time.Sleep(5 * time.Second)
+				continue
 			}
 
-			// Update offset to current file position
-			if pos, err := tail.file.Seek(0, 1); err == nil {
-				tail.offset = pos
+			want := curSize - tail.offset
+			if want > maxTailRead {
+				want = maxTailRead
+			}
+			if int64(cap(tail.buf)) < want {
+				tail.buf = make([]byte, want)
+			}
+			data := tail.buf[:want]
+			n, err := tail.file.Read(data)
+			if err != nil && err != io.EOF {
+				i.logger.Error("failed reading tail file", "source", tail.source.Name, "error", err)
+				time.Sleep(5 * time.Second)
+				continue
+			}
+			data = data[:n]
+
+			// Only ingest complete lines; the remainder is re-read next poll.
+			end := bytes.LastIndexByte(data, '\n')
+			if end >= 0 {
+				chunk := data[:end+1]
+				pos := 0
+				for pos < len(chunk) {
+					nl := bytes.IndexByte(chunk[pos:], '\n')
+					if nl < 0 {
+						break
+					}
+					line := strings.TrimSpace(string(chunk[pos : pos+nl]))
+					if ev := i.processLine(line, tail.source); ev != nil {
+						if err := i.pipeline.Ingest(ctx, ev); err != nil {
+							// Back-pressure or shutdown: do not advance the
+							// offset, this line is retried on the next poll
+							// instead of being silently lost.
+							i.logger.Warn("failed to ingest event from file", "source", tail.source.Name, "error", err)
+							break
+						}
+					}
+					tail.offset += int64(nl + 1)
+					pos += nl + 1
+				}
 			}
 		}
 
@@ -361,9 +412,26 @@ func (i *Ingestor) parseSyslogLine(line string, ev *event.Event) *event.Event {
 	return ev
 }
 
-// parseRegexLine applies the source's regex pattern to extract fields.
+// compiledRegex returns the compiled regex for pattern, compiling and caching
+// it on first use.
+func (i *Ingestor) compiledRegex(pattern string) (*regexp.Regexp, error) {
+	i.reMu.Lock()
+	defer i.reMu.Unlock()
+	if re, ok := i.reCache[pattern]; ok {
+		return re, nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+	i.reCache[pattern] = re
+	return re, nil
+}
+
+// parseRegexLine applies the source's regex pattern to extract fields. The
+// pattern is compiled once and cached instead of recompiled per line.
 func (i *Ingestor) parseRegexLine(line string, source Source, ev *event.Event) *event.Event {
-	re, err := regexp.Compile(source.Regex)
+	re, err := i.compiledRegex(source.Regex)
 	if err != nil {
 		i.logger.Error("invalid regex", "pattern", source.Regex, "error", err)
 		ev.Message = line
@@ -436,10 +504,14 @@ type syslogParserResult struct {
 }
 
 // syslogParser attempts to parse a syslog message.
+var (
+	rfc5424Re = regexp.MustCompile(`^<(\d+)>(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*(?:<(\d+)>)?\s*(.*)`)
+	rfc3164Re = regexp.MustCompile(`^<(\d+)>(\w+\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+(\S+?)(?:\[(\d+)\])?:\s*(.*)`)
+)
+
 func (i *Ingestor) syslogParser(line string) *syslogParserResult {
 	// RFC5424: <priority>version timestamp hostname app-name procid msgid sd message
-	rfc5424 := regexp.MustCompile(`^<(\d+)>(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*(?:<(\d+)>)?\s*(.*)`)
-	if m := rfc5424.FindStringSubmatch(line); m != nil {
+	if m := rfc5424Re.FindStringSubmatch(line); m != nil {
 		r := parseSyslogMatch(m, 2)
 		if r != nil {
 			return r
@@ -447,8 +519,7 @@ func (i *Ingestor) syslogParser(line string) *syslogParserResult {
 	}
 
 	// RFC3164: <priority>timestamp hostname app[pid]: message
-	rfc3164 := regexp.MustCompile(`^<(\d+)>(\w+\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+(\S+?)(?:\[(\d+)\])?:\s*(.*)`)
-	if m := rfc3164.FindStringSubmatch(line); m != nil {
+	if m := rfc3164Re.FindStringSubmatch(line); m != nil {
 		return parseSyslogMatch(m, 1)
 	}
 

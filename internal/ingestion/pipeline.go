@@ -3,18 +3,22 @@ package ingestion
 import (
 	"context"
 	"log/slog"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"quetzalog/internal/events"
+	"quetzalog/internal/telemetry"
 	"quetzalog/pkg/event"
 	"quetzalog/pkg/plugins"
-	"sync"
-	"time"
 )
 
 // Pipeline coordinates the ingestion flow: accepting events from multiple sources,
 // enriching them, and persisting them in batches to the event store.
 type Pipeline struct {
 	store      *events.Store
-	enrichers  []plugins.Enricher
+	enrichers  atomic.Pointer[[]plugins.Enricher] // copy-on-write: read by workers, appended at wiring time
 	mu         sync.Mutex
 	running    bool
 	ctx        context.Context
@@ -24,6 +28,15 @@ type Pipeline struct {
 	batchSize  int
 	logger     *slog.Logger
 	wg         sync.WaitGroup
+}
+
+// currentEnrichers returns the published enricher slice without locking the
+// write path (worker goroutines call this for every event).
+func (p *Pipeline) currentEnrichers() []plugins.Enricher {
+	if v := p.enrichers.Load(); v != nil {
+		return *v
+	}
+	return nil
 }
 
 // NewPipeline creates a new ingestion pipeline with the given worker pool size
@@ -125,6 +138,7 @@ func (p *Pipeline) Ingest(ctx context.Context, e *event.Event) error {
 	case <-pipelineCtx.Done():
 		return &PipelineError{Reason: "pipeline stopped"}
 	default:
+		telemetry.EventsRejected.Inc()
 		return &PipelineError{Reason: "pipeline buffer full"}
 	}
 }
@@ -169,17 +183,26 @@ func (p *Pipeline) IngestBatch(ctx context.Context, events []*event.Event) error
 
 // AddEnricher registers an enricher that will be called on every event before
 // it is persisted. Enrichers are applied in the order they are registered.
+// It uses copy-on-write so the (often many) worker goroutines can read the
+// slice lock-free while registration stays serialized under p.mu.
 func (p *Pipeline) AddEnricher(e plugins.Enricher) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.enrichers = append(p.enrichers, e)
+	var old []plugins.Enricher
+	if v := p.enrichers.Load(); v != nil {
+		old = *v
+	}
+	next := make([]plugins.Enricher, len(old)+1)
+	copy(next, old)
+	next[len(old)] = e
+	p.enrichers.Store(&next)
 }
 
 // processEvent runs all registered enrichers on the event without persisting.
 // Persistence is deliberately owned by the batch writer.
 func (p *Pipeline) processEvent(ctx context.Context, e *event.Event) error {
-	for _, enricher := range p.enrichers {
+	for _, enricher := range p.currentEnrichers() {
 		if err := enricher.Enrich(ctx, e); err != nil {
 			p.logger.Warn("enricher returned error", "enricher", enricher.Name(), "event_id", e.ID, "error", err)
 		}
@@ -254,19 +277,56 @@ func (p *Pipeline) drainWorkerChan(batch []*event.Event) {
 }
 
 // flushBatch writes the accumulated batch to the store and clears it.
+//
+// Accepted events must still be persisted during shutdown, so persistence
+// uses a background context. A transient SQLITE_BUSY must not silently lose
+// the batch: retry with bounded backoff, and if the batch finally fails,
+// count the loss in metrics instead of swallowing it.
 func (p *Pipeline) flushBatch(_ context.Context, batch []*event.Event) {
 	if len(batch) == 0 {
 		return
 	}
 
-	// Accepted events must still be persisted during shutdown. The worker
-	// context is used only to stop accepting additional work, not to cancel
-	// writes for work that was already admitted.
-	if err := p.store.CreateBatch(context.Background(), batch); err != nil {
-		p.logger.Error("failed to flush batch", "count", len(batch), "error", err)
-	} else {
-		p.logger.Debug("flushed batch", "count", len(batch))
+	start := time.Now()
+	var err error
+	for attempt := 0; attempt <= maxFlushRetries; attempt++ {
+		err = p.store.CreateBatch(context.Background(), batch)
+		if err == nil {
+			break
+		}
+		if !isBusyError(err) {
+			break
+		}
+		if attempt < maxFlushRetries {
+			time.Sleep(time.Duration(25*(1<<attempt)) * time.Millisecond)
+		}
 	}
+	if err != nil {
+		p.logger.Error("failed to flush batch", "count", len(batch), "error", err)
+		telemetry.EventsRejected.Add(float64(len(batch)))
+		telemetry.IngestionErrors.Inc()
+		return
+	}
+	telemetry.IngestDuration.Observe(time.Since(start).Seconds())
+	p.logger.Debug("flushed batch", "count", len(batch))
+}
+
+// maxFlushRetries bounds how long a busy-blocked flush can take so shutdown
+// does not outlive its deadline; busy_timeout inside SQLite already does the
+// waiting, so these attempts only cover the unlucky interleaving case.
+const maxFlushRetries = 2
+
+// isBusyError reports whether err is a transient SQLite write-lock failure.
+// database/sql wraps the driver error; string matching is deliberate to avoid
+// importing the sqlite driver into the ingestion package.
+func isBusyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "sqlite_busy") ||
+		strings.Contains(msg, "database is locked") ||
+		strings.Contains(msg, "sqlite_locked")
 }
 
 // getWorkerCount returns the number of worker goroutines in the pipeline.

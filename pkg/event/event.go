@@ -46,10 +46,11 @@ type Event struct {
 
 // NewEvent creates a new Event with a generated ID and current timestamps.
 func NewEvent() *Event {
+	now := time.Now()
 	return &Event{
 		ID:         GenerateEventID(),
-		Timestamp:  time.Now(),
-		ReceivedAt: time.Now(),
+		Timestamp:  now,
+		ReceivedAt: now,
 		Attributes: make(map[string]any),
 	}
 }
@@ -132,7 +133,11 @@ func EventToMap(e *Event) map[string]any {
 	if data, err := json.Marshal(attrs); err == nil {
 		result["attributes"] = string(data)
 	}
-	for k, v := range e.Attributes {
+	// attr.<key> mirrors are part of the map contract (asserted by tests and
+	// consumed by callers diffing event maps); they are only materialized
+	// when the event actually carries attributes, so the common case pays
+	// nothing for them.
+	for k, v := range attrs {
 		result["attr."+k] = v
 	}
 

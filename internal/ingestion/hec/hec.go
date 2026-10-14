@@ -2,6 +2,7 @@ package hec
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -118,6 +119,20 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// isValidToken reports whether token matches a registered token using
+// constant-time comparison so token validity is not leaked via timing.
+func (h *Handler) isValidToken(token string) bool {
+	if token == "" {
+		return false
+	}
+	for stored := range h.tokens {
+		if subtle.ConstantTimeCompare([]byte(stored), []byte(token)) == 1 {
+			return true
+		}
+	}
+	return false
+}
+
 // extractToken retrieves the HEC token from the Authorization header or query parameter.
 func (h *Handler) extractToken(r *http.Request) (string, error) {
 	// Check Authorization header first
@@ -125,7 +140,7 @@ func (h *Handler) extractToken(r *http.Request) (string, error) {
 	if auth != "" {
 		if strings.HasPrefix(auth, "Splunk ") {
 			token := strings.TrimPrefix(auth, "Splunk ")
-			if _, valid := h.tokens[token]; !valid {
+			if !h.isValidToken(token) {
 				return "", &HECError{Text: "Invalid authentication token", Code: hecAuthError}
 			}
 			return token, nil
@@ -135,7 +150,7 @@ func (h *Handler) extractToken(r *http.Request) (string, error) {
 			// Try the part after "Splunk "
 			parts := strings.SplitN(auth, " ", 2)
 			if len(parts) == 2 {
-				if _, valid := h.tokens[parts[1]]; !valid {
+				if !h.isValidToken(parts[1]) {
 					return "", &HECError{Text: "Invalid authentication token", Code: hecAuthError}
 				}
 				return parts[1], nil
@@ -145,7 +160,7 @@ func (h *Handler) extractToken(r *http.Request) (string, error) {
 
 	// Fall back to query parameter
 	if token := r.URL.Query().Get("token"); token != "" {
-		if _, valid := h.tokens[token]; !valid {
+		if !h.isValidToken(token) {
 			return "", &HECError{Text: "Invalid authentication token", Code: hecAuthError}
 		}
 		return token, nil

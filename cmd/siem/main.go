@@ -226,6 +226,12 @@ func cmdServe(cfgFile string, debug bool) int {
 		fmt.Println("Migrations applied")
 	}
 
+	// Signal context is created here (before any background worker starts)
+	// so every long-lived goroutine is tied to shutdown. ctx.Done() also
+	// ends the serve loop.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	eventStore := events.NewStore(db)
 	alertStore := alerts.NewStore(db)
 	incidentStore := incidents.NewStore(db)
@@ -289,7 +295,7 @@ func cmdServe(cfgFile string, debug bool) int {
 	coverageStore := coverage.NewStore(db)
 	coverageRunner := coverage.NewRunner(db, assetsStore, coverageStore, logger, cfg.TelemetryCoverage.Freshness)
 	if cfg.TelemetryCoverage.Enabled {
-		go coverageRunner.Start(context.Background(), cfg.TelemetryCoverage.Interval)
+		go coverageRunner.Start(ctx, cfg.TelemetryCoverage.Interval)
 	}
 	// Threat intelligence: indicator store + provider registry. External
 	// feeds are untrusted input; the internal provider is the built-in
@@ -334,11 +340,16 @@ func cmdServe(cfgFile string, debug bool) int {
 	go func() {
 		sweep := time.NewTicker(15 * time.Minute)
 		defer sweep.Stop()
-		for range sweep.C {
-			if n, err := correlationEngine.Sweep(context.Background()); err != nil {
-				logger.Warn("correlation state sweep", "error", err)
-			} else if n > 0 {
-				logger.Info("correlation state sweep", "pruned", n)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-sweep.C:
+				if n, err := correlationEngine.Sweep(context.Background()); err != nil {
+					logger.Warn("correlation state sweep", "error", err)
+				} else if n > 0 {
+					logger.Info("correlation state sweep", "pruned", n)
+				}
 			}
 		}
 	}()
@@ -357,12 +368,17 @@ func cmdServe(cfgFile string, debug bool) int {
 			t := time.NewTicker(baselineInterval)
 			defer t.Stop()
 			// Initial computation on start.
-			if err := updater.UpdateAll(context.Background(), time.Now().UTC()); err != nil {
+			if err := updater.UpdateAll(ctx, time.Now().UTC()); err != nil && ctx.Err() == nil {
 				logger.Warn("baseline update", "error", err)
 			}
-			for range t.C {
-				if err := updater.UpdateAll(context.Background(), time.Now().UTC()); err != nil {
-					logger.Warn("baseline update", "error", err)
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					if err := updater.UpdateAll(ctx, time.Now().UTC()); err != nil && ctx.Err() == nil {
+						logger.Warn("baseline update", "error", err)
+					}
 				}
 			}
 		}()
@@ -384,18 +400,23 @@ func cmdServe(cfgFile string, debug bool) int {
 			scenInterval = time.Hour
 		}
 		go func() {
-			if n, err := scenarioEvaluator.Evaluate(context.Background(), time.Now().UTC()); err != nil {
+			if n, err := scenarioEvaluator.Evaluate(ctx, time.Now().UTC()); err != nil && ctx.Err() == nil {
 				logger.Warn("scenario evaluate", "error", err)
 			} else if n > 0 {
 				logger.Info("scenario evaluate", "steps_changed", n)
 			}
 			t := time.NewTicker(scenInterval)
 			defer t.Stop()
-			for range t.C {
-				if n, err := scenarioEvaluator.Evaluate(context.Background(), time.Now().UTC()); err != nil {
-					logger.Warn("scenario evaluate", "error", err)
-				} else if n > 0 {
-					logger.Info("scenario evaluate", "steps_changed", n)
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					if n, err := scenarioEvaluator.Evaluate(ctx, time.Now().UTC()); err != nil && ctx.Err() == nil {
+						logger.Warn("scenario evaluate", "error", err)
+					} else if n > 0 {
+						logger.Info("scenario evaluate", "steps_changed", n)
+					}
 				}
 			}
 		}()
@@ -406,11 +427,16 @@ func cmdServe(cfgFile string, debug bool) int {
 	go func() {
 		t := time.NewTicker(time.Hour)
 		defer t.Stop()
-		for range t.C {
-			if n, err := agBuilder.Recompute(context.Background()); err != nil {
-				logger.Warn("attack graph recompute", "error", err)
-			} else if n > 0 {
-				logger.Info("attack graph recompute", "paths", n)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if n, err := agBuilder.Recompute(ctx); err != nil && ctx.Err() == nil {
+					logger.Warn("attack graph recompute", "error", err)
+				} else if n > 0 {
+					logger.Info("attack graph recompute", "paths", n)
+				}
 			}
 		}
 	}()
@@ -428,9 +454,14 @@ func cmdServe(cfgFile string, debug bool) int {
 			}
 			ticker := time.NewTicker(interval)
 			defer ticker.Stop()
-			for range ticker.C {
-				if n, errs := tiRegistry.SyncAll(context.Background()); len(errs) > 0 {
-					logger.Warn("ti sync", "imported", n, "errors", errs)
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if n, errs := tiRegistry.SyncAll(context.Background()); len(errs) > 0 {
+						logger.Warn("ti sync", "imported", n, "errors", errs)
+					}
 				}
 			}
 		}()
@@ -578,7 +609,7 @@ func cmdServe(cfgFile string, debug bool) int {
 	telemetryMetrics := telemetry.New()
 
 	pipeline := ingestion.NewPipeline(eventStore, cfg.Ingestion.Workers, cfg.Ingestion.BatchSize, logger)
-	if err := pipeline.Start(context.Background()); err != nil {
+	if err := pipeline.Start(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting pipeline: %v\n", err)
 		return 1
 	}
@@ -586,7 +617,7 @@ func cmdServe(cfgFile string, debug bool) int {
 
 	var ingestors []string
 
-	telemetryMetrics.StartBackgroundUpdates(context.Background(), dbPath, 30*time.Second)
+	telemetryMetrics.StartBackgroundUpdates(ctx, dbPath, 30*time.Second)
 
 	jsonHandler := ingestjson.NewIngestHandler(pipeline, logger)
 	jsonServer := &http.Server{
@@ -719,9 +750,6 @@ func cmdServe(cfgFile string, debug bool) int {
 		fmt.Printf("Starting SIEM server on %s\n", server.Addr)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	if cfg.Detections.Scheduled {
 		go runDetectionScheduler(ctx, cfg.Detections.Interval, detectionStore, eventStore, findingStore, entityRiskStore, logger)
 	}
@@ -767,6 +795,9 @@ func cmdServe(cfgFile string, debug bool) int {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
 	defer shutdownCancel()
 
+	// Stop accepting new work everywhere before draining, so acknowledged
+	// events are the only thing in flight when the pipeline flushes.
+	server.Shutdown(shutdownCtx)
 	jsonServer.Shutdown(shutdownCtx)
 	pipeline.Stop(shutdownCtx)
 	telemetryMetrics.Shutdown(shutdownCtx)
