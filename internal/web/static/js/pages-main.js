@@ -889,6 +889,12 @@
   /* ═══ AI Analyst ═══════════════════════════════════════════ */
   var _aiSeq = 0;
 
+  // Must be initialized before any render: the detail page takes an early
+  // return before reaching the bottom of this module's page function.
+  var CLASS_COLOR = {
+    OBSERVED: "success", INFERRED: "info", HYPOTHESIS: "medium", UNKNOWN: "muted",
+  };
+
   function aiStatusBadge(status) {
     return '<span class="badge badge-ai ' + QL.esc(status || "analyzing") + '"><span class="dot"></span>' + QL.esc(status || "analyzing") + "</span>";
   }
@@ -1139,7 +1145,9 @@
         }
       }).catch(function (e) {
         if (_aiSeq !== seq) return;
-        page.innerHTML = QL.emptyState({ icon: "warning", title: "Analysis not found", sub: e.message,
+        var notFound = /not found/i.test(e.message || "");
+        page.innerHTML = QL.emptyState({ icon: "warning",
+          title: notFound ? "Analysis not found" : "Failed to load analysis", sub: e.message,
           action: '<a class="btn" href="#/aianalyst">Back to AI Analyst</a>' });
       });
     }
@@ -1172,10 +1180,6 @@
         " · " + QL.fmtDateTime(row.decided_at) +
         (row.decision_reason ? " — “" + QL.esc(row.decision_reason) + "”" : "") + "</span></div>";
     }
-
-    var CLASS_COLOR = {
-      OBSERVED: "success", INFERRED: "info", HYPOTHESIS: "medium", UNKNOWN: "muted",
-    };
 
     function statementsSection(ai, ctx) {
       if (!ai.statements || !ai.statements.length) return "";
